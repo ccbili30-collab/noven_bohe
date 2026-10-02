@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- T172 — chat sheets i18n -->
+    <string name="move_to_sheet_title">移動到…</string>
+    <string name="move_to_sheet_empty">沒有其他可用的會話。</string>
+    <string name="move_to_sheet_untitled">未命名會話</string>
+    <string name="time_just_now">剛剛</string>
+    <string name="time_minutes_ago">%1$d 分鐘前</string>
+    <string name="time_hours_ago">%1$d 小時前</string>
+    <string name="time_yesterday">昨天</string>
+    <string name="time_today">今天</string>
+
+    <!-- T338: 三按鈕均為會話級,不再升級到全域 BYPASS -->
+
+    <string name="session_skills_title">會話中的技能</string>
+    <string name="session_skills_header_installed">已安裝</string>
+    <string name="session_skills_enable_all">全部啓用</string>
+    <string name="session_skills_disable_all">全部禁用</string>
+    <string name="session_skills_footer">僅為此會話切換技能。預設值來自「設定 → 技能」。</string>
+    <string name="session_skills_empty_title">未安裝任何技能</string>
+    <string name="session_skills_empty_subtitle">從「設定 → 技能」匯入技能。</string>
+
+    <string name="standard_sheet_close">關閉</string>
+    <string name="token_usage_sheet_title">會話 Token 用量</string>
+    <string name="token_usage_section_context">上下文</string>
+    <string name="token_usage_context_window">上下文窗口</string>
+    <string name="token_usage_max_output">最大輸出</string>
+    <string name="token_usage_section_thinking">思考</string>
+    <string name="token_usage_thinking_label">思考</string>
+    <string name="token_usage_thinking_level">級別</string>
+    <string name="token_usage_thinking_supported">已支援</string>
+    <string name="token_usage_section_tokens">Token（會話總計）</string>
+    <string name="token_usage_input_with_cache">輸入（含緩存）</string>
+    <string name="token_usage_output">輸出</string>
+    <string name="token_usage_section_cache">緩存（會話總計）</string>
+    <string name="token_usage_cache_read">緩存讀取</string>
+    <string name="token_usage_cache_write">緩存寫入</string>
+    <string name="token_usage_section_agent_loop">Agent 循環</string>
+    <string name="token_usage_total_loops">總循環次數</string>
+    <string name="common_on">開</string>
+    <string name="common_off">關</string>
+    <string name="common_yes">是</string>
+    <string name="common_no">否</string>
+    <string name="memory_file_empty">空</string>
+    <!-- T172 — components / onboarding / preview i18n -->
+    <string name="common_back">返回</string>
+    <string name="common_skip">跳過</string>
+
+
+
+
+    <string name="onboarding_select_models_title">選擇模型</string>
+    <string name="onboarding_select_models_subtitle">為預設模型組選擇最多 3 個模型。</string>
+    <string name="onboarding_filter_models">篩選模型</string>
+    <string name="onboarding_done_count">完成 (%1$d/3)</string>
+    <string name="onboarding_loading_models">正在載入模型…</string>
+
+
+
+
+
+
+
+
+    <!-- T172 — sandbox / sessions / browser / terminal i18n -->
+    <string name="filebrowser_title">檔案</string>
+    <string name="filebrowser_empty_folder">空資料夾</string>
+    <string name="filebrowser_delete_title">刪除 “%1$s”？</string>
+    <string name="filebrowser_delete_message">此操作無法復原。</string>
+    <string name="filebrowser_error_title">錯誤</string>
+    <string name="filebrowser_sort_ascending">升序</string>
+    <string name="filebrowser_sort_descending">降序</string>
+    <string name="filebrowser_sort_folders_first">資料夾優先</string>
+    <string name="filebrowser_sort_name">名稱</string>
+    <string name="filebrowser_sort_modified">修改日期</string>
+    <string name="filebrowser_sort_size">大小</string>
+    <string name="filebrowser_sort_kind">類型</string>
+    <string name="filepreview_share">分享</string>
+    <string name="action_print">列印</string>
+    <string name="filepreview_save_to_gallery">儲存至相簿</string>
+    <string name="filepreview_save_as">另存新檔…</string>
+    <string name="filepreview_loading">正在載入…</string>
+    <string name="filepreview_loading_pdf">正在載入 PDF…</string>
+    <string name="filepreview_loading_archive">正在讀取壓縮檔…</string>
+    <string name="filepreview_open_externally">使用外部應用開啟</string>
+    <string name="filepreview_open_with_other_apps">Open with another app</string>
+    <string name="filepreview_office_subtitle">Office 文件需要使用外部應用預覽。</string>
+    <string name="filepreview_pdf_render_failed">無法渲染 PDF：%1$s</string>
+    <string name="filepreview_pdf_empty">空文件</string>
+    <string name="filepreview_image_decode_error">無法解碼圖片</string>
+    <string name="filepreview_image_load_error">圖片載入失敗</string>
+
+    
+    <string name="filepreview_page_n">第 %1$d 頁</string>
+    <string name="sessionlist_section_pinned">置頂</string>
+    <string name="sessionlist_section_today">今天</string>
+
+    <string name="sessionlist_section_earlier">更早</string>
+    <string name="sessionlist_select_title">選擇會話</string>
+    <string name="sessionlist_n_selected">已選 %1$d 項</string>
+    <string name="sessionlist_select_all">全選</string>
+    <string name="sessionlist_deselect_all">全不選</string>
+    <string name="sessionlist_select_action">選擇</string>
+    <string name="sessionlist_settings">設定</string>
+    <string name="sessionlist_shell">Shell</string>
+    <string name="sessionlist_shell_terminal">Shell 終端</string>
+    <string name="sessionlist_rootfs_management">Rootfs 管理</string>
+    
+    <string name="sessionlist_pin">置頂</string>
+    <string name="sessionlist_unpin">取消置頂</string>
+    <string name="sessionlist_row_actions">更多操作</string>
+    <string name="sessionlist_export">匯出</string>
+    <string name="sessionlist_export_json">JSON</string>
+    <string name="sessionlist_export_plain">純文字</string>
+    <!-- T-export-optimize (b443b54d) — 分批/打包匯出進度 + 預覽 -->
+
+
+
+
+
+
+    <string name="export_progress_failed">匯出失敗</string>
+    <string name="sessionlist_edit_title_category">編輯標題與分類</string>
+    <string name="sessionlist_regenerate_title">重新生成標題</string>
+    <string name="sessionlist_regenerating_title">正在重新生成標題…</string>
+    <string name="sessionlist_duplicate">複製</string>
+    <string name="sessionlist_search_action">搜尋</string>
+    <string name="sessionlist_dismiss">關閉</string>
+    <string name="sessionlist_delete_one_title">刪除此對話？</string>
+    <string name="sessionlist_delete_n_title">刪除 %1$d 個對話？</string>
+    <string name="sessionlist_delete_message">此操作無法復原。</string>
+
+
+
+
+
+
+    <string name="chat_typing_indicator">%1$s 正在思考</string>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    <string name="chat_error_stream_dropped_partial">連線中斷，此回覆可能不完整。點擊重試以繼續。</string>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <string name="terminal_title">Novex Shell</string>
+    <string name="terminal_clear">清屏</string>
+    <string name="terminal_show_keyboard">顯示</string>
+    <string name="terminal_hide_keyboard">隱藏</string>
+    <!-- T172-A providers / models / settings i18n -->
+    <string name="provider_list_providers">AI 服務商</string>
+    <string name="provider_list_add_provider">添加 AI 服務商</string>
+    <string name="provider_list_no_providers_configured">未配置 AI 服務商</string>
+    <string name="provider_list_add_a_provider_to_get_started">添加一個 AI 服務商以開始使用。</string>
+    <string name="provider_list_import_provider">Import Provider</string>
+    <string name="share_provider_json_title">偵測到服務商設定</string>
+    <string name="share_expired_toast">分享內容已過期，請重新分享。</string>
+    <string name="share_provider_json_message">這個 JSON 檔案看起來是匯出的服務商設定。你想怎麼處理？</string>
+    <string name="share_provider_json_import">匯入為服務商</string>
+    <string name="share_provider_json_attach">作為聊天附件加入</string>
+    <string name="share_provider_json_imported">已匯入服務商「%1$s」</string>
+    <string name="share_provider_json_import_failed">無效的服務商設定檔</string>
+    <string name="share_open_app_failed">內容已儲存。無法自動開啟 Novex，請手動開啟應用程式繼續。</string>
+    <string name="provider_list_api_key">API Key</string>
+    <string name="provider_list_disabled">已停用</string>
+    
+    <string name="common_save">保存</string>
+
+
+
+
+
+
+    <string name="provider_detail_add_custom_model">添加自定義模型</string>
+
+
+    
+    <string name="common_cancel">取消</string>
+    <string name="common_edit">編輯</string>
+
+    <string name="common_remove">移除</string>
+
+
+    
+    <string name="add_provider_identity">標識</string>
+
+
+
+
+
+
+
+    <string name="add_custom_model_model_id">模型 ID</string>
+    <string name="add_custom_model_display_name_optional">顯示名稱（選填）</string>
+    <string name="model_entry_model_detail">模型詳情</string>
+    <string name="model_entry_display_name">顯示名稱</string>
+    <string name="model_entry_max_output_tokens">最大輸出 Token 數</string>
+    <string name="model_entry_provider">AI 服務商</string>
+    <string name="model_entry_visibility">可見性</string>
+    <string name="model_entry_hidden_models_won_t_appear_in_the_model_">隱藏的模型不會出現在模型選擇器中。</string>
+    <string name="model_entry_hidden">隱藏</string>
+    <string name="model_entry_restores_the_provider_reported_display_n">還原供應商回報的顯示名稱和 token 上限,並取消模型隱藏。</string>
+    <string name="model_entry_reset_to_default">恢復默認</string>
+    <!-- T210: ModelEntryDetailScreen sections (iOS parity). -->
+    <string name="modeldetail_identity_footer_custom">這是自定義模型。可以編輯模型 ID。</string>
+    <string name="modeldetail_identity_footer_builtin">內建模型。顯示名稱會覆蓋供應商提供的預設值。</string>
+    <string name="modeldetail_section_capabilities">能力</string>
+    <string name="modeldetail_context_window">上下文視窗</string>
+    <string name="modeldetail_thinking">思考</string>
+    <string name="modeldetail_capabilities_footer">上下文視窗和最大輸出 Token 數（以 tokens 計）。留空使用供應商預設值。對支援擴展推理的模型啟用思考模式。</string>
+    <string name="modeldetail_provider_default">供應商預設</string>
+    <string name="modeldetail_max_tokens_exceeds_warning">超過供應商回報的上限（%1$d）。值已保存，但可能導致請求失敗。</string>
+    <string name="modeldetail_section_input_modality">輸入模態</string>
+    <string name="modeldetail_image_input">圖片輸入</string>
+    <string name="modeldetail_pdf_input">PDF 輸入</string>
+    <string name="modeldetail_audio_input">音訊輸入</string>
+    <string name="modeldetail_video_input">影片輸入</string>
+    <string name="modeldetail_input_modality_footer">文字輸入始終支援。停用模型不接受的模態以避免送出不支援的附件。</string>
+    <string name="modeldetail_section_output_modality">輸出模態</string>
+    <string name="modeldetail_image_output">圖片輸出</string>
+    <string name="modeldetail_audio_output">音訊輸出</string>
+    <string name="modeldetail_output_modality_footer">僅對生成圖片或音訊的模型啟用（例如 gpt-image-1、TTS）。文字輸出始終可用。</string>
+    <!-- [T-android-model-quick-test] 快速測試 -->
+    <string name="quicktest_title">快速測試</string>
+    <string name="quicktest_button">快速測試</string>
+    <string name="quicktest_footer">針對該模型的主要能力執行一次快速測試。</string>
+    <string name="quicktest_run_again">重新執行</string>
+    <string name="quicktest_done">完成</string>
+    <string name="quicktest_testing">測試中…</string>
+    <string name="quicktest_kind_text">文字</string>
+    <string name="quicktest_kind_image">圖像生成</string>
+    
+    <string name="quicktest_empty_reply">（空回覆）</string>
+    <string name="quicktest_image_unsupported">該模型的供應商不支援透過快速測試進行圖像生成。</string>
+    <string name="quicktest_no_image">未返回任何圖像。</string>
+    <string name="modelgroup_speech_output">語音輸出</string>
+    <string name="modelgroup_speech_transcription">語音轉寫</string>
+    <string name="modelgroup_text_generation">文字生成</string>
+    <string name="model_group_detail_back">返回</string>
+    <string name="model_group_detail_name">名稱</string>
+    <string name="model_group_detail_the_label_shown_in_the_model_picker_save">在模型選擇器裡顯示的標籤。點擊其他位置時自動儲存。</string>
+    <string name="model_group_detail_routing_strategy">路由策略</string>
+    <string name="model_group_detail_fallback">回退</string>
+    <string name="model_group_detail_load_balance">負載均衡</string>
+    <string name="model_group_detail_fallback_trigger">Fallback 觸發條件</string>
+    <string name="common_default">默認</string>
+    <string name="model_group_detail_always">始終</string>
+    <string name="model_group_detail_unavailable">無法使用</string>
+    <string name="model_group_detail_drag_to_reorder">拖曳以重新排序</string>
+    <string name="model_group_detail_more_options">更多選項</string>
+    <string name="model_group_detail_remove_from_group">從群組中移除</string>
+    <string name="model_group_detail_add_models">添加模型</string>
+    <string name="model_group_detail_delete_group">刪除分組</string>
+    <string name="model_group_detail_remove_model">移除模型</string>
+    <string name="common_delete">刪除</string>
+    <string name="model_groups_model_groups">模型分組</string>
+    <string name="model_groups_new_group">新建分組</string>
+    <string name="model_groups_no_model_groups">暫無模型分組</string>
+    <string name="model_groups_groups_let_you_combine_models_for_fallba">模型分組可實現回退或負載均衡。</string>
+    <string name="model_groups_primary_is_used_for_main_agent_tasks_sub">主模型用於主要任務，輔助模型用於標題生成等輕量任務。未設置輔助模型時將繼承主模型。</string>
+    <string name="model_groups_group_name">分組名稱</string>
+    <string name="model_groups_create">創建</string>
+    <string name="model_groups_none">無</string>
+    <!-- [T-android-vision-group / GH#182] Vision Input slot label -->
+    <string name="model_groups_vision">視覺輸入</string>
+    <string name="add_models_to_group_search_models">搜索模型</string>
+    <string name="add_models_to_group_clear">清除</string>
+        <string name="agent_loop_models_groups">分組</string>
+
+
+
+    <!-- T172-A parameterized strings -->
+    <string name="add_custom_model_id_footer">Model ID 是傳送到 %1$s 的 API 識別符。顯示名稱是模型選擇器裡更友善的標籤;留空時回落到 Model ID。</string>
+    <string name="add_custom_model_eg_id_placeholder">例如 gpt-4o-custom</string>
+
+
+
+    
+    <string name="add_models_to_group_add_count">新增 (%1$d)</string>
+
+    
+    <string name="agent_loop_models_model_count_singular">1 個模型</string>
+    <string name="agent_loop_models_model_count_plural">%1$d 個模型</string>
+    <string name="model_group_detail_models_header_count">模型 (%1$d)</string>
+    <string name="model_group_detail_remove_named_model_confirm">將 \"%1$s\" 從群組中移除?</string>
+    <string name="model_group_detail_remove_this_model_fallback">此模型</string>
+    <string name="model_group_detail_delete_named_group_confirm">確定要刪除 \"%1$s\" 嗎?此操作無法復原。</string>
+    <string name="provider_list_models_count">%1$d 個模型</string>
+    <!-- T182 agent loop section i18n -->
+    <string name="agent_loop_section_title">智慧型代理循環可用模型</string>
+    <string name="agent_loop_section_footer">這裡列出的模型和群組可以在終端機透過 minis-model-use 呼叫。只有這些對智慧型代理可見。</string>
+    <string name="agent_loop_section_empty_hint">尚未新增模型或群組</string>
+    <string name="agent_loop_section_add_models">新增模型</string>
+    <string name="agent_loop_section_add_groups">新增群組</string>
+    <string name="agent_loop_section_add_models_title">新增模型</string>
+    <string name="agent_loop_section_add_groups_title">新增群組</string>
+    <string name="agent_loop_section_no_available_models">所有符合條件的模型都已新增。</string>
+    <string name="agent_loop_section_no_available_groups">所有群組都已新增。</string>
+    <string name="agent_loop_section_empty_group_subtitle">（空群組）</string>
+    <string name="agent_loop_section_remove">從智慧型代理循環中移除</string>
+    <string name="agent_loop_section_group_badge">群組</string>
+    <!-- T184-chatmenu-i18n — ChatScreen overflow ⋮ menu -->
+    <string name="chat_menu_new_chat">新建對話</string>
+    <string name="chat_new_chat_stop_dialog_body">目前對話有任務正在執行，新建對話將停止它。</string>
+    <string name="chat_new_chat_stop_dialog_confirm">停止並新建</string>
+
+    
+    <string name="chat_menu_enhanced_cache">增強快取</string>
+    
+    <string name="context_near_capacity_title">上下文接近上限</string>
+    <string name="context_near_capacity_message">對話上下文即將佔滿。傳送前可先壓縮歷史以釋放空間。啟用自動壓縮後，之後將自動完成此操作。</string>
+    <string name="context_compact_and_send">壓縮並傳送</string>
+    <string name="context_compact_and_enable_auto">壓縮並啟用自動壓縮</string>
+    <string name="context_send_anyway">直接傳送</string>
+    <string name="enhanced_cache_dialog_body">增強快取會將 Anthropic 提示快取從 5 分鐘延長至 1 小時，在長對話中保持上下文，可能產生額外的快取寫入費用。是否開啟？</string>
+    <string name="enhanced_cache_dialog_confirm">開啟</string>
+    <!-- T184-chatmenu-i18n — longpress + attach -->
+    <string name="chat_longpress_copy">複製</string>
+    <string name="chat_longpress_retry">重試</string>
+    <string name="chat_attach_take_photo">拍照</string>
+    <string name="chat_attach_choose_photos_videos">選擇照片和視頻</string>
+    <string name="chat_attach_add_file">添加文件</string>
+    <!-- T185 unified picker UI strings -->
+    <string name="add_models_to_group_all_in_group">所有模型都已在這個群組裡。</string>
+    <string name="add_models_to_group_no_match">沒有符合的模型。</string>
+    <!-- T187 — user-bubble long-press Edit + Exit Edit + Clear Chat dialog -->
+    <string name="chat_longpress_edit">編輯</string>
+    <string name="chat_edit_exit_button">退出編輯</string>
+
+    <!-- T235 — 共享資料夾（固定: 共享 / 技能 / 記憶） -->
+    
+    <string name="shared_folders_title">共享資料夾</string>
+    <string name="shared_folders_info_banner">這些目錄在 Linux 沙箱內可見，技能與記憶由 AI 代理工具自動維護，請勿手動修改。</string>
+    <string name="shared_folder_name_shared">共享</string>
+    <string name="shared_folder_name_skills">技能</string>
+    <string name="shared_folder_name_memory">記憶</string>
+    <string name="shared_folder_detail_title">資料夾詳情</string>
+    <string name="shared_folder_browse_files">瀏覽檔案</string>
+    <!-- T219-2 — 掛載外部資料夾 -->
+
+
+
+
+
+
+
+
+
+    
+    <string name="mount_badge_rw">讀寫</string>
+    <string name="mount_badge_readonly">唯讀</string>
+
+
+
+
+
+    <!-- T241: 斜線指令面板 + 選擇模型 sheet -->
+    <string name="slash_compact_subtitle">壓縮對話歷史為摘要</string>
+    <string name="slash_memory_writes_on">寫入已開啟 — 點擊切換</string>
+    <string name="slash_memory_writes_off">寫入已關閉 — 點擊切換</string>
+    <string name="slash_thinking_subtitle">思考 %1$s — 點擊切換</string>
+    <string name="slash_thinking_unsupported">目前模型不支援</string>
+    <string name="thinking_level_off">關閉</string>
+    <string name="thinking_level_low">低</string>
+    <string name="thinking_level_medium">中</string>
+    <string name="thinking_level_high">高</string>
+    <string name="thinking_level_max">極高</string>
+    <string name="thinking_level_xhigh">超高</string>
+    <string name="thinking_level_ultra">至高</string>
+    <string name="thinking_level_sheet_title">思考強度</string>
+    <string name="model_picker_title">選擇模型</string>
+    <string name="model_picker_done">完成</string>
+    <string name="model_picker_search_placeholder">搜尋模型</string>
+    <string name="model_picker_groups_section">模型分組</string>
+    <string name="model_picker_groups_edit">編輯</string>
+    <string name="model_picker_groups_footer">將本會話綁定到分組以實現自動回退或負載平衡。</string>
+    <string name="model_picker_default_badge">預設</string>
+    <string name="model_picker_active_badge">活躍</string>
+    <string name="model_picker_no_linked_models">該分組未綁定任何模型。</string>
+    <string name="model_picker_models_count_unlinked">%d 個模型（未綁定）</string>
+    <string name="model_picker_no_results">無結果</string>
+    <string name="model_picker_no_models">沒有可用模型</string>
+    <string name="model_picker_configure_hint">請在設定中配置提供者以顯示模型。</string>
+    <string name="model_picker_try_different_search">請嘗試其他搜尋字詞。</string>
+    <plurals name="model_picker_models_count">
+        <item quantity="other">%d 個模型</item>
+    </plurals>
+    <string name="env_var_privacy_header">隱私</string>
+    <string name="env_var_privacy_toggle">隱私模式</string>
+    <string name="env_var_privacy_footer">開啟後，shell-execute 輸出中偵測到的環境變數值會在送達模型前被打碼（例如 `sk-1********ajhks`）。少於 8 個字元的值會被全部替換為 `*`。聊天中使用者可見的輸出維持不變。</string>
+    <!-- T288 — 日誌 / 設定變更 -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <!-- Welcome / onboarding (T332) -->
+    <string name="sessionlist_welcome_title">歡迎使用 Novex</string>
+    <string name="sessionlist_welcome_subtitle">交流、整理資料，一起創作</string>
+    <string name="sessionlist_welcome_draft_hint">可以先寫草稿，傳送前再連接模型</string>
+    <string name="overlay_completion_completed">執行完成</string>
+    <string name="overlay_completion_failed">執行失敗</string>
+    <string name="overlay_completion_cancelled">已取消</string>
+    <string name="overlay_completion_timeout">已逾時</string>
+    <string name="sessionlist_welcome_step1_title">新增供應商</string>
+    <string name="sessionlist_welcome_step1_subtitle">設定 API Key 或使用 OAuth 登入</string>
+    <string name="sessionlist_welcome_step2_title">選擇模型</string>
+    <string name="sessionlist_welcome_step2_subtitle">選擇你想使用的模型</string>
+    <string name="sessionlist_welcome_step2_locked">請先完成第 1 步</string>
+    <string name="sessionlist_welcome_step3_title">開始對話</string>
+    <string name="sessionlist_welcome_step3_subtitle">點擊開始</string>
+    <string name="sessionlist_welcome_step_done">已完成</string>
+    <!-- T336 follow-up: ASK_ONCE 在進程生命週期內只問一次,改文案避免誤導 -->
+
+    <!-- T336: dedicated SectionCard per integration CLI. -->
+
+
+    
+    <!-- T-selection-add-to-input — 長按選擇選單「加到輸入框」動作 -->
+    <string name="selection_add_to_chat_input">加入到輸入框</string>
+    <!-- T-minis-textkit 選擇選單按鈕 -->
+    <string name="selection_copy">複製</string>
+    <string name="selection_copy_markdown">複製 Markdown</string>
+    <string name="selection_copy_rich_text">複製富文本</string>
+    <string name="selection_copied_toast">已複製：%1$s</string>
+    <string name="selection_copied_as_markdown_toast">已複製為 Markdown</string>
+    <string name="selection_copied_as_rich_text_toast">已複製為富文本</string>
+    <!-- [T-android-markdown-table-copy-actions] 長按表格上下文選單 -->
+    <string name="markdown_table_copy_table">複製表格</string>
+    <string name="markdown_table_copy_table_image">複製表格圖片</string>
+    <string name="markdown_table_copied_toast">已複製表格</string>
+    <string name="markdown_table_image_copied_toast">已複製表格圖片</string>
+    <string name="markdown_table_image_copy_failed_toast">複製表格圖片失敗</string>
+    <!-- T-imgsize: composer-side image-budget Snackbar messages -->
+    <string name="image_budget_compressed">傳送前已壓縮 %1$d 張圖片</string>
+    <string name="image_budget_total_exceeded">圖片總大小超過 25MB，已捨棄後續圖片</string>
+    <!-- T-request-imgsize: request-level image-budget Snackbar message -->
+    <string name="image_budget_request_elided">為配合 25MB 請求額度，已省略 %1$d 張歷史圖片</string>
+    <string name="composer_swipe_release_to_send">放開以發送</string>
+    <string name="composer_swipe_release_to_queue">放開以加入佇列</string>
+    <!-- T-android-update-check-403-hint — friendly update-check failure hints -->
+    <string name="update_error_network_unreachable">無法連線到更新伺服器，請檢查網路後重試。</string>
+    <string name="update_error_forbidden_with_link">存取更新伺服器失敗，可能受網路限制。可前往 GitHub Releases 手動下載最新版本。</string>
+    <string name="update_error_open_releases">開啟 GitHub Releases</string>
+    <!-- T-android-crash-freq-share -->
+
+    <string name="crash_freq_dialog_dismiss">暫不分享</string>
+    <string name="crash_safe_mode_restart_needed">Novex 需要重新啟動以完成復原，請重新點擊應用程式圖示。</string>
+    <string name="crash_freq_email_subject">Novex 崩潰報告 %1$s</string>
+    <string name="crash_freq_share_chooser">傳送崩潰日誌</string>
+    <string name="image_action_copy">複製</string>
+    <string name="image_action_share">分享</string>
+    <string name="image_action_save">儲存</string>
+    <string name="image_copied_toast">已複製</string>
+    <string name="image_copy_failed_toast">複製失敗：%1$s</string>
+    <string name="image_load_failed_toast">圖片載入失敗</string>
+    <string name="image_share_chooser_title">分享圖片</string>
+    <string name="image_share_failed_toast">分享失敗：%1$s</string>
+    <string name="image_saved_to_album_toast">已儲存到相簿</string>
+    <string name="image_save_failed_toast">儲存失敗</string>
+    <string name="file_saved_toast">已儲存</string>
+    <string name="file_save_failed_toast">儲存失敗</string>
+    <string name="file_share_chooser_title">分享檔案</string>
+    <string name="file_share_failed_toast">分享失敗：%1$s</string>
+    <string name="file_print_failed_toast">列印失敗：%1$s</string>
+    <string name="filebrowser_copy_abs_path">複製絕對路徑</string>
+    <string name="filebrowser_copy_abs_path_toast">路徑已複製</string>
+    <!-- [T-mcp-i18n-android] MCP Integrations UI -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    <string name="error_empty_response_generic">模型回傳了空回應。請重試或切換模型。</string>
+    <string name="error_empty_response_context_large">模型回傳了空回應。對話上下文可能過大 —— 請嘗試壓縮上下文或開啟新工作階段。</string>
+    <string name="error_empty_response_after_tool">在工具結果之後，即使經過提醒，模型仍未回傳任何回應。它可能已過載 —— 請重試或切換模型。</string>
+    <string name="thinking_truncated_hint">顯示最後 %1$dK / 共 %2$dK 字元</string>
+    <string name="thinking_view_full">查看完整內容</string>
+    <string name="settings_dynamic_island">靈動島（即時更新）</string>
+    <string name="settings_dynamic_island_footer">在 Android 16 狀態膠囊上顯示即時的助手狀態。開啟後將取代懸浮視窗，避免同時出現兩個狀態指示。</string>
+    <string name="settings_dynamic_island_unsupported">目前系統版本尚不支援即時更新（需 Android 16 以上並已開啟該功能）。</string>
+    <!-- Spoken substitutions for links during read-aloud (TTS) -->
+    
+    <!-- [T-android-voice-correction] Consent + correction UI -->
+
+
+
+
+
+
+    <string name="voice_provider_system">系統</string>
+
+
+
+
+
+
+
+
+    
+    <string name="group_move_to">移入分組</string>
+    <string name="group_change">更換分組</string>
+    <string name="group_picker_title_move">移入分組</string>
+    <string name="group_picker_title_change">更換分組</string>
+    <string name="group_picker_title_move_n">移動 %1$d 項到分組</string>
+    <string name="group_picker_title_change_n">為 %1$d 項更換分組</string>
+    <string name="group_new_name_hint">新分組名稱</string>
+    <string name="group_name_hint">分組名稱</string>
+    <string name="group_desc_hint">描述（可選，用於指導自動分組）</string>
+    <string name="group_create">建立</string>
+    <string name="group_section_header">分組</string>
+    <string name="group_none">暫不分組</string>
+    <string name="group_none_subtitle">將會話移出目前分組</string>
+    <string name="group_n_chats">%1$d 個會話</string>
+    <string name="group_empty">空分組</string>
+    <string name="group_rename">重新命名分組</string>
+    <string name="group_new_chat_in">在分組中新建對話</string>
+    <string name="group_dissolve">解散分組</string>
+    <string name="group_dissolve_confirm_title">解散分組？</string>
+    <string name="group_dissolve_confirm_message">%1$d 個會話將移回主列表，不會刪除任何會話。</string>
+    <string name="group_delete_with_sessions">刪除分組和 %1$d 個會話</string>
+    <string name="group_delete_confirm_title">刪除分組？</string>
+    <string name="group_delete_confirm_message">該分組及其中 %1$d 個會話將被永久刪除，此操作無法復原。</string>
+    <string name="group_duplicate_exists">「%1$s」已存在</string>
+    <string name="group_duplicate_hint">請換一個名稱，或點此使用已存在的分組</string>
+    <string name="group_suggest">AI 建議</string>
+    <string name="group_suggest_failed">AI 建議（失敗，請重試）</string>
+    <string name="group_suggest_merge">移入「%1$s」？</string>
+    <string name="group_move_action">移動</string>
+    <string name="group_collapse">收起分組</string>
+    <string name="group_expand">展開分組</string>
+    <plurals name="model_picker_show_models">
+        <item quantity="other">顯示 %d 個模型</item>
+    </plurals>
+    <string name="model_picker_quick_test">快速測試</string>
+    <string name="provider_no_key_required">無需金鑰</string>
+    <string name="generated_image_unavailable">生成的圖片檔案不可用</string>
+    <string name="chat_error_present_choices_missing">模型在自動重試一次後仍未回傳結構化選項按鈕。已保留現有文字並停止本輪，避免循環呼叫。</string>
+    <string name="chat_stream_degraded_notice">正在生成，完成後顯示完整排版。</string>
+    <string name="update_source_gitee">Gitee</string>
+    <string name="update_source_github">GitHub</string>
+    <string name="storage_overview_card_content">卡片內容</string>
+    <string name="storage_overview_card_revisions">卡片修訂歷史</string>
+</resources>

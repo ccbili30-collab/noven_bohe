@@ -1,0 +1,67 @@
+package com.openminis.app.data.creative
+
+import novex.core.CreativeArtifactKind
+import novex.core.CreativeArtifactOrigin
+import novex.core.NovexConversationWorkspaceScope
+import novex.core.NovexConversationWorkspaceStore
+import novex.core.NovexWorkspaceEntry
+import novex.core.NovexWorkspaceFileRef
+import java.security.MessageDigest
+import org.json.JSONObject
+
+/** Registers real workspace bytes; the durable file index also repairs interrupted registration. */
+class WorkspaceCreativeArtifactBridge(
+    private val store: NovexConversationWorkspaceStore,
+    private val artifacts: CreativeArtifactRepository,
+) {
+    suspend fun capture(toolName: String, resultJson: String, scope: NovexConversationWorkspaceScope): CreativeArtifactRecord? {
+        if (toolName !in setOf("workspace_write", "workspace_edit", "workspace_compute")) return null
+        val result = JSONObject(resultJson)
+        if (!result.optBoolean("ok") || result.optString("code") !in setOf("workspace.written", "workspace.edited", "workspace.computed")) return null
+        val data = result.optJSONObject("data") ?: return null
+        val ref = data.optString("workspace_ref").takeIf { it.isNotBlank() }?.let(NovexWorkspaceFileRef::parse) ?: return null
+        val entry = requireNotNull(store.find(scope, ref)) { "工作空间成果已不存在或不属于当前可见范围" }
+        require(data.getString("sha256") == entry.sha256) { "工作空间成果已经变化，稍后从文件索引重新登记" }
+        return register(entry, scope, existing(scope)[ref.value])
+    }
+
+    suspend fun registerImported(entry: NovexWorkspaceEntry): CreativeArtifactRecord {
+        require(entry.workspaceRef.area == novex.core.NovexWorkspaceArea.SOURCES)
+        val scope = novex.core.NovexWorkspaceImport.scope(entry.workspaceRef.conversationId)
+        val previous = artifacts.bySource(scope.conversationId, entry.workspaceRef.value)
+        if (previous?.artifact?.isTrashed == true) artifacts.restore(previous.artifact.id)
+        return register(entry, scope, previous)
+    }
+
+    suspend fun reconcile(scope: NovexConversationWorkspaceScope) {
+        val previous = existing(scope)
+        store.inspect(scope).entries.filter { it.workspaceRef.area.modelWritable ||
+            (it.workspaceRef.relativePath.startsWith("learning/") &&
+                it.provenance.sourceRefs.any { ref -> ref.value.startsWith("novex://source-collections/") }) }.forEach { entry ->
+            register(entry, scope, previous[entry.workspaceRef.value])
+        }
+    }
+
+    private suspend fun existing(scope: NovexConversationWorkspaceScope) =
+        artifacts.list(CreativeArtifactQuery(conversationId = scope.conversationId, includeTrashed = true)).associateBy { it.sourcePath }
+
+    private suspend fun register(entry: NovexWorkspaceEntry, scope: NovexConversationWorkspaceScope, previous: CreativeArtifactRecord?): CreativeArtifactRecord {
+        if (previous?.revisions?.maxByOrNull { it.number }?.contentHash == entry.sha256) return previous
+        val bytes = store.readBytes(scope, entry.workspaceRef)
+        val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        require(hash == entry.sha256) { "工作空间文件在登记期间发生变化，原文件仍保留" }
+        val name = entry.workspaceRef.relativePath.substringAfterLast('/')
+        val kind = when {
+            entry.mimeType.startsWith("image/") -> CreativeArtifactKind.IMAGE
+            name.substringAfterLast('.') in setOf("novexworld", "novexcharacter", "novexgame") -> CreativeArtifactKind.CARD_ARCHIVE
+            entry.mimeType.startsWith("text/") || entry.mimeType == "application/json" -> CreativeArtifactKind.DOCUMENT
+            else -> CreativeArtifactKind.OTHER
+        }
+        return artifacts.capture(name, kind, bytes, entry.mimeType,
+            CreativeArtifactOrigin(entry.provenance.conversationId, entry.provenance.branchId,
+                entry.provenance.messageId, entry.provenance.toolCallId),
+            sourcePath = entry.workspaceRef.value,
+            allowEmpty = entry.workspaceRef.area == novex.core.NovexWorkspaceArea.SOURCES &&
+                entry.workspaceRef.relativePath.startsWith("imports/"))
+    }
+}

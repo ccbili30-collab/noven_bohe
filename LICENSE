@@ -1,0 +1,30 @@
+Novex Proprietary Software License
+===================================
+
+Copyright (c) 2026 Novex Project / <COMPANY Legal Entity — to be completed>.
+All rights reserved.
+
+This source code and its accompanying build scripts, assets, and documentation
+(the "Software") are the proprietary work of the Novex project.
+
+1. No license is granted herein to any party. Use, reproduction,
+   modification, distribution, sublicense, or creation of derivative works
+   of the Software, in whole or in part, is prohibited except as expressly
+   authorized in writing by the copyright holder.
+
+2. Third-party components bundled with or consumed by the Software remain
+   governed by their own licenses; see THIRD_PARTY_LICENSES.md and the
+   license notices shipped inside the application package
+   (assets/third_party_licenses/).
+
+3. Historical note: early prototypes of this project were derived from
+   GPL-licensed open-source material. That lineage was fully audited,
+   rewritten, and retired before this repository was created; the
+   corresponding historical source archives remain publicly available for
+   GPL compliance with respect to previously distributed versions at:
+   https://github.com/ccbili30-collab/novex-android (archived, read-only).
+
+4. THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. IN NO
+   EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+   DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH
+   THE SOFTWARE OR ITS USE.

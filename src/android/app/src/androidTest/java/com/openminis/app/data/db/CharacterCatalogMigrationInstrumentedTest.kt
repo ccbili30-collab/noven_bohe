@@ -1,0 +1,305 @@
+package com.openminis.app.data.db
+
+import novex.android.data.*
+import novex.android.data.cards.*
+import novex.android.data.chat.*
+import novex.android.data.MIGRATION_15_16
+import novex.android.data.MIGRATION_16_17
+import novex.android.data.MIGRATION_17_18
+import novex.android.data.MIGRATION_18_19
+import novex.android.data.MIGRATION_19_20
+import novex.android.data.MIGRATION_20_21
+import novex.android.data.MIGRATION_21_22
+import novex.android.data.MIGRATION_22_23
+import novex.android.data.MIGRATION_23_24
+import novex.android.data.MIGRATION_24_25
+
+import android.content.Context
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class CharacterCatalogMigrationInstrumentedTest {
+    private lateinit var context: Context
+    private lateinit var helper: SupportSQLiteOpenHelper
+
+    @Before
+    fun setUp() {
+        context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(DB_NAME)
+        helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(DB_NAME)
+                .callback(object : SupportSQLiteOpenHelper.Callback(15) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
+
+                    override fun onUpgrade(
+                        db: SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                })
+                .build(),
+        )
+    }
+
+    @After
+    fun tearDown() {
+        helper.close()
+        context.deleteDatabase(DB_NAME)
+    }
+
+    @Test
+    fun migration16CreatesCharacterVersionAndWorldMembershipTablesWithoutLegacyRows() {
+        val db = helper.writableDatabase
+        MIGRATION_15_16.migrate(db)
+
+        val tables = db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' " +
+                "AND name IN ('worlds', 'characters', 'character_versions', 'world_character_versions') " +
+                "ORDER BY name",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0))
+            }
+        }
+        assertEquals(
+            listOf("character_versions", "characters", "world_character_versions", "worlds"),
+            tables,
+        )
+        db.query("SELECT COUNT(*) FROM worlds").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM characters").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(0, cursor.getInt(0))
+        }
+    }
+
+    @Test
+    fun migration17AddsIdempotentImportStateAndSessionReferences() {
+        val db = helper.writableDatabase
+        db.execSQL(
+            """
+            CREATE TABLE sessions (
+                id TEXT NOT NULL PRIMARY KEY,
+                character_id TEXT,
+                world_snapshot_json TEXT
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("INSERT INTO sessions VALUES ('s1', 'legacy-card', '{\"id\":\"world-1\"}')")
+        MIGRATION_15_16.migrate(db)
+        MIGRATION_16_17.migrate(db)
+
+        val columns = db.query("PRAGMA table_info(sessions)").use { cursor ->
+            buildSet {
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+            }
+        }
+        assertEquals(true, "world_id" in columns)
+        assertEquals(true, "character_version_id" in columns)
+        db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'catalog_migration_state'",
+        ).use { cursor -> assertEquals(true, cursor.moveToFirst()) }
+        val legacyColumn = db.query("PRAGMA table_info(worlds)").use { cursor ->
+            buildSet {
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+            }
+        }
+        assertEquals(true, "legacy_snapshot_json" in legacyColumn)
+    }
+
+    @Test
+    fun migration18CreatesOneSharedModuleAndReferenceSchema() {
+        val db = helper.writableDatabase
+        db.execSQL(
+            "CREATE TABLE sessions (id TEXT NOT NULL PRIMARY KEY, character_id TEXT, world_snapshot_json TEXT)",
+        )
+        MIGRATION_15_16.migrate(db)
+        MIGRATION_16_17.migrate(db)
+        MIGRATION_17_18.migrate(db)
+
+        val tables = db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' " +
+                "AND name IN ('content_modules', 'content_module_references') ORDER BY name",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0))
+            }
+        }
+        assertEquals(listOf("content_module_references", "content_modules"), tables)
+    }
+
+    @Test
+    fun migration19CreatesManagedAssetsAndProtectedReferences() {
+        val db = helper.writableDatabase
+        MIGRATION_18_19.migrate(db)
+        val tables = db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' " +
+                "AND name IN ('media_assets', 'media_asset_references') ORDER BY name",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0))
+            }
+        }
+        assertEquals(listOf("media_asset_references", "media_assets"), tables)
+        val foreignKeys = db.query("PRAGMA foreign_key_list(media_asset_references)").use { cursor ->
+            buildList {
+                val tableIndex = cursor.getColumnIndexOrThrow("table")
+                val onDeleteIndex = cursor.getColumnIndexOrThrow("on_delete")
+                while (cursor.moveToNext()) add(cursor.getString(tableIndex) to cursor.getString(onDeleteIndex))
+            }
+        }
+        assertEquals(listOf("media_assets" to "RESTRICT"), foreignKeys)
+    }
+
+    @Test
+    fun migration20AddsWorldTagsWithoutInventingModules() {
+        val db = helper.writableDatabase
+        db.execSQL(
+            "CREATE TABLE worlds (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, overview TEXT NOT NULL, " +
+                "legacy_snapshot_json TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+        )
+        db.execSQL("INSERT INTO worlds VALUES ('w1', '雾港', '概述', NULL, 1, 2)")
+        MIGRATION_19_20.migrate(db)
+        db.query("SELECT tags_json FROM worlds WHERE id = 'w1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("[]", cursor.getString(0))
+        }
+    }
+
+    @Test
+    fun migration21BackfillsStableCharacterVersionOrder() {
+        val db = helper.writableDatabase
+        db.execSQL(
+            "CREATE TABLE character_versions (" +
+                "id TEXT NOT NULL PRIMARY KEY, character_id TEXT NOT NULL, kind TEXT NOT NULL, " +
+                "created_at INTEGER NOT NULL)",
+        )
+        db.execSQL("INSERT INTO character_versions VALUES ('origin', 'c1', 'ORIGINAL', 50)")
+        db.execSQL("INSERT INTO character_versions VALUES ('later', 'c1', 'VARIANT', 30)")
+        db.execSQL("INSERT INTO character_versions VALUES ('earlier', 'c1', 'VARIANT', 20)")
+
+        MIGRATION_20_21.migrate(db)
+
+        db.query("SELECT id, position FROM character_versions ORDER BY position").use { cursor ->
+            val rows = buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getInt(1))
+            }
+            assertEquals(listOf("origin" to 0, "earlier" to 1, "later" to 2), rows)
+        }
+    }
+
+    @Test
+    fun migration22AddsInteractiveFictionProjectsWithoutChangingExistingCatalogRows() {
+        val db = helper.writableDatabase
+        db.execSQL(
+            "CREATE TABLE worlds (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL)",
+        )
+        db.execSQL("INSERT INTO worlds VALUES ('w1', '云岚书院')")
+
+        MIGRATION_21_22.migrate(db)
+
+        db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'interactive_fiction_projects'",
+        ).use { cursor -> assertEquals(true, cursor.moveToFirst()) }
+        db.query("SELECT name FROM worlds WHERE id = 'w1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("云岚书院", cursor.getString(0))
+        }
+    }
+
+    @Test
+    fun migration23AddsOneStructuredNovexConfigurationSnapshotToEveryConversation() {
+        val db = helper.writableDatabase
+        db.execSQL("CREATE TABLE sessions (id TEXT NOT NULL PRIMARY KEY)")
+        db.execSQL("INSERT INTO sessions VALUES ('chat-1')")
+
+        MIGRATION_22_23.migrate(db)
+
+        val columns = db.query("PRAGMA table_info(sessions)").use { cursor ->
+            buildSet {
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+            }
+        }
+        assertEquals(true, "novex_configuration_json" in columns)
+        db.query("SELECT novex_configuration_json FROM sessions WHERE id = 'chat-1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(null, cursor.getString(0))
+        }
+    }
+
+    @Test
+    fun migration24AddsBranchLocalContextUsageWithoutTouchingMessages() {
+        val db = helper.writableDatabase
+        db.execSQL("CREATE TABLE sessions (id TEXT NOT NULL PRIMARY KEY)")
+        db.execSQL("INSERT INTO sessions VALUES ('chat-1')")
+
+        MIGRATION_23_24.migrate(db)
+
+        db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' " +
+                "AND name = 'novex_context_usage_records'",
+        ).use { cursor -> assertEquals(true, cursor.moveToFirst()) }
+        db.execSQL(
+            "INSERT INTO novex_context_usage_records VALUES " +
+                "('u1', 'chat-1', 'm1', NULL, 'm1', '{}', 1)",
+        )
+        db.query("SELECT request_message_id FROM novex_context_usage_records WHERE id = 'u1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("m1", cursor.getString(0))
+        }
+    }
+
+    @Test
+    fun migration25AddsVersionedCreativeLibraryWithoutConversationCascade() {
+        val db = helper.writableDatabase
+        MIGRATION_24_25.migrate(db)
+
+        val tables = db.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN " +
+                "('creative_artifacts','creative_artifact_revisions','creative_artifact_attachments') " +
+                "ORDER BY name",
+        ).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+        assertEquals(
+            listOf(
+                "creative_artifact_attachments",
+                "creative_artifact_revisions",
+                "creative_artifacts",
+            ),
+            tables,
+        )
+        db.execSQL(
+            "INSERT INTO creative_artifacts VALUES " +
+                "('a1','DOCUMENT','第一章','deleted-chat','branch-1',NULL,NULL,'/chapter.md'," +
+                "'r1','hash.md',0,NULL,1,1)",
+        )
+        db.execSQL(
+            "INSERT INTO creative_artifact_revisions VALUES " +
+                "('r1','a1',1,'hash.md','hash','text/markdown',12,1)",
+        )
+        db.query("SELECT origin_conversation_id FROM creative_artifacts WHERE id = 'a1'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("deleted-chat", cursor.getString(0))
+        }
+    }
+
+    companion object {
+        private const val DB_NAME = "character-catalog-migration-test.db"
+    }
+}

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- T153 — light-mode window theme. Pair with values-night/themes.xml
+     so the OS-painted first frame (cold start / Activity recreation)
+     matches the Compose theme on each side. Without an explicit
+     windowBackground the platform falls back to the system default,
+     which on AOSP/Pixel light mode is white but on some OEM light
+     skins is a light grey — visible as a 1-frame jog during nav
+     transitions. -->
+<resources>
+    <style name="Theme.Minis" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- home-v2 页面底 Canvas #F4F5F4：displayCutout 拟合够不到的
+             顶部一条画的是窗口底色，不能用纯白。 -->
+        <item name="android:windowBackground">#F4F5F4</item>
+        <item name="android:colorBackground">#F4F5F4</item>
+    </style>
+</resources>
+

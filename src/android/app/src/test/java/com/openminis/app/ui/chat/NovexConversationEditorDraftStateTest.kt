@@ -1,0 +1,110 @@
+package com.openminis.app.ui.chat
+
+import com.openminis.app.data.ConversationSettingsSnapshot
+import novex.core.ActiveInteractiveFictionSnapshot
+import novex.core.AnswerIdentity
+import novex.core.ConversationControlBehavior
+import novex.core.ConversationControlDefinition
+import novex.core.ConversationControlSource
+import novex.core.ManagedAccess
+import novex.core.NovexContentAddress
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class NovexConversationEditorDraftStateTest {
+    private val world = NovexContentAddress.world("world-1")
+    private val role = NovexContentAddress.characterVersion("role-v2")
+    private val game = ActiveInteractiveFictionSnapshot("game-1", "snapshot-1", "云海冒险")
+
+    @Test
+    fun backgroundAndManagedSubjectsStayIndependentEvenForTheSameCard() {
+        val draft = emptyDraft()
+            .addBackground(world)
+            .mount(world, ManagedAccess.EDIT)
+            .removeBackground(world)
+
+        assertTrue(draft.configuration.backgroundSettings.isEmpty())
+        assertEquals(world, draft.configuration.managedSubjects.single().subject)
+        assertEquals(ManagedAccess.EDIT, draft.configuration.managedSubjects.single().access)
+    }
+
+    @Test
+    fun answerIdentityAndActiveGameHaveExactlyOneCurrentValue() {
+        val draft = emptyDraft()
+            .setAnswerIdentity(AnswerIdentity.CharacterVersion(role.id))
+            .activateGame(game)
+            .activateGame(game.copy(projectId = "game-2", snapshotId = "snapshot-2", title = "新文游"))
+
+        assertEquals(novex.core.NovexPersonaPresets.gameHost, draft.configuration.answerIdentity)
+        assertEquals("game-2", draft.configuration.activeInteractiveFiction?.projectId)
+    }
+
+    @Test
+    fun controlsCanBeAddedUpdatedMovedDisabledAndRemovedWithoutChangingPrompts() {
+        val status = control("status", "角色状态")
+        val inventory = control("inventory", "物品栏")
+        val draft = emptyDraft()
+            .upsertControl(status)
+            .upsertControl(inventory)
+            .moveControl("inventory", 0)
+            .upsertControl(status.copy(label = "状态", enabled = false))
+
+        assertEquals(listOf("inventory", "status"), draft.configuration.controls.map { it.id })
+        assertFalse(draft.configuration.controls.last().enabled)
+        assertEquals("原始提示词", draft.toSettings().conversationPrompt)
+        assertEquals("图片风格", draft.toSettings().imageStylePrompt)
+        assertTrue(draft.removeControl("inventory").configuration.controls.single().id == "status")
+    }
+
+    @Test
+    fun encodedSettingsRoundTripEveryEditorSection() {
+        val settings = emptyDraft()
+            .setAnswerIdentity(AnswerIdentity.CharacterVersion(role.id))
+            .addBackground(world)
+            .addBackground(role)
+            .activateGame(game)
+            .mount(world, ManagedAccess.READ_ONLY)
+            .upsertControl(control("status", "角色状态"))
+            .toSettings()
+
+        val reopened = NovexConversationEditorDraftState.from("chat-1", settings)
+
+        assertEquals(novex.core.NovexPersonaPresets.gameHost, reopened.configuration.answerIdentity)
+        assertEquals(listOf(world, role), reopened.configuration.backgroundSettings.map { it.subject })
+        assertEquals(game, reopened.configuration.activeInteractiveFiction)
+        assertEquals(world, reopened.configuration.managedSubjects.single().subject)
+        assertEquals("status", reopened.configuration.controls.single().id)
+    }
+
+    @Test fun bothPurposesAndSeveralManagedGamesPreserveIdentityAndSingleActiveGame() {
+        val draft = emptyDraft().useAndManage(world).useAndManage(role)
+            .mount(NovexContentAddress.interactiveFiction("game-1"), ManagedAccess.EDIT)
+            .mount(NovexContentAddress.interactiveFiction("game-2"), ManagedAccess.EDIT)
+        assertEquals(2, draft.configuration.backgroundSettings.size)
+        assertEquals(4, draft.configuration.managedSubjects.size)
+        assertEquals(AnswerIdentity.Nova, draft.configuration.answerIdentity)
+        assertEquals(null, draft.configuration.activeInteractiveFiction)
+        val reopened = NovexConversationEditorDraftState.from("chat-1", draft.toSettings())
+        assertEquals(draft.configuration, reopened.configuration)
+        assertEquals(1, draft.removeBackground(world).configuration.backgroundSettings.size)
+        assertEquals(4, draft.removeBackground(world).configuration.managedSubjects.size)
+    }
+
+    private fun emptyDraft() = NovexConversationEditorDraftState.from(
+        conversationId = "chat-1",
+        settings = ConversationSettingsSnapshot(
+            conversationPrompt = "原始提示词",
+            imageStylePrompt = "图片风格",
+        ),
+    )
+
+    private fun control(id: String, label: String) = ConversationControlDefinition(
+        id = id,
+        label = label,
+        behavior = ConversationControlBehavior.VIEW,
+        source = ConversationControlSource.USER,
+        actionKey = "view.$id",
+    )
+}

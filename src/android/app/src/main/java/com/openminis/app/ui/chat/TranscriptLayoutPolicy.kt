@@ -1,0 +1,109 @@
+package com.openminis.app.ui.chat
+
+/**
+ * Single source of truth for the main conversation list's physical direction.
+ *
+ * Kept separate from [ScrollFollowPolicy] because layout direction is geometry,
+ * while follow permission is interaction state. Mixing the two was what let a
+ * passive remeasure look like an authorized scroll.
+ */
+internal const val CHAT_TRANSCRIPT_REVERSE_LAYOUT = false
+
+internal fun <T> transcriptRowsForLayout(rowsOldestFirst: List<T>): List<T> =
+    if (CHAT_TRANSCRIPT_REVERSE_LAYOUT) rowsOldestFirst.asReversed() else rowsOldestFirst
+
+/** Normal chronological lists are at the live tail only when no forward scroll remains. */
+internal fun isAtTranscriptLatest(canScrollForward: Boolean): Boolean = !canScrollForward
+
+internal fun latestTranscriptItemIndex(totalItemsCount: Int): Int? =
+    (totalItemsCount - 1).takeIf { it >= 0 }
+
+/** Persistence may finish after the user has already started reading history. */
+data class SubmittedUserTurn(val messageId: String, val requestedAtMs: Long) {
+    fun canNavigateAfter(lastUserDragAtMs: Long): Boolean = requestedAtMs > lastUserDragAtMs
+}
+
+internal data class SubmittedTurnNavigation(
+    val pendingMessageId: String? = null,
+) {
+    fun awaiting(messageId: String): SubmittedTurnNavigation =
+        copy(pendingMessageId = messageId)
+
+    fun resolve(rowKeys: List<String>): SubmittedTurnNavigationResolution {
+        val messageId = pendingMessageId
+            ?: return SubmittedTurnNavigationResolution(targetIndex = null, nextState = this)
+        val targetIndex = rowKeys.indexOf("user:$messageId").takeIf { it >= 0 }
+            ?: return SubmittedTurnNavigationResolution(targetIndex = null, nextState = this)
+        return SubmittedTurnNavigationResolution(
+            targetIndex = targetIndex,
+            nextState = copy(pendingMessageId = null),
+        )
+    }
+}
+
+internal data class SubmittedTurnNavigationResolution(
+    val targetIndex: Int?,
+    val nextState: SubmittedTurnNavigation,
+)
+
+internal enum class TranscriptViewportMove {
+    SessionOpened,
+    UserSentMessage,
+    UserRequestedLatest,
+    UserRetriedTurn,
+    PassiveStreamGrowth,
+    StreamCompleted,
+    ImageMeasured,
+    ToolCardMeasured,
+    KeyboardInsetChanged,
+}
+
+/** Only direct navigation intent may move the conversation viewport. */
+internal fun allowsTranscriptViewportMove(reason: TranscriptViewportMove): Boolean = when (reason) {
+    TranscriptViewportMove.SessionOpened,
+    TranscriptViewportMove.UserSentMessage,
+    TranscriptViewportMove.UserRequestedLatest,
+    TranscriptViewportMove.UserRetriedTurn -> true
+    TranscriptViewportMove.PassiveStreamGrowth,
+    TranscriptViewportMove.StreamCompleted,
+    TranscriptViewportMove.ImageMeasured,
+    TranscriptViewportMove.ToolCardMeasured,
+    TranscriptViewportMove.KeyboardInsetChanged -> false
+}
+
+internal enum class TranscriptFollowEvent {
+    UserRequestedLatest,
+    /** [feat/ui-rikkahub] A user scroll settled at the live tail — re-stick. */
+    UserRestingAtLatest,
+    UserDragStarted,
+    StreamCompleted,
+}
+
+/**
+ * Layout growth is followed after explicit navigation or a user scroll that
+ * settles at the live tail, until the next drag revokes it. Stream completion
+ * can precede persistence and final row measurement, so it cannot revoke follow.
+ */
+internal data class TranscriptFollowState(
+    val isFollowingLatest: Boolean = false,
+) {
+    fun after(event: TranscriptFollowEvent): TranscriptFollowState = when (event) {
+        TranscriptFollowEvent.UserRequestedLatest,
+        TranscriptFollowEvent.UserRestingAtLatest -> copy(isFollowingLatest = true)
+        TranscriptFollowEvent.UserDragStarted -> copy(isFollowingLatest = false)
+        TranscriptFollowEvent.StreamCompleted -> this
+    }
+
+    fun shouldMoveFor(reason: TranscriptViewportMove): Boolean =
+        allowsTranscriptViewportMove(reason) || isFollowingLatest && reason in followableGrowth
+
+    private companion object {
+        val followableGrowth = setOf(
+            TranscriptViewportMove.PassiveStreamGrowth,
+            TranscriptViewportMove.StreamCompleted,
+            TranscriptViewportMove.ImageMeasured,
+            TranscriptViewportMove.ToolCardMeasured,
+            TranscriptViewportMove.KeyboardInsetChanged,
+        )
+    }
+}

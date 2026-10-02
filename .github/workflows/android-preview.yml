@@ -1,0 +1,254 @@
+name: Android preview candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_channel:
+        description: "Package channel"
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - stable
+      stage:
+        description: "Preview stage"
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - rc
+
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.package_channel == 'stable' && 'android-stable-candidate' || 'android-preview-next' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.package_channel != 'stable' }}
+
+permissions:
+  contents: write
+
+jobs:
+  candidate:
+    name: Test and build preview candidate
+    if: >-
+      ${{ github.ref == 'refs/heads/next' ||
+          (github.event_name == 'workflow_dispatch' &&
+           inputs.package_channel == 'stable' &&
+           startsWith(github.ref, 'refs/heads/release/')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Resolve candidate versions
+        id: versions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          stable_version="$(sed -n 's/.*?: "\([0-9][0-9.]*\)"/\1/p' src/android/app/build.gradle.kts | head -1)"
+          if [ -z "$stable_version" ]; then
+            echo "Unable to read the next stable version from app/build.gradle.kts." >&2
+            exit 1
+          fi
+          stage="beta"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            stage="${{ inputs.stage }}"
+          fi
+          published_tags="$(gh release list --limit 100 --json tagName,isPrerelease --jq '.[] | select(.isPrerelease) | .tagName')"
+          preview_version="$(printf '%s\n' "$published_tags" | bash scripts/resolve_android_preview_version.sh "$stable_version" "$stage" "$GITHUB_RUN_NUMBER")"
+          {
+            echo "stable=$stable_version"
+            echo "preview=$preview_version"
+            echo "preview_tag=v$preview_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: ""
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Install Android build components
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;35.0.0" \
+            "cmake;3.22.1" \
+            "ndk;27.0.12077973"
+
+      - name: Validate and restore release signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.NOVEX_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.NOVEX_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.NOVEX_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.NOVEX_RELEASE_KEY_PASSWORD }}
+        run: |
+          for value in "$KEYSTORE_BASE64" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            if [ -z "$value" ]; then
+              echo "A preview candidate requires the complete release signing configuration." >&2
+              exit 1
+            fi
+          done
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/novex-release.jks"
+
+      - name: Run stable unit tests
+        working-directory: src/android
+        env:
+          NOVEX_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/novex-release.jks
+          NOVEX_RELEASE_STORE_PASSWORD: ${{ secrets.NOVEX_RELEASE_STORE_PASSWORD }}
+          NOVEX_RELEASE_KEY_ALIAS: ${{ secrets.NOVEX_RELEASE_KEY_ALIAS }}
+          NOVEX_RELEASE_KEY_PASSWORD: ${{ secrets.NOVEX_RELEASE_KEY_PASSWORD }}
+          NOVEX_PREFER_CANONICAL_REPOSITORIES: "true"
+        run: >-
+          ./gradlew --no-daemon --stacktrace --max-workers=2
+          -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          -Pkotlin.compiler.execution.strategy=in-process
+          :app:testStableDebugUnitTest
+
+      - name: Compile preview channel
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.package_channel == 'preview' }}
+        working-directory: src/android
+        env:
+          NOVEX_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/novex-release.jks
+          NOVEX_RELEASE_STORE_PASSWORD: ${{ secrets.NOVEX_RELEASE_STORE_PASSWORD }}
+          NOVEX_RELEASE_KEY_ALIAS: ${{ secrets.NOVEX_RELEASE_KEY_ALIAS }}
+          NOVEX_RELEASE_KEY_PASSWORD: ${{ secrets.NOVEX_RELEASE_KEY_PASSWORD }}
+          NOVEX_PREFER_CANONICAL_REPOSITORIES: "true"
+        run: >-
+          ./gradlew --no-daemon --stacktrace --max-workers=2
+          -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          -Pkotlin.compiler.execution.strategy=in-process
+          :app:compilePreviewDebugKotlin
+
+      - name: Build signed preview package
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.package_channel == 'preview' }}
+        working-directory: src/android
+        env:
+          NOVEX_VERSION_NAME: ${{ steps.versions.outputs.preview }}
+          NOVEX_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/novex-release.jks
+          NOVEX_RELEASE_STORE_PASSWORD: ${{ secrets.NOVEX_RELEASE_STORE_PASSWORD }}
+          NOVEX_RELEASE_KEY_ALIAS: ${{ secrets.NOVEX_RELEASE_KEY_ALIAS }}
+          NOVEX_RELEASE_KEY_PASSWORD: ${{ secrets.NOVEX_RELEASE_KEY_PASSWORD }}
+          NOVEX_PREFER_CANONICAL_REPOSITORIES: "true"
+        run: >-
+          ./gradlew --no-daemon --stacktrace --max-workers=2
+          -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          -Pkotlin.compiler.execution.strategy=in-process
+          :app:assemblePreviewRelease
+
+      - name: Build signed stable candidate once
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_channel == 'stable' }}
+        working-directory: src/android
+        env:
+          NOVEX_VERSION_NAME: ${{ steps.versions.outputs.stable }}
+          NOVEX_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/novex-release.jks
+          NOVEX_RELEASE_STORE_PASSWORD: ${{ secrets.NOVEX_RELEASE_STORE_PASSWORD }}
+          NOVEX_RELEASE_KEY_ALIAS: ${{ secrets.NOVEX_RELEASE_KEY_ALIAS }}
+          NOVEX_RELEASE_KEY_PASSWORD: ${{ secrets.NOVEX_RELEASE_KEY_PASSWORD }}
+          NOVEX_PREFER_CANONICAL_REPOSITORIES: "true"
+        run: >-
+          ./gradlew --no-daemon --stacktrace --max-workers=2
+          -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
+          -Pkotlin.compiler.execution.strategy=in-process
+          :app:assembleStableRelease
+
+      - name: Verify and stage preview package
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.package_channel == 'preview' }}
+        shell: bash
+        env:
+          EXPECTED_CERT_SHA256: cab4226b416183671281253b5f4000a28885cfa4f48146c0e7798d137e41c6a6
+        run: |
+          rm -rf dist
+          ./scripts/verify_android_release.sh \
+            src/android/app/build/outputs/apk/preview/release/app-preview-release.apk \
+            "${{ steps.versions.outputs.preview_tag }}" \
+            dist/preview \
+            preview
+          cp src/android/app/build/outputs/apk/preview/release/app-preview-release.apk \
+            dist/preview/zz-novex-preview-installer.apk
+          rm "dist/preview/novex-preview-${{ steps.versions.outputs.preview }}.novex"
+          (
+            cd dist/preview
+            find . -maxdepth 1 -type f \( -name '*.apk' -o -name '*.novex' \) -print | \
+              sed 's#^./##' | sort | xargs sha256sum > SHA256SUMS.txt
+          )
+
+      - name: Verify and stage stable candidate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_channel == 'stable' }}
+        shell: bash
+        env:
+          EXPECTED_CERT_SHA256: cab4226b416183671281253b5f4000a28885cfa4f48146c0e7798d137e41c6a6
+        run: |
+          rm -rf dist/candidate
+          ./scripts/verify_android_release.sh \
+            src/android/app/build/outputs/apk/stable/release/app-stable-release.apk \
+            "v${{ steps.versions.outputs.stable }}" \
+            dist/candidate \
+            stable
+          rm "dist/candidate/novex-${{ steps.versions.outputs.stable }}.apk"
+          (
+            cd dist/candidate
+            sha256sum novex.apk > SHA256SUMS.txt
+          )
+          cat > dist/candidate/candidate.env <<EOF
+          SOURCE_SHA=$GITHUB_SHA
+          STABLE_VERSION=${{ steps.versions.outputs.stable }}
+          PREVIEW_VERSION=${{ steps.versions.outputs.preview }}
+          PREVIEW_TAG=${{ steps.versions.outputs.preview_tag }}
+          CANDIDATE_RUN_ID=$GITHUB_RUN_ID
+          SIGNER_SHA256=$EXPECTED_CERT_SHA256
+          EOF
+
+      - name: Upload reusable stable candidate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.package_channel == 'stable' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: novex-stable-candidate
+          path: dist/candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish preview update
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.package_channel == 'preview' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes_file="$RUNNER_TEMP/preview-release-notes.md"
+          ./scripts/render_android_release_notes.sh \
+            "${{ steps.versions.outputs.stable }}" \
+            "$GITHUB_SHA" \
+            preview > "$notes_file"
+          shopt -s nullglob
+          assets=(dist/preview/*.apk dist/preview/*.novex dist/preview/SHA256SUMS.txt)
+          tag="${{ steps.versions.outputs.preview_tag }}"
+          gh release create "$tag" "${assets[@]}" \
+            --target "$GITHUB_SHA" \
+            --title "Novex ${{ steps.versions.outputs.preview }}" \
+            --notes-file "$notes_file" \
+            --prerelease
+
+      - name: Upload test report after failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-candidate-failure-${{ github.sha }}
+          path: src/android/app/build/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 14

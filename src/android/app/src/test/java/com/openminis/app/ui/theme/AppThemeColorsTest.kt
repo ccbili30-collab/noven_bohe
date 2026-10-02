@@ -1,0 +1,149 @@
+package com.openminis.app.ui.theme
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AppThemeColorsTest {
+
+    @Test
+    fun `default preset preserves the existing Novex color contract`() {
+        val colors = ThemeColorPresets.default.colors
+
+        assertEquals(0xFF0E9F6E.toInt(), colors.light.accent)
+        assertEquals(0xFFFFFFFF.toInt(), colors.light.background)
+        assertEquals(0xFF171D1C.toInt(), colors.light.foreground)
+        assertEquals(0xFF34D399.toInt(), colors.dark.accent)
+        assertEquals(0xFF000000.toInt(), colors.dark.background)
+        assertEquals(0xFFDEE4E2.toInt(), colors.dark.foreground)
+    }
+
+    @Test
+    fun `Cloude preset preserves the supplied light dark and serif contract`() {
+        val preset = ThemeColorPresets.cloude
+
+        assertEquals("cloude", preset.id)
+        assertEquals(ThemeTypographyPreset.CLOUDE_SERIF, preset.typography)
+        assertEquals(0xFFDA7756.toInt(), preset.colors.light.accent)
+        assertEquals(0xFFF5F4EE.toInt(), preset.colors.light.background)
+        assertEquals(0xFF141413.toInt(), preset.colors.light.foreground)
+        assertEquals(0xFFCC785C.toInt(), preset.colors.dark.accent)
+        assertEquals(0xFF262624.toInt(), preset.colors.dark.background)
+        assertEquals(0xFFF5F4EE.toInt(), preset.colors.dark.foreground)
+        assertEquals("absolutely", preset.sourceContract?.codeThemeId)
+        assertEquals(45, preset.sourceContract?.lightContrast)
+        assertEquals(60, preset.sourceContract?.darkContrast)
+        assertEquals("JetBrainsMono NFM", preset.sourceContract?.codeFont)
+        assertEquals(0xFF00C853.toInt(), preset.sourceContract?.semanticColors?.diffAdded)
+        assertEquals(0xFFFF5F38.toInt(), preset.sourceContract?.semanticColors?.diffRemoved)
+        assertEquals(0xFFCC7D5E.toInt(), preset.sourceContract?.semanticColors?.skill)
+        assertTrue(ThemeColorPresets.cloude in ThemeColorPresets.all)
+    }
+
+    @Test
+    fun `hex colors accept six digit rgb and normalize uppercase`() {
+        val parsed = parseOpaqueThemeColor("#52a8d2")
+
+        assertEquals(0xFF52A8D2.toInt(), parsed)
+        assertEquals("#52A8D2", parsed?.let(::formatOpaqueThemeColor))
+        assertNull(parseOpaqueThemeColor("52A8D2"))
+        assertNull(parseOpaqueThemeColor("#12345"))
+        assertNull(parseOpaqueThemeColor("#GGGGGG"))
+    }
+
+    @Test
+    fun `every bundled preset keeps text and accent readable in both modes`() {
+        ThemeColorPresets.all.forEach { preset ->
+            assertTrue(
+                "${preset.id} should pass the contrast rules",
+                validateThemeColors(preset.colors).isEmpty(),
+            )
+        }
+    }
+
+    @Test
+    fun `customizing Cloude text does not invalidate its unchanged supported accent`() {
+        val cloude = ThemeColorPresets.cloude.colors
+        val edited = cloude.update(
+            ThemeVariantMode.Dark,
+            cloude.dark.copy(foreground = 0xFFFFFFFF.toInt()),
+        )
+
+        assertTrue("Editing readable dark text must not disable Save because the untouched light accent changed policy",
+            validateThemeColors(edited).isEmpty())
+        val restored = requireNotNull(AppThemeColorPreferences.decode(AppThemeColorPreferences.encode(edited)))
+        assertEquals(edited, restored)
+        assertTrue(validateThemeColors(restored).isEmpty())
+    }
+
+    @Test
+    fun `validation rejects unreadable foreground and weak accent`() {
+        val colors = AppThemeColors(
+            presetId = ThemeColorPresets.CUSTOM_ID,
+            light = ThemeVariantColors(
+                accent = 0xFFF4F4F4.toInt(),
+                background = 0xFFFFFFFF.toInt(),
+                foreground = 0xFFF7F7F7.toInt(),
+            ),
+            dark = ThemeColorPresets.default.colors.dark,
+        )
+
+        val issues = validateThemeColors(colors)
+
+        assertTrue(issues.any { it.mode == ThemeVariantMode.Light && it.field == ThemeColorField.Foreground })
+        assertTrue(issues.any { it.mode == ThemeVariantMode.Light && it.field == ThemeColorField.Accent })
+        assertFalse(issues.any { it.mode == ThemeVariantMode.Dark })
+    }
+
+    @Test
+    fun `editing one variant turns a preset into custom without changing the other variant`() {
+        val original = ThemeColorPresets.default.colors
+        val edited = original.update(
+            mode = ThemeVariantMode.Dark,
+            colors = original.dark.copy(accent = 0xFFFFB020.toInt()),
+        )
+
+        assertEquals(ThemeColorPresets.CUSTOM_ID, edited.presetId)
+        assertEquals(original.light, edited.light)
+        assertEquals(0xFFFFB020.toInt(), edited.dark.accent)
+    }
+
+    @Test
+    fun `on color selects the higher contrast neutral`() {
+        assertEquals(0xFF000000.toInt(), bestOnColor(0xFFFFD54F.toInt()))
+        assertEquals(0xFFFFFFFF.toInt(), bestOnColor(0xFF243447.toInt()))
+    }
+
+    @Test
+    fun `stored theme round trips atomically and malformed values are rejected`() {
+        val colors = ThemeColorPresets.all.first { it.id == "purple" }.colors
+
+        val encoded = AppThemeColorPreferences.encode(colors)
+
+        assertEquals(colors, AppThemeColorPreferences.decode(encoded))
+        assertNull(AppThemeColorPreferences.decode("1|purple|#123456"))
+        assertNull(AppThemeColorPreferences.decode("2|purple|#123456|#FFFFFF|#000000|#123456|#000000|#FFFFFF"))
+    }
+
+    @Test
+    fun `stored bundled preset follows its current complete visual contract after upgrade`() {
+        val legacyDefault = "1|novex|#528AD2|#F2F2F7|#171D1C|#6A94CE|#000000|#DEE4E2"
+
+        assertEquals(ThemeColorPresets.default.colors, AppThemeColorPreferences.decode(legacyDefault))
+    }
+
+    @Test
+    fun `unknown stored preset is retained as custom colors`() {
+        val encoded = AppThemeColorPreferences.encode(
+            ThemeColorPresets.default.colors.copy(presetId = "removed-preset"),
+        )
+
+        val decoded = AppThemeColorPreferences.decode(encoded)
+
+        assertEquals(ThemeColorPresets.CUSTOM_ID, decoded?.presetId)
+        assertEquals(ThemeColorPresets.default.colors.light, decoded?.light)
+        assertEquals(ThemeColorPresets.default.colors.dark, decoded?.dark)
+    }
+}

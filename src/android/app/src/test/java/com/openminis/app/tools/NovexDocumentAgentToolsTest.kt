@@ -1,0 +1,130 @@
+package com.openminis.app.tools
+
+import novex.core.NovexDocumentBlock
+import novex.core.NovexDocumentBlockId
+import novex.core.NovexDocumentBlockKind
+import novex.core.NovexDocumentFormat
+import novex.core.NovexDocumentSnapshot
+import novex.core.NovexDocumentSnapshotStore
+import novex.core.NovexDocumentSourceAnchor
+import novex.core.NovexDocumentStatus
+import novex.core.NovexResourceRef
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class NovexDocumentAgentToolsTest {
+    private val sha = "b".repeat(64)
+    private val ref = NovexResourceRef("novex://documents/$sha")
+    private val store = NovexDocumentSnapshotStore { requested -> snapshot.takeIf { it.ref == requested } }
+    private val tools = NovexDocumentAgentTools(store) { requested -> requested == ref }
+
+    @Test fun `revision reads preserve the same conversation permission gate`() {
+        val inspection = JSONObject(tools.execute("document_inspect", JSONObject().put("document_ref", ref.value).toString()).output)
+        val revision = inspection.getJSONObject("data").getString("source_revision")
+        var revisionLookups = 0
+        val versioned = object : NovexDocumentSnapshotStore {
+            override fun find(ref: NovexResourceRef) = snapshot
+            override fun findRevision(ref: NovexResourceRef, revision: String): NovexDocumentSnapshot {
+                revisionLookups++
+                return snapshot
+            }
+        }
+        val args = JSONObject().put("document_ref", ref.value).put("source_revision", revision).toString()
+        assertFalse(NovexDocumentAgentTools(versioned) { false }.execute("document_read", args).success)
+        assertEquals(0, revisionLookups)
+        assertTrue(NovexDocumentAgentTools(versioned) { it == ref }.execute("document_read", args).success)
+        assertEquals(1, revisionLookups)
+    }
+
+    @Test
+    fun `document tools are capability gated in the model catalog`() {
+        val withoutDocuments = AgentTools.makeAgentTools(documentsAvailable = false)
+        val withDocuments = AgentTools.makeAgentTools(documentsAvailable = true)
+
+        assertFalse(withoutDocuments.any { it.name.startsWith("document_") })
+        assertEquals(
+            listOf("document_inspect", "document_read"),
+            withDocuments.filter { it.name.startsWith("document_") }.map { it.name },
+        )
+    }
+
+    @Test
+    fun `learning preparation and note reading are exposed only when the active branch owns a source collection`() {
+        val withoutCollection = AgentTools.makeAgentTools(sourceCollectionsAvailable = false)
+        val withCollection = AgentTools.makeAgentTools(sourceCollectionsAvailable = true)
+
+        assertFalse(withoutCollection.any { it.name.startsWith("learning_") })
+        assertEquals(
+            listOf("learning_prepare", "learning_start", "learning_read"),
+            withCollection.filter { it.name.startsWith("learning_") }.map { it.name },
+        )
+        assertFalse(withCollection.any { it.name == "learning_confirm" })
+    }
+
+    @Test
+    fun `document read schema exposes real arrays instead of encoded strings`() {
+        val definition = tools.definitions().single { it.name == "document_read" }
+        val parameters = definition.toOpenAIJson()
+            .getJSONObject("function")
+            .getJSONObject("parameters")
+            .getJSONObject("properties")
+
+        assertEquals("array", parameters.getJSONObject("block_ids").getString("type"))
+        assertEquals(
+            "string",
+            parameters.getJSONObject("block_ids").getJSONObject("items").getString("type"),
+        )
+        assertEquals("object", parameters.getJSONObject("page_range").getString("type"))
+    }
+
+    @Test
+    fun `agent adapter executes bounded reads and preserves the standard result envelope`() {
+        val result = tools.execute(
+            "document_read",
+            JSONObject().put("document_ref", ref.value).put("query", "以太").toString(),
+        )
+
+        assertTrue(result.success)
+        assertEquals("读取文档", result.toolTitle)
+        assertTrue(result.output.contains("document.read"))
+        assertTrue(result.output.contains("魔法消耗以太"))
+        assertFalse(result.output.contains("/var/minis/"))
+    }
+
+    @Test
+    fun `agent adapter cannot read a document outside the active conversation`() {
+        val result = NovexDocumentAgentTools(store) { false }.execute(
+            "document_inspect",
+            JSONObject().put("document_ref", ref.value).toString(),
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.output.contains("document.not_found"))
+        assertFalse(result.output.contains("魔法消耗以太"))
+    }
+
+    private val snapshot: NovexDocumentSnapshot
+        get() {
+            val source = NovexDocumentSourceAnchor("word/document.xml", 0)
+            return NovexDocumentSnapshot(
+                ref = ref,
+                sha256 = sha,
+                parserVersion = "fixture-v1",
+                title = "世界资料",
+                format = NovexDocumentFormat.DOCX,
+                status = NovexDocumentStatus.READY,
+                blocks = listOf(
+                    NovexDocumentBlock(
+                        id = NovexDocumentBlockId.from(sha, source),
+                        kind = NovexDocumentBlockKind.PARAGRAPH,
+                        order = 0,
+                        text = "魔法消耗以太。",
+                        source = source,
+                    ),
+                ),
+            )
+        }
+}

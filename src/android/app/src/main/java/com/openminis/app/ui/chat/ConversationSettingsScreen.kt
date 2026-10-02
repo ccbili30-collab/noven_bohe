@@ -1,0 +1,1094 @@
+package com.openminis.app.ui.chat
+
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
+import novex.core.libraryDirectory
+import novex.core.NovexLibraryEntry
+import novex.android.ui.NovexLibraryPicker
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.room.withTransaction
+import com.openminis.app.R
+import com.openminis.app.data.MAX_CONVERSATION_PROMPT_CHARS
+import com.openminis.app.data.MAX_IMAGE_STYLE_PROMPT_CHARS
+import com.openminis.app.data.MAX_PER_TURN_PROMPT_CHARS
+import com.openminis.app.data.MAX_TEXT_STYLE_PROMPT_CHARS
+import com.openminis.app.data.character.CharacterCardStore
+import com.openminis.app.data.character.CharacterVersionKind
+import com.openminis.app.data.character.CharacterVersionProfile
+import com.openminis.app.data.repository.ChatRepository
+import com.openminis.app.data.repository.MemoryRepository
+import com.openminis.app.data.repository.ProviderRepository
+import com.openminis.app.data.repository.SkillRepository
+import novex.core.ActiveInteractiveFictionSnapshot
+import novex.core.NovexGamePlayerChoices
+import novex.core.AnswerIdentity
+import novex.core.ConversationPlayerIdentity
+import novex.core.ConversationControlBehavior
+import novex.core.ConversationControlDefinition
+import novex.core.ConversationControlSource
+import novex.android.adapter.NovexGameSnapshotAssembler
+import kotlinx.coroutines.launch
+import novex.core.ManagedAccess
+import novex.core.NovexContentAddress
+import novex.core.NovexContentKind
+import novex.android.ui.NovexCheckToggle
+import novex.android.ui.NovexColors
+import novex.android.ui.NovexDimensions
+import novex.android.ui.NovexDivider
+import novex.android.ui.NovexEditorScaffold
+import novex.android.ui.NovexEditorSection
+import novex.android.ui.NovexInlineField
+import novex.android.ui.NovexNoticeDialog
+import novex.android.ui.NovexOptionalImageRow
+import novex.android.ui.NovexOutlineButton
+import novex.android.ui.NovexSelectionAction
+import novex.android.ui.NovexSelectionSheet
+import novex.android.ui.NovexSummaryRow
+import novex.android.ui.NovexTextActionRow
+import novex.android.ui.NovexTextField
+import novex.android.ui.NovexType
+import novex.android.ui.rememberNovexWorkspace
+import novex.android.ui.rememberNovexCreativeArtifacts
+import novex.android.ui.rememberNovexWorkGroups
+import novex.android.ui.NovexSearchableSelectionSheet
+import novex.core.NovexWorkGroupSnapshot
+
+private data class ImageStylePreset(val name: String, val prompt: String)
+
+private val imageStylePresets = listOf(
+    ImageStylePreset("写实摄影", "写实摄影风格，自然光影，真实材质与细节，避免插画感。"),
+    ImageStylePreset("动漫插画", "高质量动漫插画风格，清晰线条，细腻上色，角色一致。"),
+    ImageStylePreset("电影感", "电影画面风格，叙事性构图，戏剧化光影，统一电影调色。"),
+    ImageStylePreset("水彩", "透明水彩画风格，柔和晕染，纸张纹理，轻盈自然。"),
+    ImageStylePreset("油画", "古典油画风格，厚重笔触，丰富层次，柔和明暗过渡。"),
+    ImageStylePreset("像素艺术", "精细像素艺术风格，统一像素密度与有限色板。"),
+)
+
+
+
+@Composable
+fun ConversationSettingsScreen(
+    sessionId: String,
+    chatRepository: ChatRepository,
+    providerRepository: ProviderRepository,
+    memoryRepository: MemoryRepository? = null,
+    skillRepository: SkillRepository? = null,
+    // [P3.3 裁军] mcpRepository 参数随 MCP 集成面退役删除。
+    onBack: () -> Unit,
+    // [§9d] 三仓分离：answer|background|manage 各自路由到独立绑定页
+    onCardSettings: (String) -> Unit = {},
+) {
+    var settingsPage by rememberSaveable(sessionId) { mutableStateOf("") }
+    var showingTokenUsage by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val workspace = rememberNovexWorkspace()
+    val artifacts = rememberNovexCreativeArtifacts()
+    val workGroups = rememberNovexWorkGroups()
+    val works by workGroups.snapshots.collectAsState(initial = null)
+    var showingAdoptedSources by remember { mutableStateOf(false) }
+    var showingSettingUse by remember { mutableStateOf(false) }
+    val viewModel: ChatViewModel = viewModel(
+        viewModelStoreOwner = ChatViewModelStore.ownerFor(sessionId),
+        factory = ChatViewModel.factory(
+            sessionId = sessionId,
+            chatRepository = chatRepository,
+            providerRepository = providerRepository,
+            appContext = context.applicationContext,
+            memoryRepository = memoryRepository,
+            skillRepository = skillRepository,
+        ),
+    )
+    val ready by viewModel.conversationSettingsReady.collectAsState()
+    val seed = remember(sessionId) {
+        NovexConversationEditorDraftState.from(sessionId, viewModel.conversationSettingsSnapshot())
+    }
+    var baseline by remember(sessionId) { mutableStateOf<NovexConversationEditorDraftState?>(null) }
+    var draft by remember(sessionId) { mutableStateOf(seed) }
+    var hydrated by remember(sessionId) { mutableStateOf(false) }
+    var choosingExecutionMode by remember(sessionId) { mutableStateOf(false) }
+    var pendingContentPlans by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var privateSubjects by remember { mutableStateOf(emptySet<NovexContentAddress>()) }
+    var ownedOptions by remember { mutableStateOf<List<ConversationContentOption>>(emptyList()) }
+    var directoryReady by remember { mutableStateOf(false) }
+    var options by remember { mutableStateOf<List<ConversationContentOption>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    var preparingGame by remember { mutableStateOf(false) }
+    var picker by remember { mutableStateOf<ConversationPicker?>(null) }
+    var pendingGame by remember { mutableStateOf<ActiveInteractiveFictionSnapshot?>(null) }
+    var pendingRole by remember { mutableStateOf<Pair<AnswerIdentity.CharacterVersion, List<ConversationPlayerIdentity>>?>(null) }
+    var expandedPlaythrough by remember { mutableStateOf<Int?>(null) }
+    var managedAction by remember { mutableStateOf<NovexContentAddress?>(null) }
+    var addingControl by remember { mutableStateOf(false) }
+    var editingControlId by remember { mutableStateOf<String?>(null) }
+    var controlLabel by remember { mutableStateOf("") }
+    var controlBehavior by remember { mutableStateOf(ConversationControlBehavior.VIEW) }
+    var controlPrompt by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var adoptedImagePreview by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(ready) {
+        if (ready && !hydrated) {
+            val loaded = NovexConversationEditorDraftState.from(
+                sessionId,
+                viewModel.conversationSettingsSnapshot(),
+            )
+            draft = loaded
+            baseline = loaded
+            hydrated = true
+        }
+    }
+    LaunchedEffect(workspace, artifacts, ready) {
+        if (!ready) return@LaunchedEffect
+        val database = (context.applicationContext as com.openminis.app.MinisApp).database
+        novex.android.adapter.observeNovexLibraryChanges(database).collect {
+        runCatching {
+            val owned = workspace.conversationDrafts(viewModel.activeSessionId)
+            val ownCards = owned?.cards.orEmpty()
+            privateSubjects = ownCards.filter { it.isPrivate }.map { it.subject }.toSet()
+            pendingContentPlans = owned?.pendingWrites.orEmpty().map { reservation ->
+                reservation.id to runCatching { org.json.JSONObject(reservation.planJson).getString("summary") }
+                    .getOrDefault("待执行内容变更")
+            }
+            options = workspace.libraryDirectory(artifacts).map { ConversationContentOption(it.address, it.title, it.type) }
+            val ownedAddresses = ownCards.filterNot { it.isPrivate }.map { it.subject }.toSet()
+            ownedOptions = options.filter { it.address in ownedAddresses }
+            directoryReady = true
+
+        }.onFailure { error = "读取内容库失败：${it.message ?: "未知错误"}" }
+        }
+    }
+
+    fun save() {
+        if (saving || preparingGame) return
+        saving = true
+        viewModel.saveConversationSettings(draft.toSettings(), expectedConfigurationJson = baseline?.settings?.novexConfigurationJson) { result ->
+            saving = false
+            result.onSuccess { onBack() }.onFailure { failure ->
+                error = "保存失败：${failure.message ?: failure::class.java.simpleName}"
+            }
+        }
+    }
+
+    fun refreshAdoptedSetting(root: NovexContentAddress? = null, acting: Boolean = false) {
+        if (saving || preparingGame) return
+        preparingGame = true
+        val expected = draft.configuration
+        scope.launch {
+            try {
+                val application = context.applicationContext as com.openminis.app.MinisApp
+                val updated = application.database.withTransaction {
+                    val adoption = novex.android.adapter.NovexConversationContextAdoption(workspace, mediaStore = application.novexSnapshotMediaStore)
+                    if (root == null) adoption.refreshGame(expected) else adoption.refresh(expected, root, acting)
+                }
+                require(draft.configuration == expected) { "刷新期间对话设定已改变，请重新刷新" }
+                draft = draft.copy(configuration = updated)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = "资料尚未刷新：${failure.message ?: "读取原卡失败"}"
+            } finally { preparingGame = false }
+        }
+    }
+
+    val assistantPicker = conversationImagePicker("conversation-assistant-avatar") { path ->
+        draft = draft.updateSettings { it.copy(assistantAvatarPath = path) }
+    }
+    val playerPicker = conversationImagePicker("conversation-player-avatar") { path ->
+        draft = draft.updateSettings { it.copy(playerAvatarPath = path) }
+    }
+    val backgroundPicker = conversationImagePicker("conversation-background") { path ->
+        draft = draft.updateSettings { it.copy(backgroundPath = path) }
+    }
+    val labels = options.associateBy(ConversationContentOption::address)
+    val adoptedImages = novex.core.NovexSnapshotMediaProjection.visible(draft.configuration)
+    val answerLabel = when (val identity = draft.configuration.answerIdentity) {
+        AnswerIdentity.Nova -> "Nova（诺瓦）"
+        is AnswerIdentity.PersonaPreset -> "自定义 · ${identity.label}"
+        is AnswerIdentity.CharacterVersion -> labels[NovexContentAddress.characterVersion(identity.versionId)]?.label
+            ?: "已采用的角色"
+    }
+
+    val settingsPages = rememberSaveableStateHolder()
+    settingsPages.SaveableStateProvider(settingsPage) {
+    NovexEditorScaffold(
+        title = conversationSettingsPageTitle(settingsPage),
+        loaded = hydrated,
+        canSave = draft.configuration.unreadableConfiguration == null,
+        saving = saving,
+        baselineDraft = baseline,
+        currentDraft = draft,
+        onBack = onBack,
+        onInternalBack = if (settingsPage.isNotEmpty()) ({
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+            settingsPage = ""
+        }) else null,
+        onSave = ::save,
+    ) {
+        if (draft.configuration.unreadableConfiguration != null) {
+            NovexSummaryRow("对话设置未能恢复", "原数据已保留。当前只可阅读，暂不能修改设置；可从对话菜单导出记录进行检查。")
+            return@NovexEditorScaffold
+        }
+        val cardBinding=viewModel.integratedCardBinding()
+        if(settingsPage.isEmpty() && cardBinding==null)NovexSummaryRow("采用新版卡片", "历史设定仍保留，选择新版互动对象与管理范围",onClick={onCardSettings("identity")})
+        if (settingsPage.isEmpty()) ConversationSettingsOverview(
+            answer = if(cardBinding?.primary!=null)"已采用卡片" else answerLabel,
+            integrated=cardBinding!=null,
+            player = draft.configuration.playerIdentity?.label?.takeIf { it.isNotBlank() }
+                ?: draft.settings.playerDisplayName.ifBlank { "未设置" },
+            backgroundCount = cardBinding?.backgrounds?.size ?: draft.configuration.backgroundSettings.count { it.subject !in privateSubjects },
+            game = draft.configuration.activeInteractiveFiction?.title ?: "未启动",
+            managedCount = cardBinding?.managed?.size ?: (draft.configuration.managedSubjects.map { it.subject } + ownedOptions.map { it.address })
+                .distinct().count { it in labels },
+            permission = draft.configuration.executionMode.label,
+            promptChanged = draft.settings.conversationPrompt.isNotBlank(),
+            backgroundOverridden = draft.settings.backgroundPath != null,
+            perTurnSet = draft.settings.perTurnPrompt.isNotBlank(),
+            styleSet = draft.settings.textStylePrompt.isNotBlank(),
+            onOpen = { when(it) { "answer" -> onCardSettings("identity"); "background" -> onCardSettings("background"); "manage" -> onCardSettings("manage"); else -> settingsPage = it } }, onPermission = { choosingExecutionMode = true },
+            onTokenUsage = { showingTokenUsage = true },
+        )
+        if (settingsPage == "workspace") {
+            ConversationWorkspaceFiles(sessionId)
+            if (pendingContentPlans.isNotEmpty()) NovexSummaryRow("待执行变更", "${pendingContentPlans.size} 项",
+                onClick = { settingsPage = "pending" })
+        }
+        if (settingsPage == "answer") NovexEditorSection(
+            header = "回答身份",
+            footer = "选择由谁回答；背景资料和执行权限分别设置。",
+        ) {
+            NovexSummaryRow("当前身份", answerLabel, onClick = { picker = ConversationPicker.ANSWER })
+            (draft.configuration.answerIdentity as? AnswerIdentity.PersonaPreset)?.let { persona ->
+                NovexTextField("身份名称", persona.label, onValueChange = { value ->
+                    if (value.isNotBlank()) draft = draft.setAnswerIdentity(persona.copy(label = value.take(80)))
+                })
+                NovexTextField("职责与表达", persona.instructions, onValueChange = { value ->
+                    draft = draft.setAnswerIdentity(persona.copy(instructions = value.take(MAX_CONVERSATION_PROMPT_CHARS)))
+                }, minLines = 4)
+            }
+            (draft.configuration.answerIdentity as? AnswerIdentity.CharacterVersion)?.let { role ->
+                NovexTextActionRow("从原卡刷新当前角色资料", onClick = {
+                    refreshAdoptedSetting(NovexContentAddress.characterVersion(role.versionId), acting = true)
+                })
+            }
+        }
+
+        if (settingsPage == "player") NovexEditorSection(header = "我的身份") {
+            NovexDivider(Modifier.padding(horizontal = 16.dp))
+            NovexTextField(
+                label = "玩家身份说明",
+                value = draft.configuration.playerIdentity?.description.orEmpty(),
+                placeholder = "描述你是谁，不替你决定行动",
+                onValueChange = { value ->
+                    val current = draft.configuration.playerIdentity
+                    draft = draft.setPlayerIdentity(
+                        if (value.isBlank()) null else ConversationPlayerIdentity(
+                            current?.id ?: "player:${java.util.UUID.randomUUID()}",
+                            current?.label ?: draft.settings.playerDisplayName,
+                            value.take(MAX_CONVERSATION_PROMPT_CHARS),
+                        ),
+                    )
+                }, minLines = 3,
+            )
+            NovexInlineField(
+                label = "玩家名称",
+                value = draft.settings.playerDisplayName,
+                placeholder = "可留空",
+                onValueChange = { value ->
+                    draft = draft.updateSettings { it.copy(playerDisplayName = value.take(80)) }
+                },
+            )
+            NovexOptionalImageRow(
+                "玩家头像",
+                draft.settings.playerAvatarPath?.existingFile(),
+                playerPicker,
+                onRemove = { draft = draft.updateSettings { it.copy(playerAvatarPath = null) } },
+            )
+        }
+
+        if (settingsPage == "prompt") NovexEditorSection(
+            header = "对话提示词",
+            footer = "只属于当前对话；替换人格后仍可继续调整。",
+        ) {
+            NovexTextField(
+                label = "系统提示词",
+                value = draft.settings.conversationPrompt,
+                onValueChange = { value ->
+                    draft = draft.updateSettings {
+                        it.copy(conversationPrompt = value.take(MAX_CONVERSATION_PROMPT_CHARS))
+                    }
+                },
+                minLines = 8,
+            )
+            NovexTextActionRow(
+                "恢复当前人格的来源提示词",
+                R.drawable.ic_phosphor_arrow_left,
+                onClick = {
+                    draft = draft.updateSettings { it.copy(conversationPrompt = viewModel.sourceConversationPrompt(draft.configuration.answerIdentity)) }
+                },
+            )
+        }
+
+        if (settingsPage == "background") NovexEditorSection(
+            header = "使用的设定",
+            footer = "可加入多个世界和角色作为背景。这里使用已选定的资料，需要更新时手动刷新；编辑权限在可管理内容中设置。",
+        ) {
+            NovexSummaryRow("选择使用哪些模块", "查看并调整本对话使用的设定范围",
+                onClick = { showingSettingUse = true })
+            NovexSummaryRow("查看已采用的资料", "查看本对话实际使用的版本和来源",
+                onClick = { showingAdoptedSources = true })
+            draft.configuration.backgroundSettings.filterNot { it.subject in privateSubjects }.sortedBy { !novex.core.NovexSettingUse.enabled(draft.configuration,
+                novex.core.NovexReferenceTarget(it.subject)) }.forEachIndexed { index, setting ->
+                ConversationSubjectRow(
+                    labels[setting.subject]?.label ?: setting.subject.fallbackLabel(),
+                    (labels[setting.subject]?.kindLabel ?: setting.subject.kind.displayName()) +
+                        if (novex.core.NovexSettingUse.enabled(draft.configuration, novex.core.NovexReferenceTarget(setting.subject))) " · 直接加入" else " · 已关闭",
+                    onRemove = { draft = draft.removeBackground(setting.subject) },
+                )
+                if (novex.core.NovexEffectiveFrozenContext.gameSources(draft.configuration)
+                        .any { it.adoptedByGame && it.target.subject == setting.subject }) {
+                    NovexSummaryRow("仍有文游来源", "移除上面的直接加入关系后，文游采用的修订仍会继续使用")
+                }
+                NovexTextActionRow("从原卡刷新这项背景", onClick = { refreshAdoptedSetting(setting.subject) })
+                if (index < draft.configuration.backgroundSettings.lastIndex) {
+                    NovexDivider(Modifier.padding(horizontal = 16.dp))
+                }
+            }
+            NovexTextActionRow("添加世界或角色背景", onClick = { picker = ConversationPicker.BACKGROUND })
+        }
+
+        if (settingsPage == "textStyle") {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val presets = remember(context) { com.openminis.app.data.TextStylePresets.load(context) }
+            NovexEditorSection(
+                header = "文字文风",
+                footer = "每次发送消息，这段文风设定都会随最新一轮发给模型；留空不生效。可以从内置题材文风卡一键填入后再改。题材卡来源：oh-story-claudecode（MIT）。",
+            ) {
+                NovexTextField(
+                    label = "文风设定",
+                    value = draft.settings.textStylePrompt,
+                    onValueChange = { value ->
+                        draft = draft.updateSettings { it.copy(textStylePrompt = value.take(MAX_TEXT_STYLE_PROMPT_CHARS)) }
+                    },
+                    minLines = 4,
+                    placeholder = "例：短句为主，多动作少心理，禁排比与段尾升华",
+                )
+                NovexTextActionRow("清空文风", onClick = {
+                    draft = draft.updateSettings { it.copy(textStylePrompt = "") }
+                })
+                presets.forEach { preset ->
+                    val active = draft.settings.textStylePrompt == preset.content
+                    NovexSummaryRow(
+                        if (active) "${preset.label} · 已应用" else preset.label,
+                        "题材文风卡（点击填入，可再修改）",
+                        onClick = {
+                            draft = draft.updateSettings { it.copy(textStylePrompt = preset.content.take(MAX_TEXT_STYLE_PROMPT_CHARS)) }
+                        },
+                    )
+                }
+            }
+        }
+
+        if (settingsPage == "perTurn") NovexEditorSection(
+            header = "每轮注入",
+            footer = "每次发送消息，都会把这段话随最新一轮一起发给模型；对话界面不会显示它。留空则完全不生效。例：每一轮都要向我提供 3~4 个选项。若要让选项显示为按钮，需在「内容与工具」开启工具权限且模型支持工具；否则选项以文字列表呈现。下方的文游开关同样随最新一轮注入，适合文字游戏运行时。",
+        ) {
+            NovexTextField(
+                label = "注入内容",
+                value = draft.settings.perTurnPrompt,
+                onValueChange = { value ->
+                    draft = draft.updateSettings { it.copy(perTurnPrompt = value.take(MAX_PER_TURN_PROMPT_CHARS)) }
+                },
+                minLines = 4,
+                placeholder = "例：每一轮都要向我提供 3~4 个选项",
+            )
+            NovexDivider(Modifier.padding(horizontal = 16.dp))
+            ConversationToggleRow(
+                "骰值注入 · 每轮附带 2 枚 1d100",
+                draft.settings.diceInjectionEnabled,
+            ) { value ->
+                draft = draft.updateSettings { it.copy(diceInjectionEnabled = value) }
+            }
+            ConversationToggleRow(
+                "账本回传 · 回传上轮〈账本〉与轮数",
+                draft.settings.ledgerInjectionEnabled,
+            ) { value ->
+                draft = draft.updateSettings { it.copy(ledgerInjectionEnabled = value) }
+            }
+        }
+
+        if (settingsPage == "game") NovexEditorSection(
+            header = "活动文游",
+            footer = "结束文游后恢复启动前身份，保留消息、状态与存档。返回列表不结束文游。",
+        ) {
+            if (preparingGame) NovexSummaryRow("准备设定", "正在读取本次采用的资料…")
+            draft.configuration.activeInteractiveFiction?.let { active ->
+                NovexSummaryRow("正在运行", active.title)
+                NovexTextActionRow("刷新文游正文与背景引用", onClick = { refreshAdoptedSetting() })
+                NovexSummaryRow("刷新范围", "保存后更新采用的资料，保留本局身份、状态与已注册操作")
+                NovexTextActionRow("结束文游并恢复原身份", onClick = { draft = draft.deactivateGame() })
+            }
+            NovexTextActionRow(
+                if (draft.configuration.activeInteractiveFiction == null) "选择并启动文游" else "更换并启动文游",
+                R.drawable.ic_phosphor_puzzle_piece,
+                onClick = { picker = ConversationPicker.GAME },
+            )
+            NovexTextActionRow("仅挂载文游为只读资料，不启动", onClick = { picker = ConversationPicker.GAME_REFERENCE })
+            draft.configuration.completedPlaythroughs.forEachIndexed { index, completed ->
+                NovexSummaryRow(
+                    "历史第 ${index + 1} 局 · ${completed.game.title}",
+                    "${completed.states.size} 个消息分支 · ${completed.controls.size} 项操作",
+                    onClick = { expandedPlaythrough = if (expandedPlaythrough == index) null else index },
+                )
+                if (expandedPlaythrough == index) {
+                    completed.states.entries.forEachIndexed { branchIndex, (_, state) ->
+                        state.values.forEach { (key, value) ->
+                            NovexSummaryRow("分支 ${branchIndex + 1} · $key", when (value) {
+                                is novex.core.PlaythroughValue.Text -> value.value
+                                is novex.core.PlaythroughValue.Number -> value.value.toString()
+                                is novex.core.PlaythroughValue.Flag -> if (value.value) "是" else "否"
+                            })
+                        }
+                    }
+                }
+            }
+        }
+
+        if (settingsPage == "background" && adoptedImages.isNotEmpty()) NovexEditorSection(
+            header = "采用的图片",
+            footer = "按当前用途显示，保存后随对话保留。原卡改图或删除不会移除这些副本；刷新资料后再保存可采用新图片。",
+        ) {
+            val sources = novex.core.NovexEffectiveFrozenContext.sources(draft.configuration)
+            adoptedImages.forEach { media ->
+                val source = sources.firstOrNull { it.target.subject == media.owner }
+                val label = media.moduleId?.let { id -> source?.candidates?.firstOrNull {
+                    it.sourceId == id || it.sourceId == "$id:entry:${media.entryId}"
+                }?.label } ?: labels[media.owner]?.label ?: source?.candidates?.firstOrNull()?.label
+                    ?: draft.configuration.activeInteractiveFiction?.title ?: "已采用资料"
+                val slot = when (media.slot) {
+                    com.openminis.app.data.character.MediaAssetSlot.WORLD_COVER -> "世界封面"
+                    com.openminis.app.data.character.MediaAssetSlot.WORLD_LOGO -> "世界标识"
+                    com.openminis.app.data.character.MediaAssetSlot.WORLD_BACKGROUND -> "世界背景图"
+                    com.openminis.app.data.character.MediaAssetSlot.CHARACTER_AVATAR -> "角色头像"
+                    com.openminis.app.data.character.MediaAssetSlot.CHARACTER_PAGE_BACKGROUND -> "角色背景图"
+                    com.openminis.app.data.character.MediaAssetSlot.INTERACTIVE_FICTION_COVER -> "文游封面"
+                    com.openminis.app.data.character.MediaAssetSlot.INTERACTIVE_FICTION_BACKGROUND -> "文游背景图"
+                    com.openminis.app.data.character.MediaAssetSlot.MODULE_IMAGE -> "模块配图"
+                }
+                NovexSummaryRow(label, slot, onClick = { adoptedImagePreview = media.asset.path })
+            }
+        }
+
+        if (settingsPage == "pending" && pendingContentPlans.isNotEmpty()) NovexEditorSection(
+            header = "待执行变更",
+            footer = "计划与目标已保存，重启后仍可继续。取消只撤销这项待执行计划，不修改已经保存的卡片。",
+        ) {
+            pendingContentPlans.forEachIndexed { index, (id, summary) ->
+                NovexSummaryRow("变更 ${index + 1}", summary)
+                NovexTextActionRow("取消这项待执行计划", onClick = {
+                    viewModel.cancelPendingContentPlan(id) { result ->
+                        result.onSuccess { pendingContentPlans = pendingContentPlans.filterNot { it.first == id } }
+                            .onFailure { error = "取消失败：${it.message}" }
+                    }
+                })
+            }
+        }
+
+        if (settingsPage == "manage") NovexEditorSection(
+            header = "可管理的内容",
+            footer = "修改按本对话的工具权限执行。",
+        ) {
+            val managedRows = (draft.configuration.managedSubjects + ownedOptions.map {
+                novex.core.ManagedSubject(it.address, ManagedAccess.EDIT)
+            }).distinctBy { it.subject }.filter { it.subject in labels }
+            val ownedAddresses = ownedOptions.map { it.address }.toSet()
+            managedRows.forEachIndexed { index, subject ->
+                ConversationSubjectRow(
+                    labels[subject.subject]?.label ?: subject.subject.fallbackLabel(),
+                    "${labels[subject.subject]?.kindLabel ?: subject.subject.kind.displayName()} · " +
+                        if (subject.access == ManagedAccess.EDIT) "可编辑" else "只读",
+                    onClick = { managedAction = subject.subject },
+                    onRemove = if (subject.subject in ownedAddresses) null else ({ draft = draft.unmount(subject.subject) }),
+                )
+                if (index < managedRows.lastIndex) {
+                    NovexDivider(Modifier.padding(horizontal = 16.dp))
+                }
+            }
+            NovexTextActionRow("选择管理内容", onClick = { picker = ConversationPicker.MANAGED })
+        }
+
+        if (settingsPage == "controls") NovexEditorSection(
+            header = "对话快捷操作",
+            footer = "用户可手动添加；文游预设和人工智能注册的操作也统一显示在这里。",
+        ) {
+            draft.configuration.controls.forEachIndexed { index, control ->
+                ConversationControlRow(
+                    control,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < draft.configuration.controls.lastIndex,
+                    onToggle = { draft = draft.upsertControl(control.copy(enabled = it)) },
+                    onMoveUp = { draft = draft.moveControl(control.id, index - 1) },
+                    onMoveDown = { draft = draft.moveControl(control.id, index + 1) },
+                    onRemove = { draft = draft.removeControl(control.id) },
+                    onEdit = {
+                        editingControlId = control.id
+                        controlLabel = control.label
+                        controlBehavior = control.behavior
+                        controlPrompt = runCatching {
+                            org.json.JSONObject(control.payloadJson).optString("prompt")
+                        }.getOrDefault("")
+                        addingControl = true
+                    },
+                )
+                if (index < draft.configuration.controls.lastIndex) {
+                    NovexDivider(Modifier.padding(horizontal = 16.dp))
+                }
+            }
+            if (addingControl) {
+                NovexDivider(Modifier.padding(horizontal = 16.dp))
+                NovexTextField(
+                    "操作名称",
+                    controlLabel,
+                    onValueChange = { controlLabel = it.take(40) },
+                    placeholder = "例如：角色状态",
+                )
+                NovexSummaryRow(
+                    "操作类型",
+                    if (controlBehavior == ConversationControlBehavior.VIEW) "查看状态" else "执行动作",
+                    onClick = {
+                        controlBehavior = if (controlBehavior == ConversationControlBehavior.VIEW) {
+                            ConversationControlBehavior.ACTION
+                        } else {
+                            ConversationControlBehavior.VIEW
+                        }
+                    },
+                )
+                if (controlBehavior == ConversationControlBehavior.ACTION) {
+                    NovexTextField(
+                        "发送内容",
+                        controlPrompt,
+                        onValueChange = { controlPrompt = it.take(2_000) },
+                        placeholder = "留空时发送操作名称",
+                        minLines = 3,
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                ) {
+                    NovexOutlineButton(
+                        "取消",
+                        {
+                            addingControl = false
+                            editingControlId = null
+                            controlLabel = ""
+                            controlPrompt = ""
+                        },
+                        Modifier.weight(1f),
+                    )
+                    NovexOutlineButton(
+                        if (editingControlId == null) "添加" else "完成",
+                        onClick = {
+                            val existing = editingControlId?.let { id ->
+                                draft.configuration.controls.firstOrNull { it.id == id }
+                            }
+                            val id = existing?.id ?: "user-${System.currentTimeMillis()}"
+                            val payload = runCatching {
+                                org.json.JSONObject(existing?.payloadJson ?: "{}")
+                            }.getOrDefault(org.json.JSONObject()).apply {
+                                if (controlBehavior == ConversationControlBehavior.ACTION && controlPrompt.isNotBlank()) {
+                                    put("prompt", controlPrompt.trim())
+                                } else {
+                                    remove("prompt")
+                                }
+                            }.toString()
+                            draft = draft.upsertControl(
+                                ConversationControlDefinition(
+                                    id = id,
+                                    label = controlLabel.trim(),
+                                    behavior = controlBehavior,
+                                    source = existing?.source ?: ConversationControlSource.USER,
+                                    actionKey = existing?.actionKey ?: if (controlBehavior == ConversationControlBehavior.VIEW) {
+                                        "user.view.$id"
+                                    } else {
+                                        "user.action.$id"
+                                    },
+                                    payloadJson = payload,
+                                    enabled = existing?.enabled ?: true,
+                                ),
+                            )
+                            controlLabel = ""
+                            controlPrompt = ""
+                            editingControlId = null
+                            addingControl = false
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = controlLabel.isNotBlank(),
+                    )
+                }
+            } else {
+                NovexTextActionRow(
+                    "添加快捷操作",
+                    onClick = {
+                        editingControlId = null
+                        controlLabel = ""
+                        controlPrompt = ""
+                        controlBehavior = ConversationControlBehavior.VIEW
+                        addingControl = true
+                    },
+                )
+            }
+        }
+
+        if (settingsPage == "display") NovexEditorSection(
+            header = "显示方式",
+            footer = "只改变头像和气泡，不改变回答人格或背景设定。",
+        ) {
+            ConversationToggleRow(
+                "显示双方头像和对话气泡",
+                draft.settings.rolePresentationEnabled,
+            ) { checked ->
+                draft = draft.updateSettings { it.copy(rolePresentationEnabled = checked) }
+            }
+            if (draft.settings.rolePresentationEnabled) {
+                NovexDivider(Modifier.padding(horizontal = 16.dp))
+                NovexInlineField(
+                    "助手名称",
+                    draft.settings.assistantDisplayName,
+                    "跟随人格",
+                    onValueChange = { value ->
+                        draft = draft.updateSettings { it.copy(assistantDisplayName = value.take(80)) }
+                    },
+                )
+                NovexOptionalImageRow(
+                    "助手头像",
+                    draft.settings.assistantAvatarPath?.existingFile(),
+                    assistantPicker,
+                    onRemove = { draft = draft.updateSettings { it.copy(assistantAvatarPath = null) } },
+                )
+            }
+        }
+
+        if (settingsPage == "conversationBackground") NovexEditorSection(
+            header = "对话背景",
+            footer = "只改变当前对话的背景。恢复来源背景后，会继续跟随角色卡或世界的背景设置。",
+        ) {
+            val effectiveBackground = draft.settings.backgroundPath
+                ?: viewModel.sourceConversationBackgroundPath()
+            NovexOptionalImageRow(
+                "背景图片",
+                effectiveBackground?.takeIf { it.isNotBlank() }?.existingFile(),
+                backgroundPicker,
+                onRemove = { draft = draft.updateSettings { it.copy(backgroundPath = "") } },
+            )
+            if (draft.settings.backgroundPath != null) {
+                NovexTextActionRow(
+                    "恢复来源背景",
+                    R.drawable.ic_phosphor_arrow_left,
+                    onClick = { draft = draft.updateSettings { it.copy(backgroundPath = null) } },
+                )
+            }
+        }
+
+        if (settingsPage == "image") NovexEditorSection(
+            header = "图片生成提示词",
+            footer = "会附加到本对话每次生成图片或编辑参考图的请求末尾。",
+        ) {
+            imageStylePresets.chunked(3).forEach { row ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+                ) {
+                    row.forEach { preset ->
+                        NovexOutlineButton(
+                            preset.name,
+                            { draft = draft.updateSettings { it.copy(imageStylePrompt = preset.prompt) } },
+                            Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            NovexTextField(
+                "固定风格（可留空）",
+                draft.settings.imageStylePrompt,
+                onValueChange = { value ->
+                    draft = draft.updateSettings {
+                        it.copy(imageStylePrompt = value.take(MAX_IMAGE_STYLE_PROMPT_CHARS))
+                    }
+                },
+                minLines = 4,
+            )
+        }
+        Spacer(Modifier.height(32.dp))
+    }
+
+    }
+
+    picker?.let { active ->
+        val actions = pickerActions(active, options, draft,
+                onChooseRole = { picker = ConversationPicker.ROLE }, onRoleSelected = { versionId ->
+                if (!preparingGame) {
+                    preparingGame = true
+                    picker = null
+                    val expected = draft.configuration
+                    scope.launch {
+                        try {
+                            val identity = AnswerIdentity.CharacterVersion(versionId)
+                            val companions = novex.android.adapter.NovexPlayerIdentityReader(workspace).read(
+                                novex.core.NovexReferenceTarget(NovexContentAddress.characterVersion(versionId)))
+                            require(draft.configuration == expected) { "准备角色期间对话设定已改变，请重新选择角色" }
+                            val current = expected.playerIdentity
+                            if (companions.size > 1 || (companions.isNotEmpty() && current != null && companions.singleOrNull() != current)) {
+                                pendingRole = identity to companions
+                            } else {
+                                draft = draft.setAnswerIdentity(identity)
+                                if (current == null && companions.size == 1) draft = draft.setPlayerIdentity(companions.single())
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            error = "尚未切换角色：${failure.message ?: "读取配套身份失败"}"
+                        } finally { preparingGame = false }
+                    }
+                }
+            }, onGameSelected = { projectId ->
+                if (!preparingGame) {
+                    preparingGame = true
+                    picker = null
+                    val expected = draft.configuration
+                    scope.launch {
+                        try {
+                            val application = context.applicationContext as com.openminis.app.MinisApp
+                            val (capturedConfiguration, game) = application.database.withTransaction {
+                                val captured = novex.android.adapter.NovexConversationContextAdoption(workspace, mediaStore = application.novexSnapshotMediaStore).adopt(expected)
+                                captured to NovexGameSnapshotAssembler(workspace, application.novexSnapshotMediaStore).create(projectId, captured.backgroundSettings, captured.adoptedContexts)
+                            }
+                            require(draft.configuration == expected) { "准备文游期间对话设定已改变，请重新选择文游" }
+                            draft = draft.copy(configuration = capturedConfiguration)
+                            val currentPlayer = draft.configuration.playerIdentity
+                            if (NovexGamePlayerChoices.needsSelection(game) ||
+                                (game.playerIdentity != null && currentPlayer != null && game.playerIdentity != currentPlayer)) {
+                                pendingGame = game
+                            } else draft = draft.activateGame(game)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            error = "文游尚未启动：${failure.message ?: "读取设定失败"}"
+                        } finally { preparingGame = false }
+                    }
+                }
+            }) { updated -> draft = updated }
+        if (active == ConversationPicker.ANSWER) ConversationSelectionSheet(active, active.pickerTitle(), actions) { picker = null }
+        else if (!directoryReady) novex.android.ui.NovexContentDialog("正在读取仓库", onDismiss = { picker = null },
+            confirmButton = { novex.android.ui.TextButton(onClick = { picker = null }) { Text("返回") } }) {
+            Text("正在读取可选择的内容…")
+        }
+        else {
+            val eligible = options.filter { option -> when (active) {
+                ConversationPicker.ROLE -> option.address.kind == NovexContentKind.CHARACTER_VERSION
+                ConversationPicker.GAME -> option.address.kind == NovexContentKind.INTERACTIVE_FICTION
+                ConversationPicker.GAME_REFERENCE -> option.address.kind == NovexContentKind.INTERACTIVE_FICTION &&
+                    draft.configuration.managedSubjects.none { it.subject == option.address && it.access == ManagedAccess.EDIT }
+                ConversationPicker.BACKGROUND, ConversationPicker.BOTH -> option.address.kind in setOf(NovexContentKind.WORLD, NovexContentKind.CHARACTER_VERSION)
+                else -> true
+            } }
+            val multiple = active !in setOf(ConversationPicker.ROLE, ConversationPicker.GAME)
+            val selected = when (active) {
+                ConversationPicker.BACKGROUND -> draft.configuration.backgroundSettings.map { it.subject }.toSet()
+                ConversationPicker.MANAGED, ConversationPicker.GAME_REFERENCE -> draft.configuration.managedSubjects.map { it.subject }.toSet()
+                else -> emptySet()
+            }.intersect(eligible.map { it.address }.toSet())
+            NovexLibraryPicker(active.pickerTitle(), eligible.map { NovexLibraryEntry(it.address, it.label, it.kindLabel) },
+                works?.groups.orEmpty(), selected, multiple, onDismiss = { picker = null }, onConfirm = { chosen ->
+                    if (!multiple) {
+                        val address = chosen.singleOrNull()
+                        val index = eligible.indexOfFirst { it.address == address }
+                        if (index >= 0) actions.getOrNull(index)?.onClick?.invoke()
+                    } else {
+                        var next = draft
+                        (selected - chosen).forEach { address -> next = if (active == ConversationPicker.BACKGROUND)
+                            next.removeBackground(address) else next.unmount(address) }
+                        (chosen - selected).forEach { address -> next = when (active) {
+                            ConversationPicker.BACKGROUND -> next.addBackground(address)
+                            ConversationPicker.GAME_REFERENCE -> next.mount(address, ManagedAccess.READ_ONLY)
+                            ConversationPicker.BOTH -> next.useAndManage(address)
+                            else -> next.mount(address, ManagedAccess.EDIT)
+                        } }
+                        draft = next; picker = null
+                    }
+                })
+        }
+    }
+    if (showingTokenUsage) TokenUsageSheet(
+        viewModel = viewModel,
+        onDismiss = { showingTokenUsage = false },
+    )
+    if (showingSettingUse) NovexSettingUseControls(draft.configuration.copy(backgroundSettings = draft.configuration.backgroundSettings.filterNot { it.subject in privateSubjects }), onToggle = { target, enabled ->
+        try { draft = draft.setSettingEnabled(target, enabled) }
+        catch (failure: IllegalArgumentException) { error = failure.message ?: "设定开关尚未保存" }
+    }, onReferenceToggle = { id, enabled ->
+        try { draft = draft.setReferenceEnabled(id, enabled) }
+        catch (failure: IllegalArgumentException) { error = failure.message ?: "设定开关尚未保存" }
+    }, onDismiss = { showingSettingUse = false })
+    if (showingAdoptedSources) novex.android.ui.NovexContentDialog("实际采用的来源", onDismiss = { showingAdoptedSources = false },
+        confirmButton = { novex.android.ui.TextButton(onClick = { showingAdoptedSources = false }) { Text("返回对话配置") } }) {
+        val sources = novex.core.NovexAdoptedSourceUsageProjection.read(draft.configuration).filterNot { it.source.target.subject in privateSubjects }
+        if (sources.isEmpty()) Text("当前没有已保存的采用快照；新选择的资料在保存对话配置时采用。")
+        sources.forEach { usage ->
+            Text(labels[usage.source.target.subject]?.label ?: usage.source.candidates.firstOrNull()?.label ?: "已采用的资料")
+            Text(usage.origins.joinToString("、"))
+            Text("包含 ${usage.source.candidates.size} 项资料")
+        }
+        Text("原卡更新后，可在对应设定中刷新本对话使用的内容。")
+    }
+    pendingGame?.let { game ->
+        NovexSelectionSheet(
+            title = "选择本局玩家身份",
+            actions = buildList {
+                NovexGamePlayerChoices.read(game).forEach { identity ->
+                    add(NovexSelectionAction(identity.label, description = identity.description) {
+                        draft = draft.activateGame(NovexGamePlayerChoices.select(game, identity.id), replacePlayerIdentity = true)
+                        pendingGame = null
+                    })
+                }
+                draft.configuration.playerIdentity?.let { current ->
+                    add(NovexSelectionAction("保留当前身份 · ${current.label}", description = current.description) {
+                        draft = draft.activateGame(NovexGamePlayerChoices.useCurrent(game, current), replacePlayerIdentity = true)
+                        pendingGame = null
+                    })
+                }
+                add(NovexSelectionAction("取消启动") { pendingGame = null })
+            },
+            onDismissRequest = { pendingGame = null },
+        )
+    }
+    pendingRole?.let { (role, companions) ->
+        NovexSelectionSheet(
+            title = "选择与该角色扮演时的玩家身份",
+            actions = companions.map { identity ->
+                NovexSelectionAction(identity.label, description = identity.description) {
+                    draft = draft.setAnswerIdentity(role).setPlayerIdentity(identity)
+                    pendingRole = null
+                }
+            } + listOf(
+                NovexSelectionAction(if (draft.configuration.playerIdentity == null) "不采用配套身份" else "保留当前玩家身份") {
+                    draft = draft.setAnswerIdentity(role)
+                    pendingRole = null
+                },
+                NovexSelectionAction("取消切换角色") { pendingRole = null },
+            ),
+            onDismissRequest = { pendingRole = null },
+        )
+    }
+    managedAction?.let { address ->
+        val ownedHere = ownedOptions.any { it.address == address }
+        val current = draft.configuration.managedSubjects.firstOrNull { it.subject == address }
+            ?: if (ownedHere) novex.core.ManagedSubject(address, ManagedAccess.EDIT) else null
+        NovexSelectionSheet(
+            title = labels[address]?.label ?: address.fallbackLabel(),
+            onDismissRequest = { managedAction = null },
+            actions = buildList {
+                if (current?.access != ManagedAccess.EDIT) add(
+                    NovexSelectionAction("设为可编辑", R.drawable.ic_phosphor_pencil_simple) {
+                        draft = draft.mount(address, ManagedAccess.EDIT)
+                    },
+                )
+                if (current?.access != ManagedAccess.READ_ONLY) add(
+                    NovexSelectionAction("设为只读", R.drawable.ic_phosphor_eye) {
+                        draft = draft.mount(address, ManagedAccess.READ_ONLY)
+                    },
+                )
+                if (!ownedHere) add(
+                    NovexSelectionAction("移出管理范围", R.drawable.ic_phosphor_trash) {
+                        draft = draft.unmount(address)
+                    },
+                )
+            },
+        )
+    }
+    if (choosingExecutionMode) {
+        novex.android.ui.NovexSelectionSheet(
+            title = "执行权限",
+            actions = novex.core.NovexExecutionMode.entries.map { mode ->
+                novex.android.ui.NovexSelectionAction(mode.label,
+                    description = mode.description, selected = mode == draft.configuration.executionMode) {
+                    draft = draft.setExecutionMode(mode)
+                    choosingExecutionMode = false
+                }
+            },
+            onDismissRequest = { choosingExecutionMode = false },
+        )
+    }
+    error?.let { message -> NovexNoticeDialog("操作失败", message) { error = null } }
+    adoptedImagePreview?.let { path ->
+        com.openminis.app.ui.components.FullscreenImageViewer(java.io.File(path)) { adoptedImagePreview = null }
+    }
+}
+
+
+@Composable
+private fun ConversationSubjectRow(
+    title: String,
+    subtitle: String,
+    onClick: (() -> Unit)? = null,
+    onRemove: (() -> Unit)? = null,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick == null) Modifier else Modifier.clickable(onClick = onClick))
+            .padding(start = NovexDimensions.PageHorizontal, top = 10.dp, bottom = 10.dp, end = 6.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = NovexColors.Text, style = NovexType.Body, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                subtitle,
+                color = NovexColors.SecondaryText,
+                style = NovexType.Metadata,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (onRemove != null) Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp).clickable(onClick = onRemove)) {
+            Icon(
+                painterResource(R.drawable.ic_phosphor_trash),
+                contentDescription = "移除$title",
+                tint = NovexColors.Danger,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConversationToggleRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(start = 16.dp, end = 4.dp),
+    ) {
+        Text(title, color = NovexColors.Text, style = NovexType.Body, modifier = Modifier.weight(1f))
+        NovexCheckToggle(checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun ConversationControlRow(
+    control: ConversationControlDefinition,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRemove: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+    ) {
+        Column(Modifier.weight(1f).clickable(onClick = onEdit).padding(vertical = 7.dp)) {
+            Text(control.label, color = NovexColors.Text, style = NovexType.Body, fontWeight = FontWeight.Medium)
+            Text(
+                control.source.sourceLabel() + " · " +
+                    if (control.behavior == ConversationControlBehavior.VIEW) "查看" else "动作",
+                color = NovexColors.SecondaryText,
+                style = NovexType.Metadata,
+            )
+        }
+        NovexCheckToggle(control.enabled, onCheckedChange = onToggle)
+        ControlMoveAction("上移", -90f, canMoveUp, onMoveUp)
+        ControlMoveAction("下移", 90f, canMoveDown, onMoveDown)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(42.dp).clickable(onClick = onRemove)) {
+            Icon(
+                painterResource(R.drawable.ic_phosphor_trash),
+                contentDescription = "删除${control.label}",
+                tint = NovexColors.Danger,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ControlMoveAction(
+    description: String,
+    degrees: Float,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(38.dp).clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Icon(
+            painterResource(R.drawable.ic_phosphor_caret_right),
+            contentDescription = description,
+            tint = if (enabled) NovexColors.SecondaryText else NovexColors.Divider,
+            modifier = Modifier.size(17.dp).rotate(degrees),
+        )
+    }
+}
+
+private fun ConversationControlSource.sourceLabel(): String = when (this) {
+    ConversationControlSource.PROJECT_PRESET -> "文游预设"
+    ConversationControlSource.AI -> "人工智能注册"
+    ConversationControlSource.USER -> "用户添加"
+}
+
+private fun NovexContentKind.displayName(): String = when (this) {
+    NovexContentKind.WORLD -> "世界"
+    NovexContentKind.CHARACTER_VERSION -> "角色版本"
+    NovexContentKind.INTERACTIVE_FICTION -> "文游"
+    NovexContentKind.CREATIVE_ARTIFACT -> "创作成果"
+}
+
+private fun NovexContentAddress.fallbackLabel(): String = "${kind.displayName()}（原件暂不可用）"
+private fun String.existingFile(): java.io.File? = java.io.File(this).takeIf(java.io.File::exists)
+
+@Composable
+private fun conversationImagePicker(kind: String, onPicked: (String) -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
+        if (uri != null) runCatching { CharacterCardStore.copyMedia(context, uri, kind) }.onSuccess(onPicked)
+    }
+    return { launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+}

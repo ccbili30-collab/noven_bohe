@@ -1,0 +1,273 @@
+package com.openminis.app.data.character
+
+import org.json.JSONArray
+import org.json.JSONObject
+
+sealed interface ContentModuleDocument {
+    data class Article(val text: String = "") : ContentModuleDocument
+
+    data class SingleImage(val description: String = "") : ContentModuleDocument
+
+    data class Timeline(
+        val nodes: List<ContentModuleTimelineNode> = emptyList(),
+    ) : ContentModuleDocument
+
+    data class Collection(
+        val items: List<ContentModuleCollectionItem> = emptyList(),
+    ) : ContentModuleDocument
+
+    /** Raw exchange payload retained when this app version cannot interpret a module. */
+    data class Unsupported(
+        val originalType: String,
+        val presentation: String? = null,
+        val contentJson: String,
+    ) : ContentModuleDocument
+}
+
+data class ContentModuleTimelineNode(
+    val time: String = "",
+    val title: String = "",
+    val description: String = "",
+)
+
+data class ContentModuleCollectionItem(
+    val id: String = "",
+    val name: String = "",
+    val summary: String = "",
+    val description: String = "",
+    /** Opaque stable key resolved by the page's visual adapter. It is never a raw file path. */
+    val visualKey: String? = null,
+    /** Unknown type-specific fields survive internal edits and native package re-export. */
+    val preservedJson: String = "{}",
+    /** Explicit use condition, encoded as JSON including unsupported value types for faithful exchange. */
+    val contextTriggerJson: String? = null,
+)
+
+/**
+ * Versioned content document seam shared by world and character modules.
+ *
+ * Room stores the encoded JSON unchanged. Decoding also accepts the previous
+ * `{ "text": ... }` payload and malformed legacy plain text, so this schema
+ * can ship independently from a database migration.
+ */
+object ContentModuleDocumentCodec {
+    private const val CURRENT_VERSION = 1
+
+    /** Shared by persistence and read-back verification; imported source metadata is immutable. */
+    fun preserveTransferSource(originalJson: String, incomingJson: String): String {
+        val source = runCatching { JSONObject(originalJson).optJSONObject("_novexTransferSource") }.getOrNull()
+            ?: return incomingJson
+        return runCatching { JSONObject(incomingJson) }
+            .getOrElse { JSONObject(encode(ContentModuleDocument.Article(incomingJson))) }
+            .put("_novexTransferSource", source).toString()
+    }
+
+    /** Editing known fields must not erase extensions retained from an imported card. */
+    fun edit(originalJson: String, document: ContentModuleDocument): String {
+        if (document is ContentModuleDocument.Unsupported) return encode(document)
+        val merged = runCatching { JSONObject(originalJson) }.getOrDefault(JSONObject())
+        listOf("kind", "version", "text", "caption", "description", "nodes", "items",
+            "originalType", "presentation", "contentJson").forEach(merged::remove)
+        val edited = JSONObject(encode(document))
+        edited.keys().forEach { key -> merged.put(key, edited.get(key)) }
+        return merged.toString()
+    }
+
+    fun encode(document: ContentModuleDocument): String = JSONObject().apply {
+        put("version", CURRENT_VERSION)
+        when (document) {
+            is ContentModuleDocument.Article -> {
+                put("kind", "article")
+                put("text", document.text)
+            }
+
+            is ContentModuleDocument.SingleImage -> {
+                put("kind", "single_image")
+                put("description", document.description)
+            }
+
+            is ContentModuleDocument.Timeline -> {
+                put("kind", "timeline")
+                put("nodes", JSONArray().apply {
+                    document.nodes.forEach { node ->
+                        put(JSONObject().apply {
+                            put("time", node.time)
+                            put("title", node.title)
+                            put("description", node.description)
+                        })
+                    }
+                })
+            }
+
+            is ContentModuleDocument.Collection -> {
+                put("kind", "collection")
+                put("items", JSONArray().apply {
+                    document.items.forEach { item ->
+                        put(runCatching { JSONObject(item.preservedJson) }.getOrDefault(JSONObject()).apply {
+                            put("id", item.id)
+                            put("name", item.name)
+                            put("summary", item.summary)
+                            put("description", item.description)
+                            item.contextTriggerJson?.let { put("contextTrigger", org.json.JSONTokener(it).nextValue()) } ?: remove("contextTrigger")
+                            item.visualKey?.let { put("visualKey", it) }
+                                ?: remove("visualKey")
+                        })
+                    }
+                })
+            }
+
+            is ContentModuleDocument.Unsupported -> {
+                put("kind", "unsupported")
+                put("originalType", document.originalType)
+                document.presentation?.let { put("presentation", it) }
+                // Keep the opaque payload as text. Parsing and serializing it here would
+                // reorder object keys and make a byte-stable re-export impossible.
+                put("contentJson", document.contentJson)
+            }
+        }
+    }.toString()
+
+    fun decode(contentJson: String): ContentModuleDocument =
+        decodeRich(contentJson) ?: ContentModuleDocument.Article(legacyText(contentJson))
+
+    fun decode(type: ContentModuleType, contentJson: String): ContentModuleDocument =
+        decodeRich(contentJson, type) ?: legacyDocument(type, legacyText(contentJson))
+
+    private fun decodeRich(
+        contentJson: String,
+        fallbackType: ContentModuleType? = null,
+    ): ContentModuleDocument? = runCatching {
+        val root = JSONObject(contentJson)
+        val kind = root.optString("kind")
+        when (kind) {
+            "article" -> ContentModuleDocument.Article(root.optString("text"))
+            "single_image" -> ContentModuleDocument.SingleImage(root.optString("description"))
+            "timeline" -> ContentModuleDocument.Timeline(
+                root.optJSONArray("nodes").objects().map { node ->
+                    ContentModuleTimelineNode(
+                        time = node.optString("time"),
+                        title = node.optString("title"),
+                        description = node.optString("description"),
+                    )
+                },
+            )
+
+            "collection" -> ContentModuleDocument.Collection(
+                root.optJSONArray("items").objects().map { item ->
+                    val preserved = JSONObject(item.toString()).apply {
+                        remove("id")
+                        remove("name")
+                        remove("summary")
+                        remove("description")
+                        remove("visualKey")
+                        remove("contextTrigger")
+                    }
+                    ContentModuleCollectionItem(
+                        id = item.optString("id"),
+                        name = item.optString("name"),
+                        summary = item.optString("summary"),
+                        description = item.optString("description"),
+                        visualKey = item.optString("visualKey").takeIf(String::isNotBlank),
+                        preservedJson = preserved.toString(),
+                        contextTriggerJson = if (item.has("contextTrigger")) JSONArray().put(item.get("contextTrigger")).toString().drop(1).dropLast(1) else null,
+                    )
+                },
+            )
+
+            "unsupported" -> ContentModuleDocument.Unsupported(
+                originalType = root.optString("originalType"),
+                presentation = root.optString("presentation").takeIf(String::isNotBlank),
+                contentJson = root.optString("contentJson", "{}"),
+            )
+
+            "" -> if (root.length() == 0 || root.has("text") || root.has("caption")) null else {
+                ContentModuleDocument.Unsupported(
+                    originalType = fallbackType?.name?.lowercase() ?: "unknown",
+                    contentJson = contentJson,
+                )
+            }
+            else -> ContentModuleDocument.Unsupported(
+                originalType = fallbackType?.name?.lowercase()
+                    ?: root.optString("originalType", "unknown"),
+                presentation = kind,
+                contentJson = contentJson,
+            )
+        }
+    }.getOrNull()
+
+    private fun legacyDocument(type: ContentModuleType, text: String): ContentModuleDocument = when (type) {
+        ContentModuleType.MAP -> ContentModuleDocument.SingleImage(text)
+        ContentModuleType.TIMELINE,
+        ContentModuleType.ERA_EVENT,
+        ContentModuleType.WORLD_EXPERIENCE,
+        -> ContentModuleDocument.Timeline(
+            text.takeIf(String::isNotBlank)
+                ?.let { listOf(ContentModuleTimelineNode(description = it)) }
+                .orEmpty(),
+        )
+
+        ContentModuleType.REGION,
+        ContentModuleType.FACTION,
+        ContentModuleType.RACE,
+        ContentModuleType.QUOTES,
+        ContentModuleType.ATTRIBUTE_PANEL,
+        ContentModuleType.EQUIPMENT,
+        ContentModuleType.TALENT_SKILL,
+        ContentModuleType.APPEARANCE_PERSONALITY,
+        ContentModuleType.INTEREST,
+        ContentModuleType.GAME_ATTRIBUTES,
+        ContentModuleType.GAME_SKILLS,
+        ContentModuleType.GAME_EQUIPMENT,
+        ContentModuleType.GAME_ITEMS,
+        ContentModuleType.GAME_QUESTS,
+        ContentModuleType.GAME_CHECKS,
+        ContentModuleType.GAME_ENDINGS,
+        ContentModuleType.GAME_CHARACTER_STATUS,
+        ContentModuleType.GAME_QUICK_ACTIONS,
+        -> ContentModuleDocument.Collection(
+            text.takeIf(String::isNotBlank)
+                ?.let { listOf(ContentModuleCollectionItem(summary = it)) }
+                .orEmpty(),
+        )
+
+        ContentModuleType.ROLE_INSTRUCTIONS,
+        ContentModuleType.ROLE_PLAYER_IDENTITY,
+        ContentModuleType.GAME_ANSWER_IDENTITY,
+        ContentModuleType.GAME_PLAYER_IDENTITY,
+        ContentModuleType.GAME_OPENING,
+        ContentModuleType.GAME_NARRATIVE_RULES,
+        ContentModuleType.GAME_POWER_SYSTEM,
+        ContentModuleType.CUSTOM,
+        -> ContentModuleDocument.Article(text)
+    }
+
+    private fun legacyText(contentJson: String): String = runCatching {
+        JSONObject(contentJson).let { it.optString("text", it.optString("caption")) }
+    }.getOrElse { contentJson }
+
+    private fun JSONArray?.objects(): List<JSONObject> = buildList {
+        val array = this@objects ?: return@buildList
+        repeat(array.length()) { index ->
+            array.optJSONObject(index)?.let(::add)
+        }
+    }
+}
+
+fun ContentModuleDocument.toPlainText(): String = when (this) {
+    is ContentModuleDocument.Article -> text
+    is ContentModuleDocument.SingleImage -> description
+    is ContentModuleDocument.Timeline -> nodes.joinToString("\n") { node ->
+        val heading = listOf(node.time, node.title).filter(String::isNotBlank).joinToString(" · ")
+        listOf(heading, node.description).filter(String::isNotBlank).joinToString("\n")
+    }
+
+    is ContentModuleDocument.Collection -> items.joinToString("\n") { item ->
+        val heading = when {
+            item.name.isNotBlank() && item.summary.isNotBlank() -> "${item.name}：${item.summary}"
+            item.name.isNotBlank() -> item.name
+            else -> item.summary
+        }
+        listOf(heading, item.description).filter(String::isNotBlank).joinToString("\n")
+    }
+    is ContentModuleDocument.Unsupported -> "$originalType 暂不支持，原始内容已保留"
+}

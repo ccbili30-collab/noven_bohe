@@ -1,0 +1,385 @@
+import java.util.Properties
+import com.android.build.api.variant.BuildConfigField
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.devtools.ksp")
+}
+
+// Build-time customization values that must NOT ship in the public
+// open-source mirror. `provider-customization.properties` is tracked in the PRIVATE
+// MinisApp repo (with real values) and listed under `private:` in
+// PUBLISH_MANIFEST.yml so it is never synced; the public repo ships only
+// `provider-customization.properties.example` (empty values). A build without a
+// configured value compiles fine but fails at runtime the first time the
+// value is required (see ClaudeOAuthManager). See docs/PUBLISH_POLICY.md.
+val appCustomization = Properties().apply {
+    val f = rootProject.file("app/provider-customization.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun customizationValue(key: String): String =
+    (appCustomization.getProperty(key) ?: "").replace("\"", "\\\"")
+
+// CI can provide the certificate that signed the previous public release via
+// environment variables. Local builds keep the historical debug-signing
+// fallback so existing developer workflows remain unchanged.
+val releaseKeystorePath = System.getenv("NOVEX_RELEASE_KEYSTORE_PATH").orEmpty()
+val releaseStorePassword = System.getenv("NOVEX_RELEASE_STORE_PASSWORD").orEmpty()
+val releaseKeyAlias = System.getenv("NOVEX_RELEASE_KEY_ALIAS").orEmpty()
+val releaseKeyPassword = System.getenv("NOVEX_RELEASE_KEY_PASSWORD").orEmpty()
+val hasReleaseSigningEnvironment = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it.isNotBlank() }
+
+val novexVersionName = System.getenv("NOVEX_VERSION_NAME")
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "4.0.0"
+
+fun versionCodeFor(versionName: String): Int {
+    val match = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$""")
+        .matchEntire(versionName)
+        ?: error("NOVEX_VERSION_NAME must use semantic versioning: $versionName")
+    val major = match.groupValues[1].toInt()
+    val minor = match.groupValues[2].toInt()
+    val patch = match.groupValues[3].toInt()
+    val prerelease = match.groupValues[4]
+    val stage = if (prerelease.isEmpty()) {
+        9_999
+    } else {
+        prerelease.split('.', '-').lastOrNull()?.toIntOrNull()?.coerceIn(1, 9_998) ?: 1
+    }
+    return major * 100_000_000 + minor * 1_000_000 + patch * 10_000 + stage
+}
+
+val novexVersionCode = System.getenv("NOVEX_VERSION_CODE")
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?.toInt()
+    ?: versionCodeFor(novexVersionName)
+
+android {
+    namespace = "com.openminis.app"
+    // [T-android-dynamic-island] Bumped 35→36 so the Android 16 (Baklava)
+    // Live Updates APIs — Notification.ProgressStyle, FLAG_PROMOTED_ONGOING,
+    // NotificationManager.canPostPromotedNotifications(), setShortCriticalText —
+    // are available to compile against. targetSdk stays 35 to avoid pulling in
+    // Android 16 behavior changes; the Live Updates path is runtime-gated on
+    // Build.VERSION.SDK_INT >= 36 (see DynamicIslandSupport / AgentForegroundService).
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "com.noven.player"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = novexVersionCode
+        versionName = novexVersionName
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["novexUpdateChannel"] = "stable"
+
+        // System prompt prefix required by Anthropic for Claude Code OAuth
+        // credentials. Empty in the public mirror (see provider-customization.properties).
+        buildConfigField(
+            "String",
+            "ANTHROPIC_OAUTH_IDENTIFIER_PROMPT",
+            "\"${customizationValue("ANTHROPIC_OAUTH_IDENTIFIER_PROMPT")}\""
+        )
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    flavorDimensions += "updateChannel"
+    productFlavors {
+        create("stable") {
+            dimension = "updateChannel"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
+        }
+        create("preview") {
+            dimension = "updateChannel"
+            applicationIdSuffix = ".preview"
+            manifestPlaceholders["novexUpdateChannel"] = "preview"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"preview\"")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseSigningEnvironment) {
+            create("releaseEnvironment") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Keep arm64 for real devices and x86_64 for the Windows screenshot
+            // emulator. Release remains arm64-only until the sandbox supports x86.
+            ndk {
+                abiFilters.clear()
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
+        }
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = if (hasReleaseSigningEnvironment) {
+                signingConfigs.getByName("releaseEnvironment")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
+        create("daily") {
+            initWith(getByName("release"))
+            // Daily preview updates favour iteration speed. The manually run
+            // release-candidate workflow remains the only R8-minified path.
+            isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = if (hasReleaseSigningEnvironment) {
+                signingConfigs.getByName("releaseEnvironment")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+            matchingFallbacks += listOf("release")
+        }
+        create("benchmark") {
+            initWith(getByName("release"))
+            // Local startup evidence only: optimized like release, signed with
+            // the disposable debug key, and never used by a publishing task.
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+            ndk {
+                abiFilters.clear()
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.jvmArgs(
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
+                "--add-opens=java.base/java.net=ALL-UNNAMED",
+                "--add-opens=java.base/java.security=ALL-UNNAMED",
+                "--add-opens=java.base/java.text=ALL-UNNAMED",
+                "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+            )
+        }
+    }
+
+    lint {
+        // AGP 8.x ships a NonNullableMutableLiveData detector that throws
+        // IncompatibleClassChangeError on Kotlin source during
+        // lintVitalAnalyzeRelease, regardless of whether the project uses
+        // LiveData (this project does not). The crash happens in the
+        // detector's dispatch phase — before the configured `disable` list
+        // is consulted — so disabling the rule alone is not enough.
+        // checkReleaseBuilds=false skips lintVitalAnalyzeRelease entirely;
+        // debug-build lint coverage is unaffected. Re-enable once AGP ships
+        // a fixed detector (tracked at issuetracker.google.com/388538014).
+        checkReleaseBuilds = false
+        disable += "NonNullableMutableLiveData"
+    }
+}
+
+// [T-android-debugserver-skill] Stage the debug-server skill + an Android
+// reference client into the DEBUG-ONLY asset source set, so the debug server
+// can serve them over GET /skill (mirrors the iOS "Generate Debug Skill" build
+// phase). Single source of truth stays .claude/skills/debug-server/.
+//
+// Wired to DEBUG asset merges only: src/debug/assets never reaches a release
+// APK, so the tooling docs can't ship to users. `assets` is also declared as an
+// output so Gradle re-runs this when the skill changes but skips it otherwise.
+val stageDebugSkillAssets by tasks.registering(Exec::class) {
+    val script = rootProject.file("../../scripts/gen_debug_skill_android.sh")
+    val skillDir = rootProject.file("../../.claude/skills/debug-server")
+    onlyIf { script.exists() }
+    // Declare the inputs only when they exist. `.optional()` covers an unset
+    // property, not a path that is absent: Gradle validates inputs before it
+    // consults onlyIf, so a missing skill dir fails the build outright. The
+    // public mirror has neither the script nor .claude/skills, and must still
+    // build.
+    if (skillDir.isDirectory) inputs.dir(skillDir)
+    if (script.isFile) inputs.file(script)
+    outputs.dir(layout.projectDirectory.dir("src/debug/assets/debug-skill"))
+    commandLine("bash", script.absolutePath)
+}
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") && it.name.contains("Debug") }
+    .configureEach { dependsOn(stageDebugSkillAssets) }
+
+dependencies {
+    implementation(project(":novex-core"))
+
+    // Compose BOM
+    val composeBom = platform("androidx.compose:compose-bom:2025.09.00")
+    implementation(composeBom)
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Core
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    // ProcessLifecycleOwner — used by XAIOAuthManager to detect Custom
+    // Tab dismissal (T-xai-oauth-stop-resume port iOS d1dbdd5d).
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
+
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.8.5")
+
+    // Room
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+
+    // DataStore
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Security (EncryptedSharedPreferences)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // OkHttp
+    // [T-android-vad] Silero v5 VAD (ONNX Runtime + WebRTC APM). The Android
+    // build of the exact library iOS uses via SPM, from the same author, so
+    // both platforms share one model and one set of thresholds. Carries
+    // native .so payloads for ONNX Runtime and the APM — see the abiFilters
+    // note in `ndk`; we ship arm64-v8a only.
+    // JitPack is intermittently unreachable from the Windows build host.
+    // Vendor the pinned MIT-licensed AAR so clean builds remain reproducible.
+    implementation(files("libs/RealTimeCutVADLibraryForAndroid-1.0.5.aar"))
+
+
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+
+    // Kotlinx Serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // Local text extraction for ordinary, text-based PDF attachments.
+    // Scanned PDFs still require OCR and intentionally remain outside v1.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+    // Android-shaded Apache POI 5.2.5, pinned to the upstream 5.2.5-4
+    // release. It is the primary DOCX reader; the small ZIP/XML reader stays
+    // available only as a recovery path for malformed or unusual packages.
+    // SHA-256: 95fa47df696b43c68775d4623afccd618c375c045b6a96b9ca593d0aefcab9a3
+    implementation(files("libs/poishadow-all-5.2.5-4.jar"))
+
+    // Coil (image loading)
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Markdown rendering (mikepenz multiplatform-markdown-renderer)
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.33.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3-android:0.33.0")
+
+    // Chrome Custom Tabs (in-app browser for OAuth)
+    implementation("androidx.browser:browser:1.8.0")
+
+    // [P3.3 裁军] androidx.webkit（PWA 资产加载器）与 dev.rikka.shizuku
+    // （Shizuku/AXManager 特权后端 SDK）随 WebApp 与 offload/ 体系整体
+    // 退役摘除；androidx.browser 保留（provider OAuth 的 Custom Tabs
+    // 仍在用）。
+
+    // Drag-to-reorder for LazyColumn
+    implementation("sh.calvin.reorderable:reorderable:2.4.0")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // T283: ACRA — local crash report capture. acra-core only (no http
+    // sender, no network permission).
+    implementation("ch.acra:acra-core:5.12.0")
+
+    // Testing — JVM unit tests
+    testImplementation("junit:junit:4.13.2")
+    // Host-side lifecycle tests only; never packaged with the application.
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.json:json:20231013")
+
+    // Testing — Instrumented (on-device) tests
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    androidTestImplementation("junit:junit:4.13.2")
+}
+
+dependencies {
+    implementation(project(":content-core"))
+    implementation(project(":content-storage")) { exclude(group="org.json",module="json") }
+    implementation(project(":conversation-runtime")) { exclude(group="org.json",module="json") }
+}
+
+// Types used by the original conversation-to-card adapter.
+dependencies {
+    implementation(project(":conversation-core"))
+    implementation(project(":model-transport")) { exclude(group="org.json",module="json") }
+}
+
+// Candidate builds use the ordinary preview channel. No credentials or private
+// model entries are injected at build time.
+androidComponents {
+    onVariants(selector().withFlavor("updateChannel" to "preview").withBuildType("daily")) { variant ->
+        variant.buildConfigFields.put("UPDATE_CHANNEL", BuildConfigField("String", "\"preview\"", "Candidate track"))
+        variant.manifestPlaceholders.put("novexUpdateChannel", "preview")
+    }
+}
