@@ -143,12 +143,18 @@ internal fun GroupEntry(
     // SystemVoiceEntries 回退：语音组成员是按需合成、不进
     // config.modelEntries 的 "__builtin_system_speech__/…"，只查
     // modelEntries 会把它们数成 0。
-    val resolvedEntry = group.memberEntryIds.firstNotNullOfOrNull { entryId ->
+    // 「→ 当前模型」优先显示本组实际绑定的成员（activeEntryId 且在
+    // memberEntryIds 内）——此前恒取第一个成员，用户在组内换模型后
+    // 这行永远显示旧成员（"下属指向的模型不换"的真因）。
+    val resolvedEntry = (
+        if (isSelected && activeEntryId != null && activeEntryId in group.memberEntryIds) {
+            config.modelEntries.find { it.id == activeEntryId }
+                ?: SystemVoiceEntries.resolve(activeEntryId)
+        } else null
+        ) ?: group.memberEntryIds.firstNotNullOfOrNull { entryId ->
         config.modelEntries.find { it.id == entryId }
             ?: SystemVoiceEntries.resolve(entryId)
-    } ?: if (isSelected && activeEntryId != null) {
-        config.modelEntries.find { it.id == activeEntryId }
-    } else null
+    }
     val resolvedCount = group.memberEntryIds.count { entryId ->
         config.modelEntries.any { it.id == entryId } ||
             SystemVoiceEntries.resolve(entryId) != null

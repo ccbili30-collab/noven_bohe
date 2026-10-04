@@ -117,14 +117,23 @@ class IntegratedCards(context:Context,
             args.optString("name").takeIf(String::isNotBlank),args.optString("text").takeIf(String::isNotBlank)?.let {if(it.length>320)it.take(320)+"…（完整内容见操作详情）" else it}).joinToString("\n")
     }
     fun names():Set<String> = CardToolProtocol.definitions(CardToolPolicy(emptySet())).map {it.name}.toSet()
-    fun definitions(chat:String):List<AgentToolDefinition> = CardToolProtocol.definitions(policy(chat)).map {tool->
+    fun definitions(chat:String):List<AgentToolDefinition> = CardToolProtocol.definitions(policy(chat)).map(::toAgentTool)
+    /**
+     * 未挂卡会话的最小工具面：只放行建卡两个工具。创建成功即被纳入绑定
+     * 的 managed（execute 内的 created 回写），后续编辑工具自然随绑定出现。
+     * 读取/编辑类工具继续锁门——没有可管理对象时暴露它们只会诱导模型瞎猜编号。
+     */
+    fun creationDefinitions():List<AgentToolDefinition> =
+        CardToolProtocol.definitions(CardToolPolicy(emptySet(),ToolPermission.FREE))
+            .filter {it.name in setOf("create_card","create_card_bulk")}.map(::toAgentTool)
+    private fun toAgentTool(tool:novex.model.ToolDefinition):AgentToolDefinition {
         val schema=JSONObject(tool.parameters)
         fun strings(value:JSONArray?)=value?.let {a->(0 until a.length()).map(a::getString)}?:emptyList()
         fun param(value:JSONObject):AgentToolParam=AgentToolParam(value.getString("type"),value.optString("description"),
             value.optJSONArray("enum")?.let(::strings),value.optJSONObject("items")?.let(::param),
             value.optJSONObject("properties")?.let {p->p.keys().asSequence().associateWith {param(p.getJSONObject(it))}},strings(value.optJSONArray("required")))
         val properties=schema.getJSONObject("properties")
-        AgentToolDefinition(tool.name,tool.description,properties.keys().asSequence().associateWith {param(properties.getJSONObject(it))},strings(schema.optJSONArray("required")))
+        return AgentToolDefinition(tool.name,tool.description,properties.keys().asSequence().associateWith {param(properties.getJSONObject(it))},strings(schema.optJSONArray("required")))
     }
     /** 外层原对话已经完成权限决定；这里仍限制对象与版本，不再弹第二次批准。 */
     suspend fun execute(chat:String,reply:String,id:String,name:String,args:String,images:Map<String,java.io.File> = emptyMap()):ToolExecutionResult {

@@ -381,10 +381,6 @@
 
     <!-- T241: 斜線指令面板 + 選擇模型 sheet -->
     <string name="slash_compact_subtitle">壓縮對話歷史為摘要</string>
-    <string name="slash_memory_writes_on">寫入已開啟 — 點擊切換</string>
-    <string name="slash_memory_writes_off">寫入已關閉 — 點擊切換</string>
-    <string name="slash_thinking_subtitle">思考 %1$s — 點擊切換</string>
-    <string name="slash_thinking_unsupported">目前模型不支援</string>
     <string name="thinking_level_off">關閉</string>
     <string name="thinking_level_low">低</string>
     <string name="thinking_level_medium">中</string>

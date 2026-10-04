@@ -673,10 +673,6 @@
 
     <!-- T241: 슬래시 명령어 패널 + 모델 선택 시트 -->
     <string name="slash_compact_subtitle">대화 기록을 요약으로 압축</string>
-    <string name="slash_memory_writes_on">쓰기 켜짐 — 탭하여 전환</string>
-    <string name="slash_memory_writes_off">쓰기 꺼짐 — 탭하여 전환</string>
-    <string name="slash_thinking_subtitle">사고 %1$s — 탭하여 전환</string>
-    <string name="slash_thinking_unsupported">현재 모델은 지원하지 않음</string>
     <string name="thinking_level_off">꺼짐</string>
     <string name="thinking_level_low">낮음</string>
     <string name="thinking_level_medium">중간</string>

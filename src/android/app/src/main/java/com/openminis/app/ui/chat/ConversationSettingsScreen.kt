@@ -1026,7 +1026,11 @@ private fun ConversationControlRow(
             Text(control.label, color = NovexColors.Text, style = NovexType.Body, fontWeight = FontWeight.Medium)
             Text(
                 control.source.sourceLabel() + " · " +
-                    if (control.behavior == ConversationControlBehavior.VIEW) "查看" else "动作",
+                    when (control.behavior) {
+                        ConversationControlBehavior.VIEW -> "查看"
+                        ConversationControlBehavior.PREFILL -> "填框"
+                        else -> "动作"
+                    },
                 color = NovexColors.SecondaryText,
                 style = NovexType.Metadata,
             )

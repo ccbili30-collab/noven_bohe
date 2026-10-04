@@ -164,6 +164,7 @@ internal fun ChatViewModel.loadSession() {
     if (com.openminis.app.crash.CrashFrequencyDetector.isSafeMode()) {
         android.util.Log.w(ChatViewModel.TAG, "loadSession: safe-mode active, skipping session restore")
         sessionLoaded.value = true
+        refreshLocalContextEstimate()
         // [T-android-perf-logging] Surface the skip on the Perf timeline
         // too — when a crash_or_stall recovery loop is suspected, this
         // distinguishes "loadSession ran and was slow" from "loadSession
@@ -663,6 +664,9 @@ internal fun ChatViewModel.loadSession() {
             // missing-session path) and on exception, so the init-time
             // config.collect can never deadlock waiting for us.
             sessionLoaded.value = true
+            // [A2c-meter] 装载完即按本地历史点亮上下文环——provider 不回
+            // usage 时环不再灰到第一次发送。
+            refreshLocalContextEstimate()
             // [T-HANG-DIAG] total time spent in loadSession from ENTER to
             // either successful completion or early return. tHangDiagStart
             // was captured just inside `try` so this covers the whole
@@ -988,6 +992,7 @@ internal fun ChatViewModel.restoreFromBinding(bindingJson: String?): Boolean {
                 _contextEstimated.value = true
                 _lastTurnContextTokens.value = 0
                 _contextUsageReady.value = false
+                refreshLocalContextEstimate()
 
                 true
             }
@@ -1034,6 +1039,7 @@ internal fun ChatViewModel.resolveProviderFromGroup(groupId: String, preferredEn
     _contextEstimated.value = true
     _lastTurnContextTokens.value = 0
     _contextUsageReady.value = false
+    refreshLocalContextEstimate()
     return true
 }
 
@@ -1133,6 +1139,7 @@ internal fun ChatViewModel.applyNewChatDefaultModel(): Boolean {
     _contextEstimated.value = true
     _lastTurnContextTokens.value = 0
     _contextUsageReady.value = false
+    refreshLocalContextEstimate()
     return true
 }
 
@@ -1161,6 +1168,7 @@ fun ChatViewModel.selectEntry(entryId: String) {
     _contextEstimated.value = true
     _lastTurnContextTokens.value = 0
     _contextUsageReady.value = false
+    refreshLocalContextEstimate()
     persistBinding("""{"type":"entry","entryId":"$entryId"}""")
     // [T-newchat-default-model-fallback-android] Remember this as the
     // global last-used model so the NEXT new chat (when no default group
@@ -1226,6 +1234,7 @@ internal fun ChatViewModel.installStreamFallback(previous: ChatViewModel.Fallbac
         _contextEstimated.value = true
         _lastTurnContextTokens.value = 0
         _contextUsageReady.value = false
+        refreshLocalContextEstimate()
         _activeEntryId.value = entry.id
         currentModel = next.provider.model
         providerRepository.instance(entry.providerInstanceId)?.let {

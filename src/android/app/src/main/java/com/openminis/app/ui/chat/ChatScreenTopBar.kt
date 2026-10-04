@@ -403,16 +403,14 @@ internal fun ChatTopBar(
                                                 CircleShape,
                                             ),
                                     )
-                                    // Group-bound chats name their group; a direct
-                                    // entry pick has no group so the pill shows the
-                                    // actual bound model. The default-group fallback
-                                    // only applies while nothing is bound at all —
-                                    // previously it ran for every entry pick, so the
-                                    // pill showed the default group regardless of
-                                    // what the user selected.
+                                    // [A2c-pill] pill 只显示实际服役的模型名——
+                                    // 组绑定时 modelName 就是 resolve 出的成员
+                                    // 模型，用户换成员后名字同步变；组名是管理
+                                    // 维度不进 pill（"默认模型"组名下压着实
+                                    // 际模型是此前"换模型不显示"的真因）。
                                     val groupNameDisplay = when {
-                                        selectedGroupName.isNotEmpty() -> selectedGroupName
                                         modelName.isNotEmpty() -> modelName
+                                        selectedGroupName.isNotEmpty() -> selectedGroupName
                                         else -> providerRepository.defaultPrimaryGroupId
                                             .let { id -> availableGroups.firstOrNull { it.id == id }?.name }
                                             ?: stringResource(R.string.model_picker_default_badge)

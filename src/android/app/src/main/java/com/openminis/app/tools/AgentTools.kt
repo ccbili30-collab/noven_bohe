@@ -112,14 +112,20 @@ object AgentTools {
 
     private fun registerControlsDefinition(): AgentToolDefinition = AgentToolDefinition(
         name = "register_controls",
-        description = "Register persistent Novex conversation controls. View controls reveal branch-local state without " +
-            "creating a turn; action controls create an explicit user turn. These controls belong to this conversation " +
-            "and never modify the shared interactive-fiction project.",
+        description = "Register persistent quick-action cards (silver cards) in this conversation's card tray so the " +
+            "user can invoke them directly. USE THIS when the user wants something remembered or reusable: " +
+            "memory stores, status boards, recurring commands, character/state viewers, or any action worth " +
+            "one-tap access. Also use proactively when a workflow clearly benefits from a stable shortcut. " +
+            "Three behaviors, choose per control: 'view' reveals branch-local state without a turn; 'action' " +
+            "sends its prompt as a complete user turn immediately; 'prefill' puts its prompt into the composer " +
+            "so the user can add details before sending. These controls belong to this conversation only.",
         parameters = mapOf(
             "controls" to AgentToolParam(
                 "string",
-                "A JSON array of 1 to 12 objects. Each has label, behavior (view or action), actionKey, and optional " +
-                    "stateKeys, prompt and enabled. Legacy instruction is accepted as an action prompt.",
+                "A JSON array of 1 to 12 objects. Each has label (short card name), behavior (view, action or " +
+                    "prefill), actionKey, and optional stateKeys, prompt and enabled. For action/prefill controls " +
+                    "always write a useful prompt — it becomes the message text. Legacy instruction is accepted " +
+                    "as an action prompt.",
             ),
         ),
         required = listOf("controls"),

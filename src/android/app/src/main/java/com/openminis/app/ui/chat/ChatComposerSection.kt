@@ -323,6 +323,20 @@ internal fun ChatComposerSection(
                     showSlashMenu,
                     viewModel.slashFilter.collectAsState().value,
                 ) { viewModel.filteredSlashCommands() }
+                // [A2c-cards] 紫卡=精选内置能力：点击往输入框插 〔能力名〕
+                // 胶囊，用户补话或直发都行。生图卡按生图组配置条件出现。
+                val trayProviderConfig by viewModel.providerRepository.config.collectAsState()
+                val purpleCards = remember(trayProviderConfig) {
+                    buildList {
+                        add("创建世界卡" to "让 AI 建一张新的世界卡")
+                        add("创建角色卡" to "让 AI 建一张新的角色卡")
+                        add("给我选项" to "让 AI 给出下一步可选行动")
+                        add("注册快捷操作" to "让 AI 把常用操作注册成银卡")
+                        if (viewModel.providerRepository.resolvedImageGenerationEntries().isNotEmpty()) {
+                            add("生成图片" to "让 AI 生成一张图片")
+                        }
+                    }
+                }
                 if (showSlashMenu) {
                     androidx.compose.ui.window.Popup(
                         popupPositionProvider = remember {
@@ -385,7 +399,7 @@ internal fun ChatComposerSection(
                             // [A2c-cards] 高度随卡数：行高 ~52dp，上限封顶
                             // SLASH_PICKER_FIXED_HEIGHT，超出内部滚动。
                             // 不再固定 4 行高撑满。
-                            val trayRows = (novexControls.size + filteredSlashCommands.size)
+                            val trayRows = (novexControls.size + purpleCards.size + filteredSlashCommands.size)
                                 .coerceAtLeast(1)
                             val trayHeight = (trayRows * 52 + 14).dp
                                 .coerceAtMost(SLASH_PICKER_FIXED_HEIGHT)
@@ -396,10 +410,11 @@ internal fun ChatComposerSection(
                                     .height(trayHeight)
                                     .verticalScrollbar(slashListState),
                             ) {
-                            // [A2c-cards] 卡盘两组：银卡在上——文游快捷动作
+                            // [A2c-cards] 卡盘三组：银卡在上——文游快捷动作
                             // （原 ^ 按钮收编，命名由卡片/AI 自己提供）；
-                            // 发丝分割后金卡——原斜杠指令以「指令卡」呈现，
-                            // 不再暴露 "/" 语法。圆角矩阵行，不拟物。
+                            // 紫卡居中——精选内置能力，点击往输入框插
+                            // 〔能力名〕紫色胶囊；金卡收尾——原斜杠指令以
+                            // 「指令卡」呈现，不再暴露 "/" 语法。圆角矩阵行。
                             items(
                                 count = novexControls.size,
                                 key = { i -> "novexctl:$i" },
@@ -429,7 +444,11 @@ internal fun ChatComposerSection(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Text(
-                                            text = if (control.behavior == ConversationControlBehavior.VIEW) "查看" else "动作",
+                                            text = when (control.behavior) {
+                                                ConversationControlBehavior.VIEW -> "查看"
+                                                ConversationControlBehavior.PREFILL -> "填框"
+                                                else -> "动作"
+                                            },
                                             fontSize = 11.sp,
                                             color = ChatColors.secondaryText,
                                             maxLines = 1,
@@ -438,7 +457,10 @@ internal fun ChatComposerSection(
                                     }
                                 }
                             }
-                            if (novexControls.isNotEmpty() && filteredSlashCommands.isNotEmpty()) {
+                            // [A2c-cards] 紫卡区：精选内置能力。点击把 〔能力名〕
+                            // 胶囊插进输入框，气泡侧渲染成紫色胶囊，模型侧由系统
+                            // 提示词映射到对应工具。
+                            if (novexControls.isNotEmpty() && (purpleCards.isNotEmpty() || filteredSlashCommands.isNotEmpty())) {
                                 item(key = "__card_group_divider__") {
                                     HorizontalDivider(
                                         thickness = 0.5.dp,
@@ -447,8 +469,62 @@ internal fun ChatComposerSection(
                                     )
                                 }
                             }
-                            // [A2c-cards] 金卡区：系统指令卡（压缩/存档/清空等）。
+                            itemsIndexed(purpleCards, key = { _, c -> "purple:${c.first}" }) { _, (label, desc) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .novexClickable {
+                                            viewModel.setInputText(viewModel.dismissSlashMenu(inputText))
+                                            viewModel.appendToInputText("〔$label〕")
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    NovexMiniCardGlyph(color = Color(0xFF8A63D2))
+                                    Spacer(modifier = Modifier.width(11.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = ChatColors.primaryText,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = desc,
+                                            fontSize = 11.sp,
+                                            color = ChatColors.secondaryText,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                            if (purpleCards.isNotEmpty() && filteredSlashCommands.isNotEmpty()) {
+                                item(key = "__purple_gold_divider__") {
+                                    HorizontalDivider(
+                                        thickness = 0.5.dp,
+                                        color = ChatColors.toolBorder,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                            // [A2c-cards] 金卡区：系统指令卡（压缩/存档等）。
+                            // 行名按 cmd 真名渲染——此前硬编码"压缩卡"导致 7 条
+                            // 命令全显示同一张卡（用户报"一堆压缩卡"的真因）。
                             itemsIndexed(filteredSlashCommands, key = { _, c -> "cmd:${c.id}" }) { _, cmd ->
+                                val (cardTitle, cardDesc) = when {
+                                    cmd.isSkill -> cmd.title to cmd.subtitle
+                                    else -> when (cmd.id) {
+                                        "compact" -> "压缩卡" to "把对话历史压缩成摘要，腾出上下文"
+                                        "save" -> "存档" to "把当前进度与世界状态存入档位"
+                                        "saves" -> "存档列表" to "查看本对话已保存的存档"
+                                        "load" -> "读档" to "回到指定存档点继续"
+                                        else -> cmd.title to cmd.subtitle
+                                    }
+                                }
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -466,7 +542,7 @@ internal fun ChatComposerSection(
                                     Spacer(modifier = Modifier.width(11.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "压缩卡",
+                                            text = cardTitle,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = ChatColors.primaryText,
@@ -474,7 +550,7 @@ internal fun ChatComposerSection(
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         Text(
-                                            text = "把对话历史压缩成摘要，腾出上下文",
+                                            text = cardDesc,
                                             fontSize = 11.sp,
                                             color = ChatColors.secondaryText,
                                             maxLines = 1,

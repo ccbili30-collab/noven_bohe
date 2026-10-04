@@ -195,7 +195,11 @@ private fun JSONObject.toPlaythroughState(): PlaythroughState {
 private fun ConversationControlDefinition.toJson() = JSONObject()
     .put("id", id)
     .put("label", label)
-    .put("behavior", if (behavior == ConversationControlBehavior.VIEW) "view" else "action")
+    .put("behavior", when (behavior) {
+        ConversationControlBehavior.VIEW -> "view"
+        ConversationControlBehavior.PREFILL -> "prefill"
+        ConversationControlBehavior.ACTION -> "action"
+    })
     .put("source", when (source) {
         ConversationControlSource.PROJECT_PRESET -> "projectPreset"
         ConversationControlSource.AI -> "ai"
@@ -209,10 +213,10 @@ private fun ConversationControlDefinition.toJson() = JSONObject()
 private fun JSONObject.toControl() = ConversationControlDefinition(
     id = getString("id"),
     label = getString("label"),
-    behavior = if (optString("behavior") == "action") {
-        ConversationControlBehavior.ACTION
-    } else {
-        ConversationControlBehavior.VIEW
+    behavior = when (optString("behavior")) {
+        "action" -> ConversationControlBehavior.ACTION
+        "prefill" -> ConversationControlBehavior.PREFILL
+        else -> ConversationControlBehavior.VIEW
     },
     source = when (optString("source")) {
         "projectPreset" -> ConversationControlSource.PROJECT_PRESET

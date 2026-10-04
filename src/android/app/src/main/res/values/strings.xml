@@ -1017,11 +1017,6 @@
 
     <!-- T241: slash command panel + Choose Model sheet -->
     <string name="slash_compact_subtitle">Compress conversation history into summary</string>
-    <string name="slash_memory_writes_on">Writes on — tap to toggle</string>
-    <string name="slash_memory_writes_off">Writes off — tap to toggle</string>
-    <string name="slash_thinking_subtitle">Thinking %1$s — tap to toggle</string>
-    <string name="slash_thinking_unsupported">Not supported by current model</string>
-    <string name="slash_clear_subtitle">Clear all messages in this session</string>
     <string name="thinking_level_off">Off</string>
     <string name="thinking_level_low">Low</string>
     <string name="thinking_level_medium">Medium</string>
