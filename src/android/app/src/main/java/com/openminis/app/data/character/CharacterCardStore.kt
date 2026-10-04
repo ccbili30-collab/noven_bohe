@@ -2,7 +2,6 @@ package com.openminis.app.data.character
 
 import android.content.Context
 import android.net.Uri
-import com.openminis.app.data.repository.MemoryRepository
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -223,39 +222,6 @@ object CharacterCardStore {
         )
     }
 
-    /** Role chats use this directory instead of the application-wide memory directory. */
-    fun characterMemoryRepository(
-        context: Context,
-        characterId: String,
-        worldId: String? = null,
-        personaId: String? = null,
-    ): MemoryRepository {
-        val safeCharacter = safePathId(characterId)
-        if (worldId == null && personaId == null) {
-            return MemoryRepository(File(context.filesDir, "minis-global/character-memory/$safeCharacter"))
-        }
-        val target = File(
-            context.filesDir,
-            "minis-global/role-memory/${safePathId(worldId)}/${safePathId(personaId)}/$safeCharacter",
-        )
-        val legacy = File(context.filesDir, "minis-global/character-memory/$safeCharacter")
-        if (!target.exists() && legacy.isDirectory) {
-            target.mkdirs()
-            legacy.listFiles()?.filter { it.isFile }?.forEach { source ->
-                runCatching { source.copyTo(File(target, source.name), overwrite = false) }
-            }
-        }
-        return MemoryRepository(target)
-    }
-
-    fun characterMemoryFileCount(context: Context, characterId: String): Int {
-        val safeId = safePathId(characterId)
-        val legacyCount = File(context.filesDir, "minis-global/character-memory/$safeId")
-            .walkTopDown().count { it.isFile && it.extension.equals("md", true) }
-        val scopedCount = File(context.filesDir, "minis-global/role-memory")
-            .walkTopDown().count { it.isFile && it.parentFile?.name == safeId && it.extension.equals("md", true) }
-        return legacyCount + scopedCount
-    }
 
     fun copyMedia(context: Context, uri: Uri, kind: String): String {
         val dir = File(context.filesDir, "immersive-media").apply { mkdirs() }

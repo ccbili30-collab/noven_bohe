@@ -57,6 +57,17 @@ class LibraryModel(application:Application):AndroidViewModel(application) {
             refreshPending=true
         }
     }
+    /** 放弃一份草稿：导入草稿直接删（其内容仅存于草稿文件），
+     *  编辑草稿回滚到最近正式修订。正式内容不动。 */
+    fun discardDraft(card:CardSummary) {
+        work { storage ->
+            withContext(Dispatchers.IO){CardDrafts(storage).discard(card.id,card.revision)}
+            state=state.copy(
+                imports=state.imports.filterNot {it.id==card.id},
+                edits=state.edits.filterNot {it.id==card.id})
+            refreshPending=true
+        }
+    }
     fun delete(card:CardSummary,onDeleted:()->Unit={}) {
         work { storage ->
             withContext(Dispatchers.IO){storage.delete(card.id,card.revision)}

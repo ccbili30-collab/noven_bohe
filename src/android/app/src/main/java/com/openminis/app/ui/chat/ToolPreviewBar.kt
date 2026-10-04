@@ -94,7 +94,6 @@ private fun ToolPreviewThumbnail(
         when (block.toolName) {
             "file_edit" -> DiffThumb(args, block, toolAccent)
             "file_read", "file_write" -> FileDocThumb(args, block, toolAccent)
-            "memory_write", "memory_get" -> MemoryThumb(args, block, toolAccent)
             "read_image" -> ImageThumb(
                 path = block.imageFilePath,
                 toolName = block.toolName,
@@ -188,26 +187,6 @@ private fun FileDocThumb(args: JSONObject, block: AssistantBlock, toolAccent: Co
     }
     Column(modifier = Modifier.padding(4.dp)) {
         ThumbHeader(header, ChatColors.secondaryText)
-        if (body.isNotEmpty()) ThumbLines(body, toolAccent.copy(alpha = 0.85f))
-    }
-}
-
-/** memory_write 取 toolArgs 的待写入内容；memory_get 取结果正文并前置
- *  查询关键词——与 ToolDetailSheet 的解析口径一致。 */
-@Composable
-private fun MemoryThumb(args: JSONObject, block: AssistantBlock, toolAccent: Color) {
-    val body = when (block.toolName) {
-        "memory_write" -> args.optString("content", "")
-            .ifEmpty { extractPartialJsonString("content", block.toolArgs) ?: "" }
-            .ifEmpty { block.content }
-        else -> {
-            val keywords = args.optString("keywords", "")
-                .ifEmpty { extractPartialJsonString("keywords", block.toolArgs) ?: "" }
-            if (keywords.isNotEmpty()) "Keywords: $keywords\n${block.content}" else block.content
-        }
-    }
-    Column(modifier = Modifier.padding(4.dp)) {
-        ThumbHeader(block.toolName, ToolMemoryAccent.copy(alpha = 0.75f))
         if (body.isNotEmpty()) ThumbLines(body, toolAccent.copy(alpha = 0.85f))
     }
 }

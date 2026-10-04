@@ -295,7 +295,6 @@ internal class KeepAliveStatusLine(private val context: Context) {
         "file_edit" -> "Minis is editing File"
         "browser_use" -> "Minis is using Browser"
         "read_image" -> "Minis is reading Image"
-        "memory_write", "memory_get" -> "Minis is using Memory"
         "web_search" -> "Minis is using Search"
         else -> "Minis is using $kind"
     }
@@ -308,7 +307,6 @@ internal class KeepAliveStatusLine(private val context: Context) {
         "file_read", "read_image" -> android.R.drawable.ic_menu_view
         "file_write", "file_edit" -> android.R.drawable.ic_menu_edit
         "browser_use" -> android.R.drawable.ic_menu_compass
-        "memory_write", "memory_get" -> android.R.drawable.ic_menu_save
         "web_search" -> android.R.drawable.ic_menu_search
         else -> android.R.drawable.ic_menu_manage
     }

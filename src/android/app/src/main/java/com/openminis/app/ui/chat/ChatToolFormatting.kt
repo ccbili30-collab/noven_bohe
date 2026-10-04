@@ -15,7 +15,6 @@ private object ToolLooks {
     val COMPUTE = ToolLook(Color(0xFFAF52DE), NovexIcons.Build)
     val WEB = ToolLook(Color(0xFF007AFF), NovexIcons.Language)
     val IMAGE = ToolLook(Color(0xFFAF52DE), NovexIcons.Image)
-    val MEMORY = ToolLook(Color(0xFFFF2D55), NovexIcons.Psychology)
     val SEARCH = ToolLook(Color(0xFF32ADE6), NovexIcons.Search)
     val GENERIC = ToolLook(Color(0xFF8E8E93), NovexIcons.Build)
 }
@@ -33,9 +32,6 @@ private val toolLookByName = buildMap {
     group(ToolLooks.COMPUTE, "workspace_compute")
     group(ToolLooks.WEB, "browser_use")
     group(ToolLooks.IMAGE, "read_image")
-    group(ToolLooks.MEMORY,
-        "memory_write", "memory_get",
-        "novex_inspect_memory", "novex_propose_memory_changes", "novex_apply_memory_changes")
     group(ToolLooks.SEARCH, "web_search")
 }
 
@@ -56,8 +52,6 @@ private val toolActionByName = mapOf(
     "browser_use" to "联网检索",
     "web_search" to "联网检索",
     "read_image" to "查看图片",
-    "memory_write" to "读取记忆",
-    "memory_get" to "读取记忆",
     "present_choices" to "提供选项",
     "render_panel" to "显示资料面板",
     "panel" to "显示资料面板",
@@ -68,9 +62,6 @@ private val toolActionByName = mapOf(
     "novex_inspect_content" to "查看挂载内容",
     "novex_propose_content_changes" to "提出内容变更",
     "novex_apply_content_changes" to "执行内容变更",
-    "novex_inspect_memory" to "查看长期记忆",
-    "novex_propose_memory_changes" to "提出记忆变更",
-    "novex_apply_memory_changes" to "执行记忆变更",
     "workspace_inspect" to "检查工作区",
     "workspace_read" to "读取工作区",
     "workspace_search" to "查找仓库资料",

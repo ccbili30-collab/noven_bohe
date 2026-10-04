@@ -12,7 +12,6 @@ import novex.android.data.NovexMainDatabase
 import com.openminis.app.data.repository.BackgroundSettingsRepository
 import com.openminis.app.data.repository.ChatRepository
 import com.openminis.app.data.repository.EnvVarRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.data.repository.SkillRepository
 import com.openminis.app.notification.BackgroundTaskNotifier
@@ -213,8 +212,6 @@ class MinisApp : Application(), ImageLoaderFactory, novex.android.CardImportProv
     lateinit var envVarRepository: EnvVarRepository
         private set
     lateinit var skillRepository: SkillRepository
-        private set
-    lateinit var memoryRepository: MemoryRepository
         private set
     lateinit var backgroundSettingsRepository: BackgroundSettingsRepository
         private set
@@ -483,7 +480,6 @@ class MinisApp : Application(), ImageLoaderFactory, novex.android.CardImportProv
         // the comment there for why an exception at this point permanently
         // breaks the Application and produces the GH#147 crash loop.
         skillRepository = SkillRepository(this)
-        memoryRepository = MemoryRepository(java.io.File(filesDir, "minis-global/memory"))
 
         // Only dependencies used by the first Activity frame stay on the
         // launch path. Model refresh is initialized after
@@ -645,7 +641,9 @@ class MinisApp : Application(), ImageLoaderFactory, novex.android.CardImportProv
         // up-front so direct file I/O tools (file_read, skills, markdown
         // assets) resolve these paths without a sandbox.
         // [P3.3 裁军] mcp-servers 桶随 MCP 集成面退役（MCPRepository 已删，
-        // 该桶零消费方）；memory/skills/shared 三桶原样保留。
+        // 该桶零消费方）；memory/skills/shared 三桶原样保留（memory 桶仅为
+        // SOUL.md 与旧会话中 /var/minis/memory 路径解析兼容）。
+
         novex.android.ContentPaths.registerGlobalMounts(this)
 
         // [T-android-session-paused-badge-hardkill] 冷启动对账：生命周期

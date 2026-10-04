@@ -34,7 +34,6 @@ import novex.android.data.model.ThinkingLevel
 import novex.android.data.model.hasImageInput
 import com.openminis.app.R
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.provider.ImageBudget
 import com.openminis.app.provider.LLMProvider
@@ -46,7 +45,6 @@ import com.openminis.app.tools.FileEditTool
 import com.openminis.app.tools.FileReadTool
 import com.openminis.app.tools.FileWriteTool
 import com.openminis.app.tools.GenerateImageTool
-import com.openminis.app.tools.MemoryTools
 import com.openminis.app.tools.NovexDocumentAgentTools
 import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
@@ -846,8 +844,6 @@ internal suspend fun ChatViewModel.runAgentLoopBody(
             unavailable = ::unavailableGroupMembers,
         )
 
-        // [T-stage2-memory] 回合收尾后后台检查水位刻度（不阻塞流式收尾）
-        viewModelScope.launch { maybeConsolidateMemoryAfterTurn() }
         val completedStream = streamedTurn.snapshot()
         kotlinx.coroutines.currentCoroutineContext()[com.openminis.app.diagnostics.ModelRequestAudit]?.event(
             "model_result", JSONObject().put("modelId", currentProvider.model.id)
@@ -1411,7 +1407,7 @@ internal suspend fun ChatViewModel.runAgentLoopBody(
                 // shell_execute (long stdout streams where the tail is what
                 // matters). For tools whose first line carries metadata —
                 // file_read's `[path | N bytes | M lines | showing A-B of M]`
-                // banner, file_write/file_edit confirmations, memory_* /
+                // banner, file_write/file_edit confirmations, novex_* /
                 // browser_use structured headers — clipping the head dropped
                 // the banner entirely. iOS routes file_read through a
                 // dedicated branch (AIChatViewModel.swift:5229) and avoids
@@ -1990,8 +1986,6 @@ internal suspend fun ChatViewModel.executeTool(
             }
             in com.openminis.app.tools.NovexIllustrationTools.names -> "查看或选择本对话已采用的剧情插图，完成回答后展示。"
             in com.openminis.app.tools.NovexWorldbookTools.names -> novexWorldbookActions().review(currentNovexConfiguration(), name, JSONObject(argsJson))
-            com.openminis.app.tools.NovexMemoryAgentTools.APPLY -> novexMemoryExecutor.review(
-                currentNovexMemoryScope(), currentNovexMemoryReadContext(), JSONObject(argsJson).getString("proposal_id"))
             NovexManagementTools.APPLY -> {
                 val plan = novexManagementService().planForExecution(currentNovexConfiguration(),
                     JSONObject(argsJson).getString("proposal_id"))
@@ -2078,15 +2072,6 @@ internal suspend fun ChatViewModel.executeAuthorizedTool(
             output = "browser_use is no longer available on this device. Tell the user this operation is unsupported.",
             success = false,
         )
-        "memory_write" -> executeMemoryWriteTool(argsJson)
-        "memory_get" -> executeMemoryGetTool(argsJson)
-        com.openminis.app.tools.NovexMemoryAgentTools.INSPECT -> novexMemoryExecutor.inspect(
-            currentNovexMemoryScope(), currentNovexMemoryReadContext(), argsJson)
-        com.openminis.app.tools.NovexMemoryAgentTools.PROPOSE -> novexMemoryExecutor.propose(
-            currentNovexMemoryScope(), currentNovexMemoryReadContext(turnMessageId), turnMessageId,
-            requestMessageId, argsJson)
-        com.openminis.app.tools.NovexMemoryAgentTools.APPLY -> novexMemoryExecutor.apply(
-            currentNovexMemoryScope(), currentNovexMemoryReadContext(), argsJson).also { if (it.success) novexContextRevision++ }
         com.openminis.app.tools.NovexConversationActionTools.SELECT_IDENTITY,
         com.openminis.app.tools.NovexConversationActionTools.SET_PLAYER_IDENTITY,
         com.openminis.app.tools.NovexConversationActionTools.START_GAME -> executeConversationAction(name, argsJson)

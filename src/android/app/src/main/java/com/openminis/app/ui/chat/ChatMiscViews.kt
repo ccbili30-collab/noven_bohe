@@ -144,7 +144,6 @@ private fun systemRowIcon(toolName: String): ImageVector = when (toolName) {
     // 对角双箭头=折叠义），比竖向 Compress 更贴近 iOS compactDividerRow
     // 的图标。其余老压缩提示保留 squeeze 向后兼容。
     "compact" -> NovexIcons.CloseFullscreen
-    "memory" -> NovexIcons.Psychology
     "thinking" -> NovexIcons.Lightbulb
     else -> NovexIcons.Info
 }

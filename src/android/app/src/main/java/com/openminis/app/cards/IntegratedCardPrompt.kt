@@ -4,7 +4,7 @@ import com.openminis.app.agent.NovexSystemPrompt
 
 /** Describes the new card contract; unrelated conversation features keep their original host. */
 object IntegratedCardPrompt {
-    fun build(identity:String,memory:Boolean,tools:Set<String>):NovexSystemPrompt.Prepared {
+    fun build(identity:String,tools:Set<String>):NovexSystemPrompt.Prepared {
         // [T-prompt-identity-priority]（用户 2026-09-27："对话设置写了提示词不代入"）
         // 用户对话提示词/人格指令前置到 system 开头——身份类指令的遵守率随位置
         // 显著衰减，原先压在卡片管理条款之后（"用户保存的对话要求"尾块）形同
@@ -40,7 +40,7 @@ object IntegratedCardPrompt {
             appendLine("注册对话快捷操作后，入口会出现在输入区；动作按钮发送对应指令。进度、状态、快捷操作与存档属于当前对话和消息分支，不需要另建文游卡。")
             if(tools.isEmpty())appendLine("本轮没有工具接口。只能回复文字，不能声称已修改或保存卡片；需要执行时说明须在对话设置启用工具并选择支持工具的模型。")
             else appendLine("本轮工具以接口定义为准。管理范围限制已有卡片读写；新建成功的卡片会加入当前管理范围。工具结果为 saved（已保存）后才能报告保存完成。不要重复调用已成功的写入来证明完成。")
-            appendLine("长期记忆当前${if(memory)"开启" else "关闭"}。正常回答和剧情自然表达；处理任务时可说明具体动作、发现与下一步，不必只说正在执行。收尾依据真实回执说明修改了哪些内容、哪些尚未完成；界面负责收起工具细节，不能以已执行三个字替代结果。")
+            appendLine("正常回答和剧情自然表达；处理任务时可说明具体动作、发现与下一步，不必只说正在执行。收尾依据真实回执说明修改了哪些内容、哪些尚未完成；界面负责收起工具细节，不能以已执行三个字替代结果。")
             appendLine("</对话与工具边界>")
         }
         return NovexSystemPrompt.Prepared(prompt,"")

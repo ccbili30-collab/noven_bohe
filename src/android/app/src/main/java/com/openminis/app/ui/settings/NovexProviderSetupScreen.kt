@@ -2,21 +2,24 @@ package com.openminis.app.ui.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -29,11 +32,13 @@ import com.openminis.app.tools.AgentTools
 import novex.android.ui.AlertDialog
 import novex.android.ui.Button
 import novex.android.ui.NovexCheckToggle
+import novex.android.ui.NovexColors
+import novex.android.ui.NovexIcons
+import novex.android.ui.NovexType
 import novex.android.ui.OutlinedButton
 import novex.android.ui.OutlinedTextField
-import novex.android.ui.Scaffold
 import novex.android.ui.TextButton
-import novex.android.ui.TopAppBar
+import novex.android.ui.novexScaledSp
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -237,7 +242,6 @@ internal fun novexPresetSpec(preset: String?): NovexPresetSpec? = when (preset) 
 }
 
 /** Novex 的单一 OpenAI（开放人工智能）兼容接口设置页。 */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NovexProviderSetupScreen(
     providerRepository: ProviderRepository,
@@ -410,67 +414,78 @@ fun NovexProviderSetupScreen(
         }
     }
 
-    Scaffold(topBar = { TopAppBar(
-        title = { Text(if (existing == null) "连接模型" else "模型连接") },
-        navigationIcon = { IconButton(onClick = onBack) { Icon(novex.android.ui.NovexIcons.ArrowBack, "返回") } },
+    SettingsScaffold(
+        title = if (existing == null) "连接模型" else "模型连接",
+        onBack = onBack,
         actions = {
             if (existing != null) {
                 IconButton(onClick = { deleteConfirm = true }) {
-                    Icon(novex.android.ui.NovexIcons.Delete, contentDescription = "删除 AI 服务商")
+                    Icon(NovexIcons.Delete, contentDescription = "删除 AI 服务商")
                 }
             }
         },
-    ) }) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(presetSpec?.headerTitle ?: direction.headerTitle, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                presetSpec?.headerSubtitle ?: direction.headerSubtitle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(label = { Text("名称") }, value = label, onValueChange = { label = it }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            // [T-provider-direction] 接口方向三选一：选中项实底、其余描边。
-            // [T-provider-onboarding] 官方预设不设方向开关——预填不可改成别的
-            // 供应商（智谱/DeepSeek 均为 Chat 方向）。
-            if (presetSpec == null) {
-                Column {
-                    Text("接口方向", style = MaterialTheme.typography.titleMedium)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        NovexProviderDirection.values().forEach { option ->
-                            if (option == direction) {
-                                Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(option.buttonLabel) }
-                            } else {
-                                OutlinedButton(onClick = { switchDirection(option) }, modifier = Modifier.weight(1f)) { Text(option.buttonLabel) }
-                            }
-                        }
-                    }
-                    Text(
-                        direction.hint,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+    ) {
+        // —— 方向卡：说明 + 三选一分段；[T-provider-onboarding] 官方预设不设
+        // 方向开关——预填不可改成别的供应商（智谱/DeepSeek 均为 Chat 方向）。
+        SettingsSection(footer = presetSpec?.headerSubtitle ?: direction.headerSubtitle) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+                Text(
+                    presetSpec?.headerTitle ?: direction.headerTitle,
+                    style = NovexType.SectionTitle,
+                    color = NovexColors.Text,
+                )
+                if (presetSpec == null) {
+                    Spacer(Modifier.height(12.dp))
+                    ProviderDirectionSelector(direction = direction, onSelect = ::switchDirection)
+                    Spacer(Modifier.height(6.dp))
+                    Text(direction.hint, style = NovexType.Metadata, color = NovexColors.SecondaryText)
                 }
             }
-            OutlinedTextField(label = { Text("接口地址") }, value = apiBase, onValueChange = { apiBase = it; invalidateVerification() }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
+        }
+
+        // —— 连接参数卡 ——
+        SettingsSection(header = "连接") {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                OutlinedTextField(
+                    label = { Text("名称") },
+                    value = label,
+                    onValueChange = { label = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    label = { Text("接口地址") },
+                    value = apiBase,
+                    onValueChange = { apiBase = it; invalidateVerification() },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    label = { Text("API（应用程序接口）密钥") },
+                    value = apiKey,
+                    onValueChange = { apiKey = it; invalidateVerification() },
+                    leadingIcon = { Icon(NovexIcons.Key, null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+            }
+            HorizontalDivider(color = NovexColors.Divider, thickness = 0.5.dp)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("自动补全 /v1")
+                    Text("自动补全 /v1", style = NovexType.ItemTitle, color = NovexColors.Text)
                     Text(
-                        if (appendV1Suffix) {
-                            "填写域名即可；请求时自动补上 /v1"
-                        } else {
-                            "关闭后完全按填写的接口地址请求"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (appendV1Suffix) "填写域名即可；请求时自动补上 /v1"
+                        else "关闭后完全按填写的接口地址请求",
+                        style = NovexType.Metadata,
+                        color = NovexColors.SecondaryText,
                     )
                 }
                 NovexCheckToggle(
@@ -481,57 +496,132 @@ fun NovexProviderSetupScreen(
                     },
                 )
             }
-            OutlinedTextField(label = { Text("API（应用程序接口）密钥") }, value = apiKey, onValueChange = { apiKey = it; invalidateVerification() }, leadingIcon = { Icon(novex.android.ui.NovexIcons.Key, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-            Text(
-                "滑到最下方获取密钥",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            HorizontalDivider(color = NovexColors.Divider, thickness = 0.5.dp)
+            // 取钥链接按实例自适应：带 keyHelpUrl 的实例显示取钥入口（通用机制）
+            // （前尘 API → proxy.qianc.ltd）；[T-provider-onboarding] 官方预设
+            //（智谱 → bigmodel.cn、DeepSeek → platform.deepseek.com）优先于方向默认；
+            // 其余按接口方向给默认指引。
+            val helpUrl = existing?.keyHelpUrl ?: presetSpec?.keyHelpUrl ?: direction.defaultKeyHelpUrl
+            val helpLabel = existing?.keyHelpUrl?.let { "前往 ${existing.label} 官网获取密钥" }
+                ?: presetSpec?.keyHelpLabel
+                ?: direction.defaultKeyHelpLabel
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(helpUrl))) }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("模型", style = MaterialTheme.typography.titleMedium)
+                Icon(NovexIcons.Key, null, tint = NovexColors.SecondaryText, modifier = Modifier.size(18.dp))
+                Text(
+                    helpLabel,
+                    style = NovexType.Body,
+                    color = NovexColors.Primary,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp),
+                )
+                Icon(
+                    NovexIcons.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = NovexColors.SecondaryText,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+
+        // —— 模型卡 ——
+        SettingsSection(
+            header = "模型",
+            footer = "勾选启用；扳手控制工具调用；刷新图标仅检测这一行。",
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        "勾选启用；扳手控制工具；刷新仅检测这一行",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        "从接口拉取可用模型，或手动输入模型名。",
+                        style = NovexType.Metadata,
+                        color = NovexColors.SecondaryText,
+                        modifier = Modifier.weight(1f),
                     )
-                }
-                OutlinedButton(enabled = !fetchingModels && checkingModelId == null, onClick = {
-                    val values = validate(requireModels = false) ?: return@OutlinedButton
-                    // [T-provider-onboarding] 智谱官方无 /models 端点：「拉取」=
-                    // 重铺内置静态目录，不打网络。
-                    if (presetSpec?.staticOnly == true ||
-                        novex.android.data.model.NovexProviderPresets.isZhipuBase(values.base)
+                    OutlinedButton(
+                        enabled = !fetchingModels && checkingModelId == null,
+                        onClick = {
+                            val values = validate(requireModels = false) ?: return@OutlinedButton
+                            // [T-provider-onboarding] 智谱官方无 /models 端点：「拉取」=
+                            // 重铺内置静态目录，不打网络。
+                            if (presetSpec?.staticOnly == true ||
+                                novex.android.data.model.NovexProviderPresets.isZhipuBase(values.base)
+                            ) {
+                                fetchedModels.clear()
+                                fetchedModels.addAll(novex.android.data.model.NovexProviderPresets.zhipuStaticModels.map { it.id })
+                                fetchedMetadata.clear()
+                                novex.android.data.model.NovexProviderPresets.zhipuStaticModels.forEach { fetchedMetadata[it.id] = it }
+                                fetchedMetadataSource = novexCanonicalBase(values.base, appendV1Suffix) to values.key
+                                if (selectedModels.none { it in fetchedModels }) {
+                                    setSelectedModels(listOf(fetchedModels.first()))
+                                }
+                                return@OutlinedButton
+                            }
+                            fetchingModels = true
+                            val metadataBase = novexCanonicalBase(values.base, appendV1Suffix)
+                            scope.launch {
+                                val models = fetchModels(values.base, values.key, appendV1Suffix, direction)
+                                    .filterNot { looksLikeImageGenerationModel(it.id) }
+                                fetchedMetadata.clear(); fetchedMetadata.putAll(models.associateBy { it.id })
+                                fetchedMetadataSource = metadataBase to values.key
+                                val ids = models.map { it.id }
+                                fetchedModels.clear(); fetchedModels.addAll(ids)
+                                if (models.isEmpty()) error = "没有拉取到模型，请检查地址和密钥，或继续手动填写模型名称。"
+                                else {
+                                    if (selectedModels.none { it in ids }) setSelectedModels(listOf(ids.first()))
+                                }
+                                fetchingModels = false
+                            }
+                        },
                     ) {
-                        fetchedModels.clear()
-                        fetchedModels.addAll(novex.android.data.model.NovexProviderPresets.zhipuStaticModels.map { it.id })
-                        fetchedMetadata.clear()
-                        novex.android.data.model.NovexProviderPresets.zhipuStaticModels.forEach { fetchedMetadata[it.id] = it }
-                        fetchedMetadataSource = novexCanonicalBase(values.base, appendV1Suffix) to values.key
-                        if (selectedModels.none { it in fetchedModels }) {
-                            setSelectedModels(listOf(fetchedModels.first()))
+                        if (fetchingModels) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = NovexColors.Primary,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("拉取中")
+                        } else {
+                            Text("拉取模型")
                         }
-                        return@OutlinedButton
                     }
-                    fetchingModels = true
-                    val metadataBase = novexCanonicalBase(values.base, appendV1Suffix)
-                    scope.launch {
-                        val models = fetchModels(values.base, values.key, appendV1Suffix, direction)
-                            .filterNot { looksLikeImageGenerationModel(it.id) }
-                        fetchedMetadata.clear(); fetchedMetadata.putAll(models.associateBy { it.id })
-                        fetchedMetadataSource = metadataBase to values.key
-                        val ids = models.map { it.id }
-                        fetchedModels.clear(); fetchedModels.addAll(ids)
-                        if (models.isEmpty()) error = "没有拉取到模型，请检查地址和密钥，或继续手动填写模型名称。"
-                        else {
-                            if (selectedModels.none { it in ids }) setSelectedModels(listOf(ids.first()))
-                        }
-                        fetchingModels = false
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        label = { Text("手动添加模型") },
+                        value = manualModelId,
+                        onValueChange = { manualModelId = it; error = null },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
+                    IconButton(
+                        onClick = {
+                            val id = manualModelId.trim()
+                            if (id.isNotEmpty()) {
+                                if (looksLikeImageGenerationModel(id)) {
+                                    error = "图片生成模型请前往“设置 → 生图服务”添加。"
+                                } else {
+                                    if (id !in fetchedModels) fetchedModels.add(id)
+                                    setSelectedModels((selectedModels + id).distinct())
+                                    manualModelId = ""
+                                }
+                            }
+                        },
+                        enabled = manualModelId.isNotBlank(),
+                    ) {
+                        Icon(NovexIcons.Add, "添加模型")
                     }
-                }) { Text(if (fetchingModels) "拉取中" else "拉取模型") }
+                }
             }
             val displayModels = (fetchedModels + selectedModels)
                 .map(String::trim)
@@ -541,158 +631,113 @@ fun NovexProviderSetupScreen(
             if (displayModels.isEmpty()) {
                 Text(
                     "尚无模型，请先拉取或手动添加。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = NovexType.Metadata,
+                    color = NovexColors.SecondaryText,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 )
             } else {
-                HorizontalDivider()
-                displayModels.forEach { modelId ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        NovexCheckToggle(
-                            checked = modelId in selectedModels,
-                            onCheckedChange = { checked ->
-                                setSelectedModels(
-                                    if (checked) (selectedModels + modelId).distinct()
-                                    else selectedModels - modelId,
-                                )
-                            },
-                        )
-                        Text(
-                            novexModelDisplayName(modelId),
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        IconButton(
-                            onClick = {
-                                modelToolsEnabled[modelId] = !toolsEnabled(modelId)
-                                verificationResults.remove(modelId)
-                            },
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    novex.android.ui.NovexIcons.Build,
-                                    contentDescription = if (toolsEnabled(modelId)) "关闭该模型的工具调用" else "开启该模型的工具调用",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = if (toolsEnabled(modelId)) Color(0xFF168A45) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    if (toolsEnabled(modelId)) "✓" else "×",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            }
-                        }
-                        IconButton(
-                            enabled = checkingModelId == null || checkingModelId == modelId,
-                            onClick = {
-                                if (checkingModelId == modelId) {
-                                    verificationJob?.cancel()
-                                } else {
-                                    val values = validate(requireModels = false) ?: return@IconButton
-                                    startVerification(values, modelId)
-                                }
-                            },
-                        ) {
-                            Icon(
-                                if (checkingModelId == modelId) novex.android.ui.NovexIcons.Stop else novex.android.ui.NovexIcons.Refresh,
-                                contentDescription = if (checkingModelId == modelId) "停止检测 $modelId" else "检测 $modelId",
+                displayModels.forEachIndexed { index, modelId ->
+                    if (index == 0) {
+                        HorizontalDivider(color = NovexColors.Divider, thickness = 0.5.dp)
+                    }
+                    ProviderModelRow(
+                        modelId = modelId,
+                        selected = modelId in selectedModels,
+                        toolsOn = toolsEnabled(modelId),
+                        checking = checkingModelId == modelId,
+                        checkEnabled = checkingModelId == null || checkingModelId == modelId,
+                        onToggleSelect = { checked ->
+                            setSelectedModels(
+                                if (checked) (selectedModels + modelId).distinct()
+                                else selectedModels - modelId,
                             )
-                        }
-                    }
-                    HorizontalDivider()
-                }
-            }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    label = { Text("手动添加模型") },
-                    value = manualModelId,
-                    onValueChange = { manualModelId = it; error = null },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                )
-                IconButton(
-                    onClick = {
-                        val id = manualModelId.trim()
-                        if (id.isNotEmpty()) {
-                            if (looksLikeImageGenerationModel(id)) {
-                                error = "图片生成模型请前往“设置 → 生图服务”添加。"
+                        },
+                        onToggleTools = {
+                            modelToolsEnabled[modelId] = !toolsEnabled(modelId)
+                            verificationResults.remove(modelId)
+                        },
+                        onCheck = {
+                            if (checkingModelId == modelId) {
+                                verificationJob?.cancel()
                             } else {
-                                if (id !in fetchedModels) fetchedModels.add(id)
-                                setSelectedModels((selectedModels + id).distinct())
-                                manualModelId = ""
+                                val values = validate(requireModels = false) ?: return@ProviderModelRow
+                                startVerification(values, modelId)
                             }
-                        }
-                    },
-                    enabled = manualModelId.isNotBlank(),
-                ) {
-                    Icon(novex.android.ui.NovexIcons.Add, "添加模型")
-                }
-            }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (verificationResults.isNotEmpty()) {
-                Text("检测结果", style = MaterialTheme.typography.titleMedium)
-                verificationResults.forEach { (_, result) ->
-                    val color = when (result.state) {
-                        ModelResultState.PASSED -> Color(0xFF168A45)
-                        ModelResultState.WARNING -> Color(0xFFB77900)
-                        ModelResultState.FAILED -> MaterialTheme.colorScheme.error
-                        ModelResultState.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                    val icon = when (result.state) {
-                        ModelResultState.PASSED -> novex.android.ui.NovexIcons.CheckCircle
-                        ModelResultState.WARNING, ModelResultState.FAILED -> novex.android.ui.NovexIcons.Error
-                        ModelResultState.CANCELLED -> novex.android.ui.NovexIcons.Close
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
-                        Text(result.message, color = color, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-            Button(onClick = {
-                val values = validate() ?: return@Button
-                error = null
-                runCatching {
-                    saveConnections(
-                        repository = providerRepository,
-                        existing = existing,
-                        label = label,
-                        base = values.base,
-                        appendV1Suffix = appendV1Suffix,
-                        direction = direction,
-                        keyHelpUrl = presetSpec?.keyHelpUrl,
-                        key = values.key,
-                        modelIds = values.models,
-                        modelToolsEnabled = values.models.associateWith(::toolsEnabled),
-                        metadata = metadataForSave(values),
+                        },
                     )
-                }.onSuccess {
-                    onSaved()
-                }.onFailure { failure ->
-                    error = "保存模型连接失败：${failure.message ?: failure.javaClass.simpleName}"
+                    if (index < displayModels.lastIndex) {
+                        HorizontalDivider(
+                            color = NovexColors.Divider,
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(start = 14.dp),
+                        )
+                    }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text("保存并启用（${selectedModels.size}）") }
-            // 取钥链接按实例自适应：带 keyHelpUrl 的实例显示取钥入口（通用机制）
-            // （前尘 API → proxy.qianc.ltd）；[T-provider-onboarding] 官方预设
-            //（智谱 → bigmodel.cn、DeepSeek → platform.deepseek.com）优先于方向默认；
-            // 其余按接口方向给默认指引。
-            val helpUrl = existing?.keyHelpUrl ?: presetSpec?.keyHelpUrl ?: direction.defaultKeyHelpUrl
-            val helpLabel = existing?.keyHelpUrl?.let { "前往 ${existing.label} 官网获取密钥" }
-                ?: presetSpec?.keyHelpLabel
-                ?: direction.defaultKeyHelpLabel
-            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(helpUrl))) }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(helpLabel) }
-            Spacer(Modifier.height(24.dp))
+            }
+        }
+
+        // —— 检测结果卡 ——
+        if (verificationResults.isNotEmpty()) {
+            SettingsSection(header = "检测结果") {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    verificationResults.forEach { (_, result) ->
+                        val color = when (result.state) {
+                            ModelResultState.PASSED -> Color(0xFF168A45)
+                            ModelResultState.WARNING -> Color(0xFFB77900)
+                            ModelResultState.FAILED -> NovexColors.Danger
+                            ModelResultState.CANCELLED -> NovexColors.SecondaryText
+                        }
+                        val icon = when (result.state) {
+                            ModelResultState.PASSED -> NovexIcons.CheckCircle
+                            ModelResultState.WARNING, ModelResultState.FAILED -> NovexIcons.Error
+                            ModelResultState.CANCELLED -> NovexIcons.Close
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
+                            Text(result.message, color = color, style = NovexType.Metadata)
+                        }
+                    }
+                }
+            }
+        }
+
+        // —— 提交区 ——
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {
+            error?.let {
+                Text(it, color = NovexColors.Danger, style = NovexType.Metadata)
+                Spacer(Modifier.height(8.dp))
+            }
+            Button(
+                onClick = {
+                    val values = validate() ?: return@Button
+                    error = null
+                    runCatching {
+                        saveConnections(
+                            repository = providerRepository,
+                            existing = existing,
+                            label = label,
+                            base = values.base,
+                            appendV1Suffix = appendV1Suffix,
+                            direction = direction,
+                            keyHelpUrl = presetSpec?.keyHelpUrl,
+                            key = values.key,
+                            modelIds = values.models,
+                            modelToolsEnabled = values.models.associateWith(::toolsEnabled),
+                            metadata = metadataForSave(values),
+                        )
+                    }.onSuccess {
+                        onSaved()
+                    }.onFailure { failure ->
+                        error = "保存模型连接失败：${failure.message ?: failure.javaClass.simpleName}"
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("保存并启用（${selectedModels.size}）") }
+            Spacer(Modifier.height(8.dp))
         }
     }
 
@@ -711,13 +756,109 @@ fun NovexProviderSetupScreen(
                         onBack()
                     },
                 ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text("删除", color = NovexColors.Danger)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { deleteConfirm = false }) { Text("取消") }
             },
         )
+    }
+}
+
+/** 接口方向分段胶囊：灰底容器 + 选中段反色药丸（与全局预设语言选择同款）。 */
+@Composable
+private fun ProviderDirectionSelector(
+    direction: NovexProviderDirection,
+    onSelect: (NovexProviderDirection) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(NovexColors.SurfaceMuted)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        NovexProviderDirection.values().forEach { option ->
+            val selected = option == direction
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (selected) NovexColors.Surface else NovexColors.SurfaceMuted)
+                    .clickable { onSelect(option) }
+                    .padding(vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    option.buttonLabel,
+                    fontSize = novexScaledSp(13),
+                    fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                    color = if (selected) NovexColors.Text else NovexColors.SecondaryText,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/** 模型行：勾选 + 名称 + 工具开关徽标 + 单项检测/停止。 */
+@Composable
+private fun ProviderModelRow(
+    modelId: String,
+    selected: Boolean,
+    toolsOn: Boolean,
+    checking: Boolean,
+    checkEnabled: Boolean,
+    onToggleSelect: (Boolean) -> Unit,
+    onToggleTools: () -> Unit,
+    onCheck: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(start = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NovexCheckToggle(checked = selected, onCheckedChange = onToggleSelect)
+        Text(
+            novexModelDisplayName(modelId),
+            modifier = Modifier.weight(1f).padding(start = 10.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = NovexType.Body,
+            color = if (selected) NovexColors.Text else NovexColors.SecondaryText,
+        )
+        IconButton(onClick = onToggleTools) {
+            Icon(
+                NovexIcons.Build,
+                contentDescription = if (toolsOn) "关闭该模型的工具调用" else "开启该模型的工具调用",
+                modifier = Modifier.size(18.dp),
+                tint = if (toolsOn) Color(0xFF168A45) else NovexColors.TertiaryText,
+            )
+        }
+        if (checking) {
+            Box(
+                modifier = Modifier.size(36.dp).clickable(onClick = onCheck),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = NovexColors.Primary,
+                )
+            }
+        } else {
+            IconButton(enabled = checkEnabled, onClick = onCheck) {
+                Icon(
+                    NovexIcons.Refresh,
+                    contentDescription = "检测 $modelId",
+                    modifier = Modifier.size(18.dp),
+                    tint = if (checkEnabled) NovexColors.SecondaryText else NovexColors.TertiaryText,
+                )
+            }
+        }
+        Spacer(Modifier.width(4.dp))
     }
 }
 
@@ -797,7 +938,6 @@ private suspend fun verifyConnection(
     val verificationTools = AgentTools.makeAgentTools(
         supportsImageInput = false,
         visionGroupConfigured = false,
-        memoryEnabled = true,
     )
     suspend fun probeChat(modelId: String): String? {
         val provider = providerFor(modelId).getOrElse {

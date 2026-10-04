@@ -48,9 +48,6 @@ class ChatRepository(internal val dao: ChatDao) {
     suspend fun createSession(
         modelId: String,
         title: String? = null,
-        // 建行时落全局记忆默认值（调用方读 MemoryGlobalPrefs 传入）；省略
-        // 的旧调用点保持 memoryEnabled=1 的历史默认。
-        memoryEnabled: Boolean = true,
         characterId: String? = null,
         characterSnapshotJson: String? = null,
         worldSnapshotJson: String? = null,
@@ -80,7 +77,7 @@ class ChatRepository(internal val dao: ChatDao) {
             modelId = modelId,
             createdAt = stamp,
             updatedAt = stamp,
-            memoryEnabled = if (memoryEnabled) 1 else 0,
+            memoryEnabled = 1,
             characterId = characterId,
             characterSnapshotJson = characterSnapshotJson,
             worldSnapshotJson = worldSnapshotJson,
@@ -124,7 +121,6 @@ class ChatRepository(internal val dao: ChatDao) {
         return createSession(
             title = nextSideConversationTitle(sides.map { it.title.orEmpty() }),
             modelId = parent.modelId,
-            memoryEnabled = false,
             characterId = parent.characterId,
             characterSnapshotJson = parent.characterSnapshotJson,
             worldSnapshotJson = parent.worldSnapshotJson,

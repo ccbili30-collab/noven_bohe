@@ -32,7 +32,7 @@ class NovexCreativeStanceTest {
     }
 
     @Test fun `carded prompt leads with creative stance before card protocol`() {
-        val prompt = IntegratedCardPrompt.build("", memory = false, tools = setOf("read_card", "create_card_bulk")).prompt
+        val prompt = IntegratedCardPrompt.build("", tools = setOf("read_card", "create_card_bulk")).prompt
         assertStance(prompt)
         assertTrue("创作搭档必须先于卡片编辑协议", prompt.indexOf("<创作搭档>") < prompt.indexOf("<卡片编辑协议>"))
         assertTrue("建卡工具教学保留", prompt.contains("create_card_bulk / add_module_bulk"))
@@ -40,7 +40,7 @@ class NovexCreativeStanceTest {
 
     @Test fun `plain prompt carries the same stance in both tool modes`() {
         for (enabled in listOf(true, false)) {
-            val prompt = NovexSystemPrompt.buildPrepared("stance", context, "用户风格", false, enabled, tools).prompt
+            val prompt = NovexSystemPrompt.buildPrepared("stance", context, "用户风格", enabled, tools).prompt
             assertStance(prompt)
             assertTrue(prompt.contains("明确要求“做成世界卡、角色卡、文游卡”时直接进入对应原生工具流程"))
             assertFalse("不再把制度成因当作必补项", prompt.contains("具体的因果、制度、欲望、代价"))

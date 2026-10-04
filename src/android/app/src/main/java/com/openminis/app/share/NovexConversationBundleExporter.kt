@@ -244,8 +244,6 @@ class NovexConversationBundleExporter(private val context: Context, private val 
                 .put("scope", "实际调用与失败元数据；不含凭据和请求正文。旧版本未记录的调用无法补造。"))
             if (modelRequests.isEmpty() && messageCount > 0) missing += "此对话没有实际调用及失败诊断记录；不能据此认定请求未发送或成功"
 
-            NovexMemoryToolExecutor.exportPlans(File(context.filesDir, "novex/memory-plans"), conversationId)
-                .forEach { (name, raw) -> write("execution/memory-plans/$name", raw.toByteArray(Charsets.UTF_8)) }
             novex.core.NovexLearningExecutionPlans.exportPlans(File(context.filesDir, "novex/learning-plans"), conversationId)
                 .forEach { (name, raw) -> write("execution/learning-plans/$name", raw.toByteArray(Charsets.UTF_8)) }
             NovexOperationJournal(File(context.filesDir, "novex-operations")).exportRecords(conversationId)

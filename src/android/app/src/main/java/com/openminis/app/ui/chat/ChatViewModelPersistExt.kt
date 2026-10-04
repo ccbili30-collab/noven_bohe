@@ -34,7 +34,6 @@ import novex.android.data.model.ThinkingLevel
 import novex.android.data.model.hasImageInput
 import com.openminis.app.R
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.provider.ImageBudget
 import com.openminis.app.provider.LLMProvider
@@ -46,7 +45,6 @@ import com.openminis.app.tools.FileEditTool
 import com.openminis.app.tools.FileReadTool
 import com.openminis.app.tools.FileWriteTool
 import com.openminis.app.tools.GenerateImageTool
-import com.openminis.app.tools.MemoryTools
 import com.openminis.app.tools.NovexDocumentAgentTools
 import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
@@ -492,23 +490,19 @@ internal fun ChatViewModel.buildSystemPrompt(): String? {
         legacyGeneratedPrompt = com.openminis.app.data.character.CharacterPromptComposer.compose(
             legacyProfile.character?.toJson()?.toString(), legacyProfile.persona?.toJson()?.toString(), legacyProfile.world?.toJson()?.toString()),
     )
-    // Keep memory prompt injection and the Novex memory tool set behind the
-    // same per-conversation switch.
-    val memoryOn = _memoryEnabled.value
     val preparedTeaching = if(integratedCardBinding()!=null) com.openminis.app.cards.IntegratedCardPrompt.build(
         // [T-prompt-identity-priority]（用户 2026-09-27 报告"写了对话提示词不代入"）
         // identitySection（含用户手写的对话提示词/人格指令）作为第一参数：
         // 挂卡链路下它被前置到 system 开头，不再压在十几条卡片管理条款之后。
-        identitySection,memoryOn,agentTools.mapTo(linkedSetOf()){it.name}) else com.openminis.app.agent.NovexSystemPrompt.buildPrepared(
+        identitySection,agentTools.mapTo(linkedSetOf()){it.name}) else com.openminis.app.agent.NovexSystemPrompt.buildPrepared(
         sessionId = activeSessionId,
         context = context,
         personalitySection = identitySection,
-        memoryEnabled = memoryOn,
         toolsEnabled = toolsEnabled,
         availableToolNames = agentTools.mapTo(linkedSetOf()) { it.name },
     )
     val base = preparedTeaching.prompt
-    // Match iOS order exactly: skills → global memory → recent daily memory.
+    // Match iOS order exactly: skills → static sections.
     // See ios/Agent/Chat/AIChatViewModel.swift:4375-4387. Each fragment is
     // appended only when non-null; absent fragments leave no separator.
     // Skills may be installed outside this view model, so refresh the adapter
@@ -520,24 +514,6 @@ internal fun ChatViewModel.buildSystemPrompt(): String? {
     ) GenerateImageTool.skillPrompt() else null
     // [P3.3 裁军] MCP 提示词片段（mcpFragment，R0 沙箱退役后已恒 null）
     // 随 MCP 集成面彻底退役，不再注入。
-    // [T-memory-toggle-gates-injection-and-tools-android] Skip loading
-    // GLOBAL.md + recent daily logs entirely when the user has turned
-    // memory off for this session. Cheaper (no disk read) and — more
-    // importantly — keeps the model from seeing stale persistent state
-    // it can't tell the user how to manage. Skills and SOUL.md are
-    // intentionally NOT gated by this toggle: skills are part of the
-    // tool surface and SOUL.md is part of identity, both orthogonal
-    // to the memory feature.
-    val activeMemory = activeMemoryRepository()
-    val globalMemoryFragment = if (memoryOn) activeMemory?.loadGlobalMemoryFragment() else null
-    val dailyMemoryFragment = if (memoryOn) {
-        activeMemory?.loadRecentDailyMemoryFragment(excludedBranchMemoryWrites)
-    } else null
-    val novexMemoryFragment = if (memoryOn) activeNovexMemoryFragment() else null
-    // [T-stage2-memory] AI 随身笔记（水位刻度后台整理产物，常驻小块）；
-    // [净眼 P3] 与其他记忆源同受 /memory 开关门控。
-    val sessionMemoryBlock = if (memoryOn) memoryStoreFor(activeSessionId)
-        .injectionBlock(_sessionMemory.value) else null
     // [T-stage3-snapshot]（总纲 §3.6 记忆干扰根治）压缩后：常量模块重注入
     // （幂等安全）+ 当前状态锚（快照一行版，§3.8 注意力锚）+ 元说明分工。
     val compacted = _cachedLatestMarker != null && _compactSummary.value?.isNotBlank() == true
@@ -563,24 +539,6 @@ internal fun ChatViewModel.buildSystemPrompt(): String? {
         if (imageGenerationSkill != null) {
             append("\n\n")
             append(imageGenerationSkill)
-        }
-        if (globalMemoryFragment != null) {
-            append("\n\n")
-            append(globalMemoryFragment)
-        }
-        if (dailyMemoryFragment != null) {
-            append("\n\n")
-            append(dailyMemoryFragment)
-        }
-        if (novexMemoryFragment != null) {
-            append("\n\n")
-            append(novexMemoryFragment)
-        }
-        // [T-stage2-memory] AI 随身笔记常驻块（水位刻度后台整理产物；
-        // 空笔记零痕迹）。置于 Runtime context 之前、静态区末尾。
-        if (sessionMemoryBlock != null) {
-            append("\n\n")
-            append(sessionMemoryBlock)
         }
         if (constantReinjectionBlock != null) {
             append("\n\n")
@@ -609,46 +567,6 @@ internal fun ChatViewModel.buildSystemPrompt(): String? {
     }.also { assembled ->
         novexPromptAuditInput = ChatViewModel.NovexPromptAuditInput(assembled, identitySection, preparedTeaching.persistentContext, assembled.removePrefix(base))
     }
-}
-
-// ─── Legacy tool execution methods (kept for compatibility) ───────────
-
-fun ChatViewModel.executeMemoryWrite(argsJson: String): MemoryTools.ToolResult {
-    val repo = activeMemoryRepository() ?: return MemoryTools.ToolResult("Error: Memory not available", false)
-    if (!_memoryEnabled.value) {
-        return MemoryTools.ToolResult(
-            "Memory writes are disabled for this session. Reads are still available. The user can re-enable writes via the /memory slash command.",
-            false,
-        )
-    }
-    val result = MemoryTools.executeMemoryWrite(argsJson, repo)
-    val content = try {
-        JSONObject(argsJson).optString("content", "")
-    } catch (_: Exception) { "" }
-    _memoryToolRecords.value = _memoryToolRecords.value + MemoryToolRecord(
-        title = result.toolTitle,
-        isWrite = true,
-        preview = content.lines().firstOrNull { it.isNotBlank() }?.take(100) ?: "",
-        output = result.output,
-        writtenContent = content,
-    )
-    return result
-}
-
-fun ChatViewModel.executeMemoryGet(argsJson: String): MemoryTools.ToolResult {
-    val repo = activeMemoryRepository() ?: return MemoryTools.ToolResult("Error: Memory not available", false)
-    val result = MemoryTools.executeMemoryGet(argsJson, repo, excludedBranchMemoryWrites)
-    val keywords = try {
-        JSONObject(argsJson).optString("keywords", "")
-    } catch (_: Exception) { "" }
-    _memoryToolRecords.value = _memoryToolRecords.value + MemoryToolRecord(
-        title = result.toolTitle,
-        isWrite = false,
-        preview = if (keywords.isNotBlank()) "Search: $keywords" else result.output.take(100),
-        output = result.output,
-        keywords = keywords,
-    )
-    return result
 }
 
 // ─── Misc Helpers ────────────────────────────────────────────────────

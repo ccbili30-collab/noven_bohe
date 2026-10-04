@@ -15,8 +15,7 @@ class IntegratedCardPromptPriorityTest {
 
     @Test fun `user instructions lead the carded system prompt`() {
         val prepared = IntegratedCardPrompt.build(
-            identity = "你扮演隐世剑客顾长风，说话简短冷淡，绝不用现代词汇。",
-            memory = false, tools = setOf("read_card"),
+            identity = "你扮演隐世剑客顾长风，说话简短冷淡，绝不用现代词汇。", tools = setOf("read_card"),
         )
         val prompt = prepared.prompt
         val identityIdx = prompt.indexOf("<用户为本对话设定的指令>")
@@ -28,17 +27,14 @@ class IntegratedCardPromptPriorityTest {
     }
 
     @Test fun `blank identity yields no block and no legacy tail`() {
-        val prepared = IntegratedCardPrompt.build(identity = "  ", memory = false, tools = emptySet())
+        val prepared = IntegratedCardPrompt.build(identity = "  ", tools = emptySet())
         assertFalse(prepared.prompt.contains("<用户为本对话设定的指令>"))
         assertFalse(prepared.prompt.contains("用户保存的对话要求"))
     }
 
     @Test fun `prompt body still carries card contract lines`() {
-        val prepared = IntegratedCardPrompt.build(identity = "", memory = true, tools = setOf("read_card"))
+        val prepared = IntegratedCardPrompt.build(identity = "", tools = setOf("read_card"))
         assertTrue(prepared.prompt.contains("你运行在 Novex（诺文）中"))
-        assertTrue(prepared.prompt.contains("长期记忆当前开启"))
-        assertTrue("memory=false 时应为关闭态",
-            IntegratedCardPrompt.build("", memory = false, tools = emptySet()).prompt.contains("长期记忆当前关闭"))
     }
 
     /**
@@ -48,7 +44,7 @@ class IntegratedCardPromptPriorityTest {
      */
     @Test fun `restructured prompt carries section contract`() {
         val prompt = IntegratedCardPrompt.build(
-            identity = "测试身份", memory = true, tools = setOf("read_card"),
+            identity = "测试身份", tools = setOf("read_card"),
         ).prompt
         listOf(
             "<优先级>", "<身份与对象>", "<资料与读取纪律>", "<卡片编辑协议>",

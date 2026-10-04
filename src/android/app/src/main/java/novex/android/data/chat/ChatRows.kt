@@ -39,7 +39,7 @@ data class SessionRow(
     @ColumnInfo(name = "model_binding") val modelBinding: String? = null,
     /** Where the session came from, e.g. a launcher shortcut or a share sheet. */
     @ColumnInfo(name = "source") val source: String? = null,
-    /** 1 = memory features on for this session, 0 = off. */
+    /** Legacy memory-feature flag column; retained for schema compat, no longer read. */
     @ColumnInfo(name = "memory_enabled") val memoryEnabled: Int = 1,
     /** Epoch-millis pin stamp; null leaves the row in the unpinned section. */
     @ColumnInfo(name = "pinned_at") val pinnedAt: Long? = null,

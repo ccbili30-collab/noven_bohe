@@ -228,7 +228,6 @@ import com.openminis.app.data.character.effectiveAssistantAvatarPath
 import com.openminis.app.data.character.effectiveAssistantName
 import com.openminis.app.data.character.usesRolePresentation
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.ui.theme.ChatColors
 import com.openminis.app.ui.components.MinisTextButton
@@ -244,8 +243,6 @@ import com.openminis.app.ui.components.MinisTextButton
 internal val ToolCheckColor = Color(0xFF34C759) // iOS .green
 internal val ToolErrorColor = Color(0xFFFF3B30) // iOS .red
 internal val ToolCancelColor = Color(0xFFFFCC00) // iOS .yellow
-// Memory tool accent — matches iOS `.pink` on SF Symbols.
-internal val ToolMemoryAccent = Color(0xFFFF2D55)
 // Sparkle gradient colors (iOS uses linear gradient)
 internal val SparkleColor1 = Color(0xFFB8B096) // rgb(0.72, 0.69, 0.59)
 internal val SparkleColor2 = Color(0xFF99998C) // rgb(0.6, 0.6, 0.55)
@@ -327,7 +324,6 @@ fun ChatScreen(
     sessionId: String,
     chatRepository: ChatRepository,
     providerRepository: ProviderRepository,
-    memoryRepository: MemoryRepository? = null,
     skillRepository: com.openminis.app.data.repository.SkillRepository? = null,
     onBack: () -> Unit,
     onBackReturnsToList: Boolean = false,
@@ -382,7 +378,6 @@ fun ChatScreen(
             chatRepository = chatRepository,
             providerRepository = providerRepository,
             appContext = context.applicationContext,
-            memoryRepository = memoryRepository,
             skillRepository = skillRepository,
         ),
     )
@@ -1993,7 +1988,6 @@ fun ChatScreen(
     ChatScreenOverlays(
         viewModel = viewModel,
         providerRepository = providerRepository,
-        memoryRepository = memoryRepository,
         availableGroups = availableGroups,
         onSettings = onSettings,
         onBrowseChatFiles = onBrowseChatFiles,

@@ -205,12 +205,7 @@ fun CharacterHubScreen(
                         LibraryRow(
                             imagePath = card.avatarPath,
                             title = card.name,
-                            subtitle = buildString {
-                                append(card.summary.ifBlank { card.personality })
-                                val count = CharacterCardStore.characterMemoryFileCount(context, card.id)
-                                if (isNotEmpty()) append("\n")
-                                append(if (count == 0) "独立记忆尚为空" else "独立记忆：$count 个记录文件")
-                            },
+                            subtitle = card.summary.ifBlank { card.personality },
                             onClick = { onEditCharacter(card.id) },
                             outerPadding = false,
                         )

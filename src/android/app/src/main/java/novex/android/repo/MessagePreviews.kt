@@ -81,19 +81,6 @@ internal object MessagePreviews {
                 val action = arg("action") ?: "browse"
                 arg("url")?.let { "$action $it" } ?: "browser_use $action"
             }
-            "memory_write" -> arg("content")?.let { "memory_write: $it" }
-            "memory_get" -> {
-                val words = input.optJSONArray("keywords")?.run {
-                    buildString {
-                        for (i in 0 until length()) {
-                            if (i > 0) append(", ")
-                            append(optString(i))
-                        }
-                    }
-                }.orEmpty()
-                if (words.isNotBlank()) "memory_get: $words"
-                else arg("keywords")?.let { "memory_get: $it" }
-            }
             else -> null
         }
         return line?.let { cap(singleLine(it)) } ?: cap("🔧 ${toolName.ifEmpty { "tool" }}")

@@ -1,6 +1,10 @@
 package com.openminis.app.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,7 +12,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,10 +28,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.openminis.app.R
 import com.openminis.app.agent.SoulBodyLimitCheck
@@ -37,6 +47,7 @@ import kotlinx.coroutines.withContext
 import novex.android.ui.AlertDialog
 import novex.android.ui.Button
 import novex.android.ui.NovexColors
+import novex.android.ui.NovexIcons
 import novex.android.ui.NovexType
 import novex.android.ui.OutlinedButton
 import novex.android.ui.OutlinedTextField
@@ -104,7 +115,7 @@ fun SoulSettingsScreen(onBack: () -> Unit) {
         }
 
         SettingsSection(header = stringResource(R.string.soul_section_identity)) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 OutlinedTextField(
                     value = form.name,
                     onValueChange = { form = form.copy(name = it) },
@@ -112,7 +123,7 @@ fun SoulSettingsScreen(onBack: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = form.style,
                     onValueChange = { form = form.copy(style = it) },
@@ -120,7 +131,7 @@ fun SoulSettingsScreen(onBack: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 SoulLangSelector(lang = form.lang, onSelect = { form = form.copy(lang = it) })
             }
         }
@@ -129,7 +140,7 @@ fun SoulSettingsScreen(onBack: () -> Unit) {
             header = stringResource(R.string.soul_section_personality),
             footer = stringResource(R.string.soul_personality_footer),
         ) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 OutlinedTextField(
                     value = form.body,
                     onValueChange = { form = form.copy(body = it) },
@@ -139,12 +150,8 @@ fun SoulSettingsScreen(onBack: () -> Unit) {
                     textStyle = NovexType.Body.copy(fontFamily = FontFamily.Monospace),
                     placeholder = { Text(stringResource(R.string.soul_body_placeholder)) },
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    soulLimitIndicator(limitCheck, form.body),
-                    fontSize = novexScaledSp(12),
-                    color = if (limitCheck.isOverLimit) NovexColors.Danger else NovexColors.SecondaryText,
-                )
+                Spacer(Modifier.height(8.dp))
+                SoulLimitMeter(limitCheck, form.body)
             }
         }
 
@@ -152,7 +159,7 @@ fun SoulSettingsScreen(onBack: () -> Unit) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedButton(
@@ -208,26 +215,88 @@ private data class SoulForm(
         this(meta.name, meta.emoji, meta.style, meta.lang, body)
 }
 
+/** 头像+名称+风格+语言徽标的形象卡——让用户直观看到「预设成什么样」。 */
 @Composable
 private fun SoulPreviewCard(form: SoulForm) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(SoulMetadata.DISPLAY_EMOJI, fontSize = novexScaledSp(28), modifier = Modifier.width(48.dp))
-        Column(Modifier.padding(start = 4.dp)) {
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(NovexColors.PrimarySoft),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(SoulMetadata.DISPLAY_EMOJI, fontSize = novexScaledSp(26))
+        }
+        Column(Modifier.padding(start = 14.dp).weight(1f)) {
             Text(
                 form.name.ifBlank { "Nova" },
                 fontSize = novexScaledSp(17),
                 fontWeight = FontWeight.SemiBold,
                 color = NovexColors.Text,
             )
-            if (form.style.isNotBlank()) {
-                Text(form.style, fontSize = novexScaledSp(13), color = NovexColors.SecondaryText)
-            }
+            Text(
+                form.style.ifBlank { stringResource(R.string.soul_field_style) },
+                fontSize = novexScaledSp(13),
+                color = NovexColors.SecondaryText,
+            )
         }
+        SoulLangBadge(form.lang)
+    }
+}
+
+@Composable
+private fun SoulLangBadge(lang: String) {
+    val label = when (lang) {
+        "zh" -> stringResource(R.string.soul_lang_zh)
+        "en" -> stringResource(R.string.soul_lang_en)
+        else -> stringResource(R.string.soul_lang_auto)
+    }
+    Text(
+        label,
+        fontSize = novexScaledSp(11),
+        color = NovexColors.Primary,
+        modifier = Modifier
+            .border(1.dp, NovexColors.Primary.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/** 用量条 + 计数提示：超限变红，未超限按 CJK 占比显示字数/词数。 */
+@Composable
+private fun SoulLimitMeter(check: SoulBodyLimitCheck, body: String) {
+    val (fraction, isOver) = when (check) {
+        is SoulBodyLimitCheck.Ok -> run {
+            val trimmed = body.trim()
+            val cjkHeavy = trimmed.codePoints().filter { cp ->
+                cp in 0x4E00..0x9FFF || cp in 0x3400..0x4DBF ||
+                    cp in 0x3040..0x309F || cp in 0x30A0..0x30FF || cp in 0xAC00..0xD7AF
+            }.count().let { cjk -> trimmed.isNotEmpty() && cjk.toDouble() / trimmed.codePointCount(0, trimmed.length) > SoulStore.CJK_RATIO_THRESHOLD }
+            val used = if (cjkHeavy) trimmed.codePointCount(0, trimmed.length).toDouble()
+                else trimmed.split(Regex("\\s+")).count { it.isNotEmpty() }.toDouble()
+            val cap = if (cjkHeavy) SoulStore.CHINESE_CHAR_LIMIT.toDouble() else SoulStore.ENGLISH_WORD_LIMIT.toDouble()
+            (used / cap).coerceIn(0.0, 1.0).toFloat() to false
+        }
+        else -> 1f to true
+    }
+    Column {
+        LinearProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+            color = if (isOver || fraction > 0.85f) NovexColors.Danger else NovexColors.Primary,
+            trackColor = NovexColors.SurfaceMuted,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            soulLimitIndicator(check, body),
+            fontSize = novexScaledSp(12),
+            color = if (check.isOverLimit) NovexColors.Danger else NovexColors.SecondaryText,
+        )
     }
 }
 
@@ -271,7 +340,7 @@ private fun soulBodyCountText(body: String): String {
     }
 }
 
-/** 三选一分段按钮（auto/中/英），不依赖 ExposedDropdownMenu。 */
+/** 三选一分段胶囊（auto/中/英）：灰底容器 + 选中段反色药丸。 */
 @Composable
 private fun SoulLangSelector(lang: String, onSelect: (String) -> Unit) {
     val options = listOf(
@@ -285,14 +354,34 @@ private fun SoulLangSelector(lang: String, onSelect: (String) -> Unit) {
             stringResource(R.string.soul_field_lang),
             fontSize = novexScaledSp(13),
             color = NovexColors.SecondaryText,
-            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(NovexColors.SurfaceMuted)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
             options.forEach { (key, label) ->
-                if (key == current) {
-                    Button(onClick = { onSelect(key) }, modifier = Modifier.weight(1f)) { Text(label) }
-                } else {
-                    OutlinedButton(onClick = { onSelect(key) }, modifier = Modifier.weight(1f)) { Text(label) }
+                val selected = key == current
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) NovexColors.Surface else NovexColors.SurfaceMuted)
+                        .clickable { onSelect(key) }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label,
+                        fontSize = novexScaledSp(13),
+                        fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                        color = if (selected) NovexColors.Text else NovexColors.SecondaryText,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
         }

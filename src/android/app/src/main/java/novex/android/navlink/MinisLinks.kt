@@ -56,7 +56,7 @@ object LinkParser {
     /** 无参 settings 子页：别名 → 路由（别名全是历史拼写与 iOS 对齐项）。 */
     private val flatSettings = mapOf(
         "usage" to Routes.USAGE_STATS, "usage-stats" to Routes.USAGE_STATS, "usage_stats" to Routes.USAGE_STATS,
-        "skills" to Routes.SKILLS, "memory" to Routes.MEMORY, "storage" to Routes.STORAGE,
+        "skills" to Routes.SKILLS,
         "shared-folders" to Routes.SHARED_FOLDERS, "shared_folders" to Routes.SHARED_FOLDERS,
         "logs" to Routes.LOGS, "appearance" to Routes.APPEARANCE,
         "background" to Routes.BACKGROUND, "about" to Routes.ABOUT,

@@ -1,7 +1,8 @@
 package com.openminis.app.ui.settings
 
-// 三个一等共享目录的静态注册表 + R/W 徽章。/var/minis/{shared,skills,memory}
-// skills/memory 由 agent 工具维护，界面只读——防止用户手动改乱。
+// 两个一等共享目录的静态注册表 + R/W 徽章。/var/minis/{shared,skills}
+// skills 由 agent 工具维护，界面只读——防止用户手动改乱。
+// （memory 桶随记忆功能退役移除；SOUL.md 由灵魂设置直接读写。）
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
@@ -64,14 +65,6 @@ internal object SharedFolderRegistry {
             writable = false,
             icon = NovexIcons.AutoAwesome,
             iconColor = Color(0xFFAF52DE),
-        ),
-        SharedFolderEntry(
-            id = "memory",
-            nameRes = R.string.shared_folder_name_memory,
-            linuxPath = "/var/minis/memory",
-            writable = false,
-            icon = NovexIcons.Psychology,
-            iconColor = Color(0xFFFF2D55),
         ),
     )
 

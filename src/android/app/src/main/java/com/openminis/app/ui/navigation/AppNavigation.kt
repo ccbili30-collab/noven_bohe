@@ -56,21 +56,16 @@ import com.openminis.app.ui.sandbox.FilePreviewScreen
 import com.openminis.app.ui.settings.AppearanceScreen
 import com.openminis.app.ui.settings.ThemeColorScreen
 import com.openminis.app.ui.settings.SettingsScreen
-import com.openminis.app.ui.settings.SessionStorageDetailScreen
 import com.openminis.app.ui.settings.SkillDetailScreen
-import com.openminis.app.ui.settings.StorageManagementScreen
 import com.openminis.app.ui.settings.SkillFileViewerScreen
 import com.openminis.app.ui.settings.UsageStatsScreen
 import com.openminis.app.ui.settings.SharedFolderDetailScreen
 import com.openminis.app.ui.settings.SharedFoldersScreen
 import com.openminis.app.ui.settings.SkillsManagementScreen
 import com.openminis.app.data.repository.EnvVarRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.SkillRepository
 import com.openminis.app.ui.settings.LogDetailScreen
 import com.openminis.app.ui.settings.LogManagementScreen
-import com.openminis.app.ui.settings.MemoryFileEditScreen
-import com.openminis.app.ui.settings.MemoryManagementScreen
 import com.openminis.app.ui.settings.NovexFeedbackScreen
 import com.openminis.app.ui.onboarding.OnboardingModelSelectionScreen
 
@@ -78,8 +73,8 @@ import com.openminis.app.ui.onboarding.OnboardingModelSelectionScreen
 // `MotionScheme` only in 1.4-alpha; mirror the spec values directly so we
 // don't take a dependency-bump tax just for two CubicBezierEasing instances.
 // Source: m3.material.io/styles/motion/easing-and-duration/tokens-specs
-private val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
-private val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f)
+internal val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
+internal val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f)
 
 object Routes {
     const val SESSION_LIST = "sessions"
@@ -113,8 +108,6 @@ object Routes {
     const val AGENT_LOOP_MODELS = "agent_loop_models"
     const val MODEL_ENTRY_DETAIL = "model_entry/{instanceId}/{entryId}"
     const val ADD_CUSTOM_MODEL = "add_custom_model/{instanceId}"
-    const val STORAGE = "storage"
-    const val SESSION_STORAGE_DETAIL = "session_storage/{sessionId}"
     const val FILE_BROWSER = "file_browser"
     const val FILE_PREVIEW = "file_preview"
     const val SKILLS = "skills"
@@ -131,7 +124,6 @@ object Routes {
     const val CREATIVE_LIBRARY = "creative_library?sessionId={sessionId}"
     fun creativeLibrary(sessionId: String? = null): String =
         if (sessionId == null) "creative_library" else "creative_library?sessionId=${android.net.Uri.encode(sessionId)}"
-    const val MEMORY = "memory"
     // [P3.3 裁军] MCP 路由随 MCP 集成面退役删除。
     /** [T-soul-md] SOUL.md editor. */
     const val SOUL = "soul"
@@ -146,7 +138,6 @@ object Routes {
         "characters/catalog/edit?characterId={characterId}&versionId={versionId}&worldId={worldId}&createVariant={createVariant}"
     const val INTERACTIVE_FICTION_DETAIL = "interactive-fiction/card/{projectId}"
     const val INTERACTIVE_FICTION_EDIT = "interactive-fiction/edit?projectId={projectId}"
-    const val MEMORY_FILE_EDIT = "memory_file/{fileName}/{isGlobal}"
     // [P3.3 裁军] PERMISSIONS / SHIZUKU / SYSTEM_PERMISSIONS 三条路由随
     // offload（Shizuku/特权后端）与语音纠正区块（SystemPermissions 唯一
     // 内容）退役删除。
@@ -158,7 +149,7 @@ object Routes {
     const val BACKGROUND = "background"
     const val ABOUT = "about"
     const val ONBOARDING_MODELS = "onboarding_models"
-    /** T235: Shared folders (Shared / Skills / Memory) — fixed list. */
+    /** T235: Shared folders (Shared / Skills) — fixed list. */
     const val SHARED_FOLDERS = "shared_folders"
     const val SHARED_FOLDERS_DETAIL = "shared_folders_detail/{folderId}"
     fun sharedFoldersDetail(folderId: String) = "shared_folders_detail/$folderId"
@@ -166,8 +157,6 @@ object Routes {
     // 三条路由随定时任务（scheduled/ + ui/scheduled/）退役删除。
 
     fun logDetail(fileName: String) = "log_detail/$fileName"
-    fun sessionStorageDetail(sessionId: String) = "session_storage/$sessionId"
-    fun memoryFileEdit(fileName: String, isGlobal: Boolean) = "memory_file/$fileName/$isGlobal"
     fun storyWorld(worldId: String) = "characters/world/${android.net.Uri.encode(worldId)}"
     fun storyWorldEdit(worldId: String? = null) =
         if (worldId == null) "characters/world/edit" else "characters/world/edit?worldId=${android.net.Uri.encode(worldId)}"
@@ -236,7 +225,6 @@ internal class NavDeps(
     val chatRepository: ChatRepository,
     val providerRepository: ProviderRepository,
     val skillRepository: SkillRepository?,
-    val memoryRepository: MemoryRepository?,
     val cardScope: kotlinx.coroutines.CoroutineScope,
     val returnFromCard: () -> Unit,
     val openCreationWorkspace: (NovexContentAddress, Boolean) -> Unit,
@@ -248,7 +236,6 @@ fun AppNavigation(
     providerRepository: ProviderRepository,
     envVarRepository: EnvVarRepository? = null,
     skillRepository: SkillRepository? = null,
-    memoryRepository: MemoryRepository? = null,
     navController: NavHostController = rememberNavController(),
     initialDeepLink: DeepLinkAction? = null,
     initialRoute: String? = null,
@@ -375,7 +362,6 @@ fun AppNavigation(
         chatRepository = chatRepository,
         providerRepository = providerRepository,
         skillRepository = skillRepository,
-        memoryRepository = memoryRepository,
         cardScope = cardNavigationScope,
         returnFromCard = ::returnFromCard,
         openCreationWorkspace = ::openCreationWorkspace,

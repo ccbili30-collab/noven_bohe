@@ -112,9 +112,6 @@ interface SessionWrites {
 
     // ---- single-flag columns ----------------------------------------------
 
-    @Query("UPDATE sessions SET memory_enabled = :enabled, updated_at = :updatedAt WHERE id = :sessionId")
-    suspend fun setMemoryFlag(sessionId: String, enabled: Int, updatedAt: Long = System.currentTimeMillis())
-
     @Query("UPDATE sessions SET thinking_override = :levelName, updated_at = :updatedAt WHERE id = :sessionId")
     suspend fun setThinkingChoice(sessionId: String, levelName: String?, updatedAt: Long = System.currentTimeMillis())
 
