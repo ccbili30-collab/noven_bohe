@@ -64,7 +64,7 @@ object OpenRouterModelsApi {
         Request.Builder()
             .url("https://openrouter.ai/api/v1/models")
             .header("Authorization", "Bearer $apiKey")
-            .header("HTTP-Referer", "https://github.com/ccbili30-collab/novex-android")
+            .header("HTTP-Referer", "https://github.com/ccbili30-collab/novex")
             .header("X-Title", "Minis App")
             // [T-android-default-ua] 出站 /api/v1/models 请求带品牌 UA。
             .applyUserAgentOverride(null)

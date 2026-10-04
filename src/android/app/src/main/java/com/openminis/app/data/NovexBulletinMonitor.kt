@@ -192,6 +192,18 @@ internal object NovexBulletinMonitor {
             UpdateChecker.CheckResult.UpToDate -> _state.update {
                 it.copy(checkingUpdate = false, updateNotice = "已是最新版本")
             }
+            UpdateChecker.CheckResult.NoReleaseAvailable -> _state.update {
+                it.copy(checkingUpdate = false, updateNotice = "更新源暂无此通道的发布")
+            }
+            is UpdateChecker.CheckResult.NoApkAsset -> _state.update {
+                it.copy(checkingUpdate = false, updateNotice = "新版本 ${result.tagName} 已发布，但安装包尚未上传")
+            }
+            UpdateChecker.CheckResult.Forbidden -> _state.update {
+                it.copy(checkingUpdate = false, updateNotice = "更新源暂时无法访问（GitHub 直连受限可切换 Gitee）")
+            }
+            UpdateChecker.CheckResult.NetworkUnreachable -> _state.update {
+                it.copy(checkingUpdate = false, updateNotice = "网络无法连接更新源，请检查网络后重试")
+            }
             else -> _state.update { it.copy(checkingUpdate = false, updateNotice = "检查失败，请稍后再试") }
         }
     }

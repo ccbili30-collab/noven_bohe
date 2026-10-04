@@ -34,11 +34,11 @@ object UpdateChecker {
 
     private const val TAG = "UpdateChecker"
     private const val OWNER = "ccbili30-collab"
-    // T133 history: this once pointed at OpenMinis/MinisApp (private dev
-    // mirror) — every API call 404'd and we mistranslated that as "no
-    // release published". The repo has since moved to ccbili30-collab/
-    // novex-android (public).
-    private const val REPO = "novex-android"
+    // Distribution hub: the public release/announcement repo. The dev
+    // repo (noven_bohe) is private — anonymous API calls 404 — and the
+    // archived novex-android repo is frozen at 3.x, so neither can ever
+    // serve client update checks. Releases must be mirrored here.
+    private const val REPO = "novex"
     private const val RELEASES_API_URL = "https://api.github.com/repos/$OWNER/$REPO/releases?per_page=100"
     private const val RELEASES_ATOM_URL = "https://github.com/$OWNER/$REPO/releases.atom"
     // [T-dual-update-source] novex-hub（Gitee 官方国内分发站）的 update.json。
@@ -539,7 +539,7 @@ object UpdateChecker {
     }
 
     /** Public so UI can deep-link users to manual download when GitHub is blocked. */
-    const val RELEASES_URL: String = "https://github.com/ccbili30-collab/novex-android/releases"
+    const val RELEASES_URL: String = "https://github.com/ccbili30-collab/novex/releases"
 
     internal fun parsePublishedReleases(body: String): List<PublishedUpdate> {
         val releases = JSONArray(body)
