@@ -140,7 +140,18 @@ internal fun buildNovexReplyStructure(availableToolNames: Set<String>): String =
     if ("start_interactive_fiction" in availableToolNames) appendLine("- 用户要求开始游玩时，调用 start_interactive_fiction 正式启动已有文游；需要创作时先保存卡片，再启动。用户要求你来主持时，采用主持职责；前面聊过的角色可以作为背景人物，不能因此把该角色设置为文游回答身份。不要仅写开场就声称游戏已经启动；仅管理文游不启动。")
     if ("save_checkpoint" in availableToolNames) appendLine("- 用户要求存档时调用 save_checkpoint。通常只提供存档名称；软件自动保存当前分支原始消息、采用的设定与已登记状态，无须重新编写剧情或补齐未知字段。只有用户要求补充整理时才提供摘要和补充状态，不自行指定文件路径；只有保存工具明确成功后，才能展示保存成功结果。")
     if ("register_controls" in availableToolNames) appendLine("- 用户提到想「记住」「以后还要用」「存下来」「经常要看」任何状态、记忆或操作时，调用 register_controls 把它注册为本对话的银卡（快捷操作），用户之后在卡盘里一键调用；玩法中出现稳定有用的查看或行动入口时也可以主动注册。三种行为按用途自选：view 查看本消息分支状态不产生回合，action 直接发送提示词产生用户回合，prefill 把提示词放进输入框等用户补充。label 起短而易懂的卡名，action/prefill 必须写可用的 prompt。普通剧情选择不注册为稳定操作。")
-    appendLine("- 用户消息中出现〔能力名〕形式的紫色胶囊时，表示用户从能力卡盘点选了对应能力，须立即以对应工具响应：〔创建世界卡〕→ create_card_bulk（kind=WORLD）；〔创建角色卡〕→ create_card_bulk（kind=CHARACTER）；〔给我选项〕→ present_choices 给出当前可用的行动选项；〔生成图片〕→ generate_image；〔注册快捷操作〕→ register_controls。对应工具在本对话不可用时，如实说明该能力当前未开启，不要假装执行。")
+    // 胶囊对照表逐条按工具可用性投影：未暴露的工具不得出现在提示词里
+    // （NovexSystemPromptTest 契约——提示词只教真实可调用的操作）。
+    val capsuleMap = buildList {
+        if ("create_card_bulk" in availableToolNames) {
+            add("〔创建世界卡〕→ create_card_bulk（kind=WORLD）")
+            add("〔创建角色卡〕→ create_card_bulk（kind=CHARACTER）")
+        }
+        if ("present_choices" in availableToolNames) add("〔给我选项〕→ present_choices 给出当前可用的行动选项")
+        if ("generate_image" in availableToolNames) add("〔生成图片〕→ generate_image")
+        if ("register_controls" in availableToolNames) add("〔注册快捷操作〕→ register_controls")
+    }
+    if (capsuleMap.isNotEmpty()) appendLine("- 用户消息中出现〔能力名〕形式的紫色胶囊时，表示用户从能力卡盘点选了对应能力，须立即以对应工具响应：" + capsuleMap.joinToString("；") + "。胶囊指向的工具在本对话不可用时，如实说明该能力当前未开启，不要假装执行。")
     if ("update_playthrough_state" in availableToolNames) appendLine("- 当前文游的位置、生命、物品、任务等跟踪事实发生变化时，调用 update_playthrough_state 更新本局状态：新增与修改都传 {key,value}（同名键直接覆盖为新值），字段不再适用（物品耗尽、任务移除）时传 {remove:\"键名\"} 删除。状态只属于当前消息分支，不写回共享文游；切换分支不得重新调用该工具。")
     appendLine("- 当用户只是纠错时，简洁确认改动及其影响；除非用户要求，不要为了证明理解而重写整段故事。")
     appendLine("- 不在每轮结尾机械追问“你想做什么”。场景已经给出自然行动空间时，可以停在有张力的位置。")
