@@ -244,6 +244,23 @@ jobs:
             --notes-file "$notes_file" \
             --prerelease
 
+      # 客户端只查两个公开分发仓；私有仓 release 只是内部产物。
+      # GITEE_TOKEN 未配置时脚本只发 GitHub hub 并告警，不阻塞发布。
+      - name: Mirror preview release to public hubs
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.package_channel == 'preview' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          shopt -s nullglob
+          assets=(dist/preview/novex-preview.novex dist/preview/zz-novex-preview-installer.apk dist/preview/SHA256SUMS.txt)
+          ./scripts/sync_release_to_hubs.sh \
+            "${{ steps.versions.outputs.preview_tag }}" \
+            preview \
+            "$RUNNER_TEMP/preview-release-notes.md" \
+            "${assets[@]}"
+
       - name: Upload test report after failure
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

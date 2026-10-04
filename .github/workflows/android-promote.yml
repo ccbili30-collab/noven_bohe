@@ -254,6 +254,23 @@ jobs:
               --notes-file "$RUNNER_TEMP/stable-release-notes.md"
           fi
 
+      # 客户端只查两个公开分发仓；私有仓 release 只是内部产物。
+      # GITEE_TOKEN 未配置时脚本只发 GitHub hub 并告警，不阻塞发布。
+      - name: Mirror stable release to public hubs
+        if: ${{ inputs.publish }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          RELEASE_TAG: ${{ steps.candidate.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          ./scripts/sync_release_to_hubs.sh \
+            "$RELEASE_TAG" \
+            stable \
+            "$RUNNER_TEMP/stable-release-notes.md" \
+            dist/*.apk dist/SHA256SUMS.txt
+
       - name: Upload promoted release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
