@@ -78,8 +78,8 @@ import com.openminis.app.ui.onboarding.OnboardingModelSelectionScreen
 // `MotionScheme` only in 1.4-alpha; mirror the spec values directly so we
 // don't take a dependency-bump tax just for two CubicBezierEasing instances.
 // Source: m3.material.io/styles/motion/easing-and-duration/tokens-specs
-private val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
-private val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f)
+internal val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
+internal val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f)
 
 object Routes {
     const val SESSION_LIST = "sessions"

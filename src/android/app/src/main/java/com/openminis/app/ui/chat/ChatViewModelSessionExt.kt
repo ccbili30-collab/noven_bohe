@@ -1052,7 +1052,12 @@ internal fun ChatViewModel.resolveProviderFromGroup(groupId: String, preferredEn
 
 fun ChatViewModel.selectGroup(groupId: String) {
     if (_isStreaming.value) {
-        _error.value = "请先停止当前回复，再切换模型"
+        // Stream in flight: persist + show the pick now, bind at the next send.
+        pendingModelBindingJson =
+            """{"type":"group","groupId":"$groupId","lastEntryId":"${_activeEntryId.value.orEmpty()}"}"""
+        persistBinding(pendingModelBindingJson!!)
+        _selectedGroupId.value = groupId
+        _selectedGroupName.value = providerRepository.group(groupId)?.name.orEmpty()
         return
     }
     val resolved = resolveProviderFromGroup(groupId)
@@ -1065,13 +1070,17 @@ fun ChatViewModel.selectGroup(groupId: String) {
 
 /** Select a specific entry within a group (keeps group selected). */
 fun ChatViewModel.selectGroupEntry(groupId: String, entryId: String) {
-    if (_isStreaming.value) {
-        _error.value = "请先停止当前回复，再切换模型"
-        return
-    }
     val entry = providerRepository.config.value.modelEntries.find { it.id == entryId }
     if (entry == null || !novex.android.data.model.ChatModelSelection.eligible(entry)) {
         _error.value = "请选择聊天模型，生图模型不能用于此对话"
+        return
+    }
+    if (_isStreaming.value) {
+        pendingModelBindingJson =
+            """{"type":"group","groupId":"$groupId","lastEntryId":"$entryId"}"""
+        persistBinding(pendingModelBindingJson!!)
+        _selectedGroupId.value = groupId
+        _selectedGroupName.value = providerRepository.group(groupId)?.name.orEmpty()
         return
     }
     val resolved = resolveProviderFromGroup(groupId, entryId)
@@ -1142,19 +1151,23 @@ internal fun ChatViewModel.applyNewChatDefaultModel(): Boolean {
 
 /** Select a specific model entry (bypasses group selection). */
 fun ChatViewModel.selectEntry(entryId: String) {
-    if (_isStreaming.value) {
-        _error.value = "请先停止当前回复，再切换模型"
-        return
-    }
     val config = providerRepository.config.value
     val entry = config.modelEntries.find { it.id == entryId } ?: return
-    val instance = providerRepository.instance(entry.providerInstanceId) ?: return
-    val apiKey = providerRepository.usableApiKey(instance) ?: return
-
     if (!novex.android.data.model.ChatModelSelection.eligible(entry)) {
         _error.value = "请选择聊天模型，生图模型不能用于此对话"
         return
     }
+    if (_isStreaming.value) {
+        pendingModelBindingJson = """{"type":"entry","entryId":"$entryId"}"""
+        persistBinding(pendingModelBindingJson!!)
+        _selectedGroupId.value = null
+        _selectedGroupName.value = ""
+        _modelName.value = entry.model.displayName
+        return
+    }
+    val instance = providerRepository.instance(entry.providerInstanceId) ?: return
+    val apiKey = providerRepository.usableApiKey(instance) ?: return
+
     if (!tryBindChatEntry(entry, instance, apiKey)) return
     _selectedGroupId.value = null
     _selectedGroupName.value = ""
@@ -1166,6 +1179,26 @@ fun ChatViewModel.selectEntry(entryId: String) {
     // global last-used model so the NEXT new chat (when no default group
     // is set) defaults back to it. Tier 2 of the new-chat fallback chain.
     providerRepository.lastUsedEntryId = entryId
+}
+
+/**
+ * Apply a model switch the user queued while a stream was in flight. The
+ * binding was already persisted and the picker showed the pick at tap
+ * time; this resolves the real provider objects now that no stream holds
+ * them. Runs at the top of sendMessage (past the streaming gate), so the
+ * switch takes effect on exactly the "next output" the user expects.
+ * A failed resolve keeps the persisted binding — restore on the next
+ * session load still retries it.
+ */
+internal fun ChatViewModel.applyPendingModelBinding() {
+    val binding = pendingModelBindingJson ?: return
+    pendingModelBindingJson = null
+    if (!restoreFromBinding(binding)) return
+    _activeEntryId.value?.let { providerRepository.lastUsedEntryId = it }
+    val obj = runCatching { org.json.JSONObject(binding) }.getOrNull() ?: return
+    if (obj.optString("type") == "group") {
+        applyGroupSessionDefaults(obj.optString("groupId"))
+    }
 }
 
 /** Persist the model binding to the DB session (no-op for draft sessions). */

@@ -318,9 +318,8 @@ internal fun ChatComposerSection(
                 // PopupProperties so its bottom edge sits just above this Column.
                 // Tap-outside dismisses via dismissOnClickOutside.
                 val showSlashMenu by viewModel.showSlashMenu.collectAsState()
-                // [A2c-cards] 卡盘=银卡（AI 自注册的本会话能力）+ 唯一
-                // 保留的系统金卡「压缩卡」。其余系统指令卡已全部移除
-                // （含存档组：将来由引擎按需注册为银卡）。
+                // [A2c-cards] 卡盘=银卡（AI 自注册的本会话能力）+ 系统金卡
+                // （压缩/存档/清空等内建指令，图标区分语义）。
                 val filteredSlashCommands = remember(
                     showSlashMenu,
                     viewModel.slashFilter.collectAsState().value,
@@ -449,7 +448,7 @@ internal fun ChatComposerSection(
                                     )
                                 }
                             }
-                            // [A2c-cards] 金卡区：目前只剩「压缩卡」。
+                            // [A2c-cards] 金卡区：系统指令卡（压缩/存档/清空等）。
                             itemsIndexed(filteredSlashCommands, key = { _, c -> "cmd:${c.id}" }) { _, cmd ->
                                 Row(
                                     modifier = Modifier

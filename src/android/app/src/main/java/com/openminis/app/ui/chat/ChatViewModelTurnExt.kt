@@ -798,6 +798,10 @@ internal fun ChatViewModel.sendMessage(text: String, skipContextCheck: Boolean) 
         enqueuePrompt(text)
         return
     }
+    // A model the user switched to mid-stream binds here — the pick was
+    // persisted at tap time, the provider objects swap now that the stream
+    // is over, so this send (and queued prompts draining into it) uses it.
+    applyPendingModelBinding()
     // T180: allow attachments-only sends (no caption). Mirrors iOS, where
     // an empty text + non-empty attachments still produces a valid user
     // message. Without this an image-only "look at this" send dropped.

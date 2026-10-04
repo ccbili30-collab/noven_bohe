@@ -236,7 +236,37 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
             )
         }
 
-        composable(Routes.SETTINGS) {
+        // The gear sits at the top-right of 我的 — the page must arrive
+        // from the RIGHT edge so the motion reads as pulling from the
+        // button, not from the opposite side. Physical directions (not
+        // Start/End) so the direction holds under any layoutDirection.
+        composable(
+            route = Routes.SETTINGS,
+            enterTransition = {
+                slideIntoContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Left,
+                    animationSpec = tween(300, easing = EmphasizedDecelerate),
+                ) + fadeIn(animationSpec = tween(300, easing = EmphasizedDecelerate))
+            },
+            exitTransition = {
+                slideOutOfContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Left,
+                    animationSpec = tween(200, easing = EmphasizedAccelerate),
+                ) + fadeOut(animationSpec = tween(200, easing = EmphasizedAccelerate))
+            },
+            popEnterTransition = {
+                slideIntoContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Right,
+                    animationSpec = tween(300, easing = EmphasizedDecelerate),
+                ) + fadeIn(animationSpec = tween(300, easing = EmphasizedDecelerate))
+            },
+            popExitTransition = {
+                slideOutOfContainer(
+                    AnimatedContentTransitionScope.SlideDirection.Right,
+                    animationSpec = tween(200, easing = EmphasizedAccelerate),
+                ) + fadeOut(animationSpec = tween(200, easing = EmphasizedAccelerate))
+            },
+        ) {
             SettingsScreen(
                 onBack = {
                     handleNovexInitialRouteBack(

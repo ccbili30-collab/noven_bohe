@@ -85,6 +85,9 @@ internal fun NovenCreateScreen(
     val importPicker = rememberNovenImportPicker { uri, world -> onImportCard(uri, world) }
     val unfinished = library.state.imports + library.state.edits
     val importIds = remember(library.state.imports) { library.state.imports.map { it.id }.toSet() }
+    // 丢弃确认态：点一次「放弃」先武装成红色「确认放弃」，再点一次才真删——
+    // 导入草稿是唯一副本，误触不可恢复。
+    var discardArmedId by remember { mutableStateOf<String?>(null) }
 
     Column(
         Modifier
@@ -260,6 +263,27 @@ internal fun NovenCreateScreen(
                             fontSize = 13.sp,
                             color = NovenColors.Mint,
                             fontWeight = FontWeight.Medium,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        // 放弃：丢弃这份草稿。导入草稿是孤本，删了就没了；
+                        // 编辑草稿只是回到最近保存版本。两次点击确认。
+                        val armed = discardArmedId == draft.id
+                        Text(
+                            if (armed) "确认放弃" else "放弃",
+                            fontSize = 12.sp,
+                            color = if (armed) NovenColors.Badge else NovenColors.Secondary,
+                            fontWeight = if (armed) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    if (armed) {
+                                        discardArmedId = null
+                                        library.discardDraft(draft)
+                                    } else {
+                                        discardArmedId = draft.id
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
                         )
                     }
                 }

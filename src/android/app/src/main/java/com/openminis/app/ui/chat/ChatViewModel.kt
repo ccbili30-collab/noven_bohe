@@ -925,6 +925,15 @@ class ChatViewModel(
     internal val _providerName = MutableStateFlow("")
     val providerName: StateFlow<String> = _providerName.asStateFlow()
 
+    /**
+     * Model switch queued while a stream is in flight: the binding is
+     * persisted immediately (survives process death) and the picker state
+     * updates optimistically, but `currentProvider`/`currentModel` stay on
+     * the in-flight stream's objects until the next send resolves it.
+     * Consumed by `applyPendingModelBinding` at the top of sendMessage.
+     */
+    internal var pendingModelBindingJson: String? = null
+
     /** Incremented when a model fallback occurs — UI observes this to flash the model capsule. */
     internal val _fallbackTrigger = MutableStateFlow(0)
     val fallbackTrigger: StateFlow<Int> = _fallbackTrigger.asStateFlow()
@@ -2123,19 +2132,19 @@ class ChatViewModel(
         // [T-stage3-save] 存档命令组（总纲 §3.9）：/save 名称｜/saves 列表｜/load 序号
         SlashCommand(
             id = "save",
-            icon = novex.android.ui.NovexIcons.Compress,
+            icon = novex.android.ui.NovexIcons.Archive,
             title = "Save",
             subtitle = "",
         ),
         SlashCommand(
             id = "saves",
-            icon = novex.android.ui.NovexIcons.Compress,
+            icon = novex.android.ui.NovexIcons.FolderZip,
             title = "Saves",
             subtitle = "",
         ),
         SlashCommand(
             id = "load",
-            icon = novex.android.ui.NovexIcons.CloseFullscreen,
+            icon = novex.android.ui.NovexIcons.Restore,
             title = "Load",
             subtitle = "",
         ),
