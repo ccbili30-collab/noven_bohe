@@ -56,9 +56,7 @@ import com.openminis.app.ui.sandbox.FilePreviewScreen
 import com.openminis.app.ui.settings.AppearanceScreen
 import com.openminis.app.ui.settings.ThemeColorScreen
 import com.openminis.app.ui.settings.SettingsScreen
-import com.openminis.app.ui.settings.SessionStorageDetailScreen
 import com.openminis.app.ui.settings.SkillDetailScreen
-import com.openminis.app.ui.settings.StorageManagementScreen
 import com.openminis.app.ui.settings.SkillFileViewerScreen
 import com.openminis.app.ui.settings.UsageStatsScreen
 import com.openminis.app.ui.settings.SharedFolderDetailScreen
@@ -110,8 +108,6 @@ object Routes {
     const val AGENT_LOOP_MODELS = "agent_loop_models"
     const val MODEL_ENTRY_DETAIL = "model_entry/{instanceId}/{entryId}"
     const val ADD_CUSTOM_MODEL = "add_custom_model/{instanceId}"
-    const val STORAGE = "storage"
-    const val SESSION_STORAGE_DETAIL = "session_storage/{sessionId}"
     const val FILE_BROWSER = "file_browser"
     const val FILE_PREVIEW = "file_preview"
     const val SKILLS = "skills"
@@ -161,7 +157,6 @@ object Routes {
     // 三条路由随定时任务（scheduled/ + ui/scheduled/）退役删除。
 
     fun logDetail(fileName: String) = "log_detail/$fileName"
-    fun sessionStorageDetail(sessionId: String) = "session_storage/$sessionId"
     fun storyWorld(worldId: String) = "characters/world/${android.net.Uri.encode(worldId)}"
     fun storyWorldEdit(worldId: String? = null) =
         if (worldId == null) "characters/world/edit" else "characters/world/edit?worldId=${android.net.Uri.encode(worldId)}"

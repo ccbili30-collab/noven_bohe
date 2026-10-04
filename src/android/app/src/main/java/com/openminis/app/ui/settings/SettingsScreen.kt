@@ -79,8 +79,6 @@ fun SettingsScreen(
     onProvidersClick: () -> Unit,
     onModelGroupsClick: () -> Unit,
     onImageGenerationClick: () -> Unit = {},
-    // [T-storage-entry] 存储管理入口（原 onRootfsClick 参数名与去向不符，改名归位）
-    onStorageClick: () -> Unit = {},
     onSkillsClick: () -> Unit = {},
     // [P3.3 裁军] onMcpClick（MCP 集成页入口参数）随 MCP 集成面退役摘除。
     // Agent Runtime section; default no-op for callers that haven't wired
@@ -103,7 +101,6 @@ fun SettingsScreen(
     onAboutClick: () -> Unit = {},
     onFeedbackClick: () -> Unit = {},
     onCreativeLibraryClick: () -> Unit = {},
-    onComponentGalleryClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     NovexSettingsScaffold(title = stringResource(R.string.settings_title), onBack = onBack) {
@@ -123,18 +120,6 @@ fun SettingsScreen(
                 subtitle = "集中查看对话生成的文档、图片、地图和卡片",
                 showDivider = false,
                 onClick = onCreativeLibraryClick,
-            )
-        }
-        NovexSettingsSection(
-            title = "数据与存储",
-            footer = "会话文件、数据库、卡片数据与修订历史的占用与清理",
-        ) {
-            NovexSettingsRow(
-                icon = R.drawable.ic_phosphor_hard_drive,
-                title = "存储管理",
-                subtitle = "查看会话与卡片的空间占用",
-                showDivider = false,
-                onClick = onStorageClick,
             )
         }
         NovexSettingsSection(
@@ -169,9 +154,6 @@ fun SettingsScreen(
                 showDivider = false,
                 onClick = onAppearanceClick,
             )
-            onComponentGalleryClick?.let { open ->
-                NovexSettingsRow(R.drawable.ic_phosphor_puzzle_piece, "组件预览", "集中查看新组件和各种交互状态", showDivider = false, onClick = open)
-            }
         }
         NovexSettingsSection(title = stringResource(R.string.settings_section_agent_runtime)) {
             NovexSettingsRow(

@@ -56,9 +56,7 @@ import com.openminis.app.ui.sandbox.FilePreviewScreen
 import com.openminis.app.ui.settings.AppearanceScreen
 import com.openminis.app.ui.settings.ThemeColorScreen
 import com.openminis.app.ui.settings.SettingsScreen
-import com.openminis.app.ui.settings.SessionStorageDetailScreen
 import com.openminis.app.ui.settings.SkillDetailScreen
-import com.openminis.app.ui.settings.StorageManagementScreen
 import com.openminis.app.ui.settings.SkillFileViewerScreen
 import com.openminis.app.ui.settings.UsageStatsScreen
 import com.openminis.app.ui.settings.SharedFolderDetailScreen
@@ -271,7 +269,6 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 onProvidersClick = { navController.safeNavigate(Routes.PROVIDER_LIST) },
                 onModelGroupsClick = { navController.safeNavigate(Routes.MODEL_GROUPS) },
                 onImageGenerationClick = { navController.safeNavigate(Routes.IMAGE_GENERATION_SETTINGS) },
-                onStorageClick = { navController.safeNavigate(Routes.STORAGE) },
                 onSkillsClick = { navController.safeNavigate(Routes.SKILLS) },
                 onSoulClick = { navController.safeNavigate(Routes.SOUL) },
                 onUsageClick = { navController.safeNavigate(Routes.USAGE_STATS) },
@@ -282,9 +279,6 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 onSharedFoldersClick = { navController.safeNavigate(Routes.SHARED_FOLDERS) },
                 onFeedbackClick = { navController.safeNavigate(Routes.NOVEX_FEEDBACK) },
                 onCreativeLibraryClick = { navController.safeNavigate(Routes.creativeLibrary()) },
-                onComponentGalleryClick = if (com.openminis.app.BuildConfig.APPLICATION_ID.endsWith(".preview")) {
-                    { navController.safeNavigate("settings/component-gallery") }
-                } else null,
             )
         }
 }
