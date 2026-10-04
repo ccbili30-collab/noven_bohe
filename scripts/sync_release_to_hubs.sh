@@ -48,28 +48,51 @@ gitee_api() {
   curl -sf --max-time 60 "$@"
 }
 
-# 已有同名 release 则复用（幂等），否则在 main 上建 release。
-release_id="$(gitee_api "${GITEE_API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" 2>/dev/null \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))' || true)"
+gitee_json() {
+  python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print("" if d is None else d.get("id", "") if isinstance(d, dict) else "")'
+}
+
+# 已有同名 release 则复用（幂等）；Gitee 未命中时返回 JSON null 而非 404。
+release_id="$(gitee_api "${GITEE_API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" 2>/dev/null | gitee_json || true)"
 if [ -z "$release_id" ]; then
-  release_id="$(curl -sf --max-time 60 -X POST "${GITEE_API}/releases" \
-    -F "access_token=${GITEE_TOKEN}" -F "tag_name=${TAG}" -F "name=Novex ${VERSION}" \
-    -F "target_commitish=main" -F "body=@${NOTES_FILE}" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+  # Gitee 的 release 字段要吃 urlencoded，不吃 multipart；-f 关掉以便看到错误体。
+  create_resp="$(curl -s --max-time 60 -X POST "${GITEE_API}/releases" \
+    --data-urlencode "access_token=${GITEE_TOKEN}" --data-urlencode "tag_name=${TAG}" \
+    --data-urlencode "name=Novex ${VERSION}" --data-urlencode "target_commitish=main" \
+    --data-urlencode "body@${NOTES_FILE}")"
+  release_id="$(printf '%s' "$create_resp" | gitee_json)"
+  if [ -z "$release_id" ]; then
+    echo "gitee release 创建失败：$(printf '%s' "$create_resp" | head -c 300)" >&2
+    exit 1
+  fi
 fi
 echo "gitee hub: release id ${release_id}"
 
 # 附件逐个上传；Gitee 对同名附件会 400，先查已有资产名再决定覆盖上传与否。
 existing="$(gitee_api "${GITEE_API}/releases/${release_id}?access_token=${GITEE_TOKEN}" \
-  | python3 -c 'import json,sys; print(" ".join(a.get("name","") for a in json.load(sys.stdin).get("assets",[])))' || true)"
+  | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+    print(" ".join(a.get("name","") for a in (d or {}).get("assets",[]) if a.get("name","").endswith((".apk",".novex",".txt"))))
+except Exception:
+    pass' || true)"
 for asset in "${ASSETS[@]}"; do
   name="$(basename "$asset")"
   if printf '%s' "$existing" | grep -qw "$name"; then
     echo "gitee hub: asset $name 已存在，跳过"
     continue
   fi
-  curl -sf --max-time 600 -X POST "${GITEE_API}/releases/${release_id}/attach_files" \
-    -F "access_token=${GITEE_TOKEN}" -F "file=@${asset}" >/dev/null
+  attach_resp="$(curl -s --max-time 600 -X POST "${GITEE_API}/releases/${release_id}/attach_files" \
+    -F "access_token=${GITEE_TOKEN}" -F "file=@${asset}")"
+  if ! printf '%s' "$attach_resp" | grep -q '"id"'; then
+    echo "gitee 附件上传失败 ${name}：$(printf '%s' "$attach_resp" | head -c 300)" >&2
+    exit 1
+  fi
   echo "gitee hub: 已上传 ${name}"
 done
 
