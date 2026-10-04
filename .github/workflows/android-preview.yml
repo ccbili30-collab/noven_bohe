@@ -250,7 +250,9 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.package_channel == 'preview' }}
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN 只能写本仓；镜像到公开分发站 ccbili30-collab/novex
+          # 需要跨仓 PAT（NOVEX_HUB_TOKEN），未配置时退回本仓凭证。
+          GH_TOKEN: ${{ secrets.NOVEX_HUB_TOKEN || secrets.GITHUB_TOKEN }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           shopt -s nullglob
