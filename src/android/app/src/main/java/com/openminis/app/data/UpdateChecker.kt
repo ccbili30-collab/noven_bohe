@@ -539,7 +539,7 @@ object UpdateChecker {
     }
 
     /** Public so UI can deep-link users to manual download when GitHub is blocked. */
-    const val RELEASES_URL: String = "https://github.com/ccbili30-collab/novex-android/releases"
+    const val RELEASES_URL: String = "https://github.com/ccbili30-collab/novex/releases"
 
     internal fun parsePublishedReleases(body: String): List<PublishedUpdate> {
         val releases = JSONArray(body)

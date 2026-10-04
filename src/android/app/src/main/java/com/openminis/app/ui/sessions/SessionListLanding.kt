@@ -176,7 +176,7 @@ internal fun OnboardingLanding(
                 textAlign = TextAlign.Center,
             )
             MinisTextButton(
-                onClick = { uriHandler.openUri("https://github.com/ccbili30-collab/novex-android") },
+                onClick = { uriHandler.openUri("https://github.com/ccbili30-collab/novex") },
             ) {
                 Text(stringResource(R.string.novex_star_novex))
             }

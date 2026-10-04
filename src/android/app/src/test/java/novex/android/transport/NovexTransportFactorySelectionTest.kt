@@ -146,7 +146,7 @@ class NovexTransportFactorySelectionTest {
         val provider = novex(instance(type = ProviderType.openRouter, customBaseURL = null))
         assertEquals("https://openrouter.ai/api/v1/chat/completions", provider.completionUrl().toString())
         val headers = provider.outboundHeaders()
-        assertEquals("https://github.com/ccbili30-collab/novex-android", headers["HTTP-Referer"])
+        assertEquals("https://github.com/ccbili30-collab/novex", headers["HTTP-Referer"])
         assertEquals("Minis App", headers["X-Title"])
     }
 

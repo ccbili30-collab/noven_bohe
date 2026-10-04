@@ -131,7 +131,7 @@ object ProviderFactory {
                     instanceId = instance.id,
                     protocol = WireProtocol.CHAT_COMPLETIONS,
                     extraHeaders = mapOf(
-                        "HTTP-Referer" to "https://github.com/ccbili30-collab/novex-android",
+                        "HTTP-Referer" to "https://github.com/ccbili30-collab/novex",
                         "X-Title" to "Minis App",
                     ),
                 )

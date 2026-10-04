@@ -46,7 +46,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 // 链接图标用正文色，不吃品牌色。
                 iconColor = NovexColors.Text,
                 title = stringResource(R.string.about_github_repository),
-                onClick = { openExternalUrl(context, "https://github.com/ccbili30-collab/novex-android") },
+                onClick = { openExternalUrl(context, "https://github.com/ccbili30-collab/novex") },
                 trailing = {
                     Text("↗", style = NovexType.Body, color = NovexColors.SecondaryText)
                 },

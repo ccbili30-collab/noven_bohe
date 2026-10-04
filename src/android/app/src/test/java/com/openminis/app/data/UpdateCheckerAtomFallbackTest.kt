@@ -10,12 +10,12 @@ class UpdateCheckerAtomFallbackTest {
         <?xml version="1.0" encoding="UTF-8"?>
         <feed xmlns="http://www.w3.org/2005/Atom">
           <entry>
-            <link rel="alternate" type="text/html" href="https://github.com/ccbili30-collab/novex-android/releases/tag/v0.2.0-preview"/>
+            <link rel="alternate" type="text/html" href="https://github.com/ccbili30-collab/novex/releases/tag/v0.2.0-preview"/>
             <title>Novex 0.2 Preview</title>
             <content type="html">&lt;p&gt;&lt;strong&gt;特别致哀&lt;/strong&gt;&lt;/p&gt;&lt;hr&gt;&lt;ul&gt;&lt;li&gt;修复更新说明&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;a href=&quot;https://example.com/notes&quot;&gt;查看详情&lt;/a&gt;&lt;/p&gt;&lt;p&gt;愿山河无恙，愿人间皆安&lt;/p&gt;</content>
           </entry>
           <entry>
-            <link rel="alternate" type="text/html" href="https://github.com/ccbili30-collab/novex-android/releases/tag/v0.1.0-preview"/>
+            <link rel="alternate" type="text/html" href="https://github.com/ccbili30-collab/novex/releases/tag/v0.1.0-preview"/>
             <title>Novex 0.1 Preview</title>
           </entry>
         </feed>
@@ -36,7 +36,7 @@ class UpdateCheckerAtomFallbackTest {
         assertTrue(result.changelog.contains("[查看详情](https://example.com/notes)"))
         assertTrue(result.changelog.contains("愿山河无恙，愿人间皆安"))
         assertEquals(
-            "https://github.com/ccbili30-collab/novex-android/releases/download/v0.2.0-preview/novex-preview.novex",
+            "https://github.com/ccbili30-collab/novex/releases/download/v0.2.0-preview/novex-preview.novex",
             result.apkUrl,
         )
     }
@@ -59,7 +59,7 @@ class UpdateCheckerAtomFallbackTest {
         val noContentFeed = """
             <feed xmlns="http://www.w3.org/2005/Atom">
               <entry>
-                <link rel="alternate" type="text/html" href="https://github.com/ccbili30-collab/novex-android/releases/tag/v0.2.9"/>
+                <link rel="alternate" type="text/html" href="https://github.com/ccbili30-collab/novex/releases/tag/v0.2.9"/>
                 <title>Novex 0.2.9</title>
               </entry>
             </feed>
@@ -78,17 +78,17 @@ class UpdateCheckerAtomFallbackTest {
         val crossVersionFeed = """
             <feed xmlns="http://www.w3.org/2005/Atom">
               <entry>
-                <link rel="alternate" href="https://github.com/ccbili30-collab/novex-android/releases/tag/v0.2.11"/>
+                <link rel="alternate" href="https://github.com/ccbili30-collab/novex/releases/tag/v0.2.11"/>
                 <title>Novex 0.2.11</title>
                 <content type="html">&lt;p&gt;最新版本说明&lt;/p&gt;&lt;h2&gt;包含的往期更新&lt;/h2&gt;&lt;p&gt;用于旧客户端的内嵌历史&lt;/p&gt;</content>
               </entry>
               <entry>
-                <link rel="alternate" href="https://github.com/ccbili30-collab/novex-android/releases/tag/v0.2.10"/>
+                <link rel="alternate" href="https://github.com/ccbili30-collab/novex/releases/tag/v0.2.10"/>
                 <title>Novex 0.2.10</title>
                 <content type="html">&lt;p&gt;中间版本说明&lt;/p&gt;</content>
               </entry>
               <entry>
-                <link rel="alternate" href="https://github.com/ccbili30-collab/novex-android/releases/tag/v0.2.9"/>
+                <link rel="alternate" href="https://github.com/ccbili30-collab/novex/releases/tag/v0.2.9"/>
                 <title>Novex 0.2.9</title>
                 <content type="html">&lt;p&gt;已安装版本说明&lt;/p&gt;</content>
               </entry>

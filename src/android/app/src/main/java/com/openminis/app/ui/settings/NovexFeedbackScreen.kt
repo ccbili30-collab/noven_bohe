@@ -30,7 +30,7 @@ import com.openminis.app.ui.components.openExternalUrl
 // 2026-09-16 群主换群：反馈交流群更新。
 private const val NOVEX_GROUP_QQ = "1121213020"
 private const val NOVEX_AUTHOR_QQ = "2310212103"
-private const val NOVEX_ISSUES_URL = "https://github.com/ccbili30-collab/novex-android/issues"
+private const val NOVEX_ISSUES_URL = "https://github.com/ccbili30-collab/novex/issues"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

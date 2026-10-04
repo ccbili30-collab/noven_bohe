@@ -254,7 +254,7 @@ jobs:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           shopt -s nullglob
-          assets=(dist/preview/novex-preview.novex dist/preview/zz-novex-preview-installer.apk dist/preview/SHA256SUMS.txt)
+          assets=(dist/preview/zz-novex-preview-installer.apk dist/preview/novex-preview.novex dist/preview/SHA256SUMS.txt)
           ./scripts/sync_release_to_hubs.sh \
             "${{ steps.versions.outputs.preview_tag }}" \
             preview \
