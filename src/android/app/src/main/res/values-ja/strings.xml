@@ -673,11 +673,6 @@
 
     <!-- T241: スラッシュコマンドパネル + モデル選択シート -->
     <string name="slash_compact_subtitle">会話履歴を要約に圧縮</string>
-    <string name="slash_memory_writes_on">書き込みオン — タップで切替</string>
-    <string name="slash_memory_writes_off">書き込みオフ — タップで切替</string>
-    <string name="slash_thinking_subtitle">思考 %1$s — タップで切替</string>
-    <string name="slash_thinking_unsupported">現在のモデルは未対応</string>
-    <string name="slash_clear_subtitle">このセッションのすべてのメッセージを消去</string>
     <string name="thinking_level_off">オフ</string>
     <string name="thinking_level_low">低</string>
     <string name="thinking_level_medium">中</string>

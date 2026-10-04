@@ -38,18 +38,9 @@ internal fun ChatViewModel.filteredSlashCommands(): List<SlashCommand> {
     return if (filter.isEmpty()) all else all.filter { filter in it.title.lowercase() }
 }
 
-/** 内建指令的副标题随状态刷新（记忆开关、思考档位、压缩/清空固定文案）。 */
+/** 内建指令的副标题随状态刷新（压缩固定文案；其余走卡片显示名映射）。 */
 private fun ChatViewModel.liveSlashSubtitle(cmd: SlashCommand): SlashCommand = with(cmd) { when (id) {
     "compact" -> copy(subtitle = context.getString(R.string.slash_compact_subtitle))
-    "sync" -> copy(subtitle = "压缩记忆发给另一边（沟通简报并入两边历史）")
-    "thinking" -> copy(
-        subtitle = if (!currentModelSupportsReasoning) {
-            context.getString(R.string.slash_thinking_unsupported)
-        } else {
-            context.getString(R.string.slash_thinking_subtitle, _thinkingLevel.value.localizedName(context))
-        },
-    )
-    "clear" -> copy(subtitle = context.getString(R.string.slash_clear_subtitle))
     else -> this
 } }
 

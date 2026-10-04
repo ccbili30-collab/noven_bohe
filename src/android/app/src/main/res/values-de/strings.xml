@@ -673,10 +673,6 @@
 
     <!-- T241: Slash-Befehlsleiste + Modellauswahl-Sheet -->
     <string name="slash_compact_subtitle">Verlauf in Zusammenfassung komprimieren</string>
-    <string name="slash_memory_writes_on">Schreiben an — Tippen zum Umschalten</string>
-    <string name="slash_memory_writes_off">Schreiben aus — Tippen zum Umschalten</string>
-    <string name="slash_thinking_subtitle">Denken %1$s — Tippen zum Umschalten</string>
-    <string name="slash_thinking_unsupported">Vom aktuellen Modell nicht unterstützt</string>
     <string name="thinking_level_off">Aus</string>
     <string name="thinking_level_low">Niedrig</string>
     <string name="thinking_level_medium">Mittel</string>

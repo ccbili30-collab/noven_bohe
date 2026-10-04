@@ -68,8 +68,10 @@ internal fun NovexActionMenu(
         modifier = modifier,
         shape = RoundedCornerShape(NovexDimensions.PopupRadius),
         containerColor = NovexColors.Surface,
-        tonalElevation = 2.dp,
-        shadowElevation = 12.dp,
+        // tonalElevation 必须保持 0：M3 的色调提升会按主色给弹层染色，
+        // 之前显式传 2.dp 就是菜单底色泛薄荷绿的来源。
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp,
     ) {
         actions.forEachIndexed { index, action ->
             if (index > 0 && (action.destructive || actions[index - 1].destructive)) {

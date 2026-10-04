@@ -884,11 +884,6 @@
 
     <!-- T241: 斜杠命令面板 + 选择模型 sheet -->
     <string name="slash_compact_subtitle">压缩对话历史为摘要</string>
-    <string name="slash_memory_writes_on">写入已开启 — 点击切换</string>
-    <string name="slash_memory_writes_off">写入已关闭 — 点击切换</string>
-    <string name="slash_thinking_subtitle">思考 %1$s — 点击切换</string>
-    <string name="slash_thinking_unsupported">当前模型不支持</string>
-    <string name="slash_clear_subtitle">清空当前会话的所有消息</string>
     <string name="thinking_level_off">关闭</string>
     <string name="thinking_level_low">低</string>
     <string name="thinking_level_medium">中</string>

@@ -74,6 +74,9 @@ sealed interface ConversationControlOutcome {
     ) : ConversationControlOutcome
 
     data class Action(val userTurn: String) : ConversationControlOutcome
+
+    /** 预填：提示词进输入框，用户可补充后再发。 */
+    data class Prefill(val text: String) : ConversationControlOutcome
 }
 
 /** Pure runtime decisions. UI and tools decide how to present or persist the result. */
@@ -116,6 +119,9 @@ object InteractiveFictionRuntime {
             ConversationControlBehavior.ACTION -> ConversationControlOutcome.Action(
                 payload.optString("prompt").trim().ifBlank { control.label },
             )
+            ConversationControlBehavior.PREFILL -> ConversationControlOutcome.Prefill(
+                payload.optString("prompt").trim().ifBlank { control.label },
+            )
             ConversationControlBehavior.VIEW -> {
                 val requested = payload.optJSONArray("stateKeys")?.stringValues().orEmpty()
                 ConversationControlOutcome.View(
@@ -153,6 +159,7 @@ object ConversationControlRegistration {
                 val behavior = when (value.optString("behavior").lowercase()) {
                     "view" -> ConversationControlBehavior.VIEW
                     "action" -> ConversationControlBehavior.ACTION
+                    "prefill", "compose" -> ConversationControlBehavior.PREFILL
                     else -> if (legacyInstruction.isBlank()) {
                         ConversationControlBehavior.VIEW
                     } else {

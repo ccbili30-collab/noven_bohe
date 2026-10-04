@@ -3,9 +3,14 @@ package com.openminis.app.ui.noven
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,9 +31,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -58,11 +66,20 @@ private fun NovenBottomBarItem(
     onSelect: (NovenTab) -> Unit,
 ) {
     val active = selected == tab
-    val tint = if (active) NovenColors.Text else NovenColors.Secondary
+    val tint = if (active) NovenColors.Mint else NovenColors.Secondary
+    // 按下反馈：图标微缩 + 投影（无 ripple 光效）；interactionSource 同时驱动
+    // 选中色，按压期间也保持薄荷绿语义。
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val iconScale by animateFloatAsState(
+        targetValue = if (pressed) 0.86f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
+        label = "bottomBarIconScale",
+    )
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clickable(onClick = { onSelect(tab) })
+            .clickable(interactionSource = interactionSource, indication = null, onClick = { onSelect(tab) })
             .padding(top = 6.dp, bottom = 4.dp),
     ) {
         // 所有项统一 44dp 图标槽（与中间创作方块同高），五个标签同一基线。
@@ -71,7 +88,15 @@ private fun NovenBottomBarItem(
                 painter = painterResource(icon),
                 contentDescription = label,
                 tint = tint,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                        shadowElevation = if (pressed) 10f else 0f
+                        shape = CircleShape
+                        spotShadowColor = Color.Black.copy(alpha = 0.45f)
+                    },
             )
             if (badged) Box(
                 Modifier
@@ -107,16 +132,30 @@ internal fun NovenBottomBar(
             slot { NovenBottomBarItem(NovenTab.HOME, R.drawable.ic_phosphor_house, "首页", selected, false, onSelect) }
             slot { NovenBottomBarItem(NovenTab.SESSIONS, R.drawable.ic_phosphor_chat_circle, "会话", selected, false, onSelect) }
             slot {
+                val createInteraction = remember { MutableInteractionSource() }
+                val createPressed by createInteraction.collectIsPressedAsState()
+                val createScale by animateFloatAsState(
+                    targetValue = if (createPressed) 0.88f else 1f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
+                    label = "bottomBarCreateScale",
+                )
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clickable(onClick = { onSelect(NovenTab.CREATE) })
+                        .clickable(interactionSource = createInteraction, indication = null, onClick = { onSelect(NovenTab.CREATE) })
                         .padding(top = 6.dp, bottom = 4.dp),
                 ) {
                     Box(
                         Modifier
                             .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .graphicsLayer {
+                                scaleX = createScale
+                                scaleY = createScale
+                                shadowElevation = if (createPressed) 12f else 0f
+                                shape = RoundedCornerShape(12.dp)
+                                spotShadowColor = Color.Black.copy(alpha = 0.45f)
+                                clip = true
+                            }
                             .background(NovenColors.Mint),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -130,7 +169,7 @@ internal fun NovenBottomBar(
                     Text(
                         "创作",
                         fontSize = 11.sp,
-                        color = if (selected == NovenTab.CREATE) NovenColors.Text else NovenColors.Secondary,
+                        color = if (selected == NovenTab.CREATE) NovenColors.Mint else NovenColors.Secondary,
                     )
                 }
             }

@@ -130,6 +130,9 @@ data class PlaythroughState(
 enum class ConversationControlBehavior {
     VIEW,
     ACTION,
+    /** 提示词进输入框等用户补充/修改——不直接发送。AI 注册时按"这步
+     *  要不要用户再补一句"自选，与紫卡胶囊同一交互语义。 */
+    PREFILL,
 }
 
 enum class ConversationControlSource {

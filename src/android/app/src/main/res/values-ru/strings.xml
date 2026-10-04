@@ -782,11 +782,6 @@
 
 
     <string name="slash_compact_subtitle">Сжать историю беседы в сводку</string>
-    <string name="slash_memory_writes_on">Запись включена — нажмите для переключения</string>
-    <string name="slash_memory_writes_off">Запись выключена — нажмите для переключения</string>
-    <string name="slash_thinking_subtitle">Рассуждение %1$s — нажмите для переключения</string>
-    <string name="slash_thinking_unsupported">Не поддерживается текущей моделью</string>
-    <string name="slash_clear_subtitle">Очистить все сообщения в этой сессии</string>
     <string name="thinking_level_off">Выкл.</string>
     <string name="thinking_level_low">Низкое</string>
     <string name="thinking_level_medium">Среднее</string>

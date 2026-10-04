@@ -58,6 +58,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.offset
@@ -75,6 +76,27 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 // ─── User Message (right-aligned, iOS: tertiarySystemFill bubble, 18dp radius) ─
+
+/** [A2c-cards] 紫卡胶囊 token：〔能力名〕渲染为紫色底胶囊。 */
+private val novexCapsuleRegex = Regex("〔[^〕\\n]{1,30}〕")
+private val novexCapsuleColor = Color(0xFF8A63D2)
+
+private fun novexCapsuleAnnotated(text: String): androidx.compose.ui.text.AnnotatedString =
+    androidx.compose.ui.text.buildAnnotatedString {
+        var last = 0
+        for (match in novexCapsuleRegex.findAll(text)) {
+            append(text.substring(last, match.range.first))
+            withStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = novexCapsuleColor,
+                    background = novexCapsuleColor.copy(alpha = 0.14f),
+                    fontWeight = FontWeight.SemiBold,
+                ),
+            ) { append(match.value) }
+            last = match.range.last + 1
+        }
+        append(text.substring(last))
+    }
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -246,7 +268,9 @@ internal fun UserMessageBubble(
                                 stableKey = "user:${message.id}",
                             ) {
                                 Text(
-                                    text = message.content,
+                                    // [A2c-cards] 紫卡胶囊渲染：〔能力名〕token
+                                    // 以紫色底胶囊呈现，其余正文原样。
+                                    text = remember(message.content) { novexCapsuleAnnotated(message.content) },
                                     color = textColor,
                                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.5.sp),
                                     modifier = bubbleModifier

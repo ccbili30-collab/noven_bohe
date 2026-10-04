@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -160,7 +161,14 @@ internal fun ModelPickerSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        // material3 1.3.2 没有 sheetGesturesEnabled（1.4 才有）：用
+        // confirmValueChange 拒掉拖曳到 Hidden——列表向下滑到顶后面板
+        // 不再被拖走/卡在半程抢走上滑手势（"滑下去回不了顶"的病灶）。
+        // 关闭仍走遮罩点按/返回键/标题栏「完成」。
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            confirmValueChange = { it != SheetValue.Hidden },
+        ),
         // 与 StandardChatSheet 同款细拖柄（6dp 顶 / 4dp 底），标题贴着指示
         // 条而不是被 Material 默认 ~44dp 空白顶开。
         dragHandle = {

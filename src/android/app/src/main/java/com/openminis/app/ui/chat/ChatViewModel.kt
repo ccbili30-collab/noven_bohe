@@ -779,6 +779,7 @@ class ChatViewModel(
         ) {
             is ConversationControlOutcome.View -> _novexControlView.value = outcome
             is ConversationControlOutcome.Action -> sendMessage(outcome.userTurn)
+            is ConversationControlOutcome.Prefill -> appendToInputText(outcome.text)
         }
     }
 
@@ -1514,7 +1515,12 @@ class ChatViewModel(
             if (currentModel?.supportsTools == false) return emptyList()
             val legacy=com.openminis.app.tools.NovexCardFileTools.names + NovexManagementTools.definitions().map {it.name} + com.openminis.app.tools.NovexWorldbookTools.names + setOf(com.openminis.app.tools.NovexConversationActionTools.START_GAME,com.openminis.app.tools.NovexConversationActionTools.SELECT_IDENTITY,"end_interactive_fiction")
             val common=allAgentTools.filter {it.name !in legacy && it.name !in integratedCards.names()}
-            return common + ConversationRecall.definitions() + if(integratedCards.binding(activeSessionId)!=null)integratedCards.definitions(activeSessionId) else emptyList()
+            // 未挂卡也放行建卡工具（create_card/create_card_bulk）：紫卡胶囊
+            // 与直接请求都需要它们；创建成功自动并入绑定 managed。编辑/读取类
+            // 仍要求绑定，防止模型对着不存在的编号空转。
+            return common + ConversationRecall.definitions() +
+                if(integratedCards.binding(activeSessionId)!=null)integratedCards.definitions(activeSessionId)
+                else integratedCards.creationDefinitions()
         }
 
     /**
@@ -1932,31 +1938,14 @@ class ChatViewModel(
      *  rebuilds them with the current localized state. */
     internal val availableSlashCommands: List<SlashCommand> = listOf(
         SlashCommand(
-            id = "clear",
-            icon = novex.android.ui.NovexIcons.Delete,
-            title = "Clear",
-            subtitle = "",
-        ),
-        SlashCommand(
             id = "compact",
             icon = novex.android.ui.NovexIcons.Compress,
             title = "Compact",
             subtitle = "",
         ),
-        SlashCommand(
-            id = "thinking",
-            icon = novex.android.ui.NovexIcons.Lightbulb,
-            title = "Thinking",
-            subtitle = "",
-        ),
-        // [T-cross-sync] 双向沟通：压缩自己的记忆发给另一边（2026-09-16 用户批δ）。
-        SlashCommand(
-            id = "sync",
-            icon = novex.android.ui.NovexIcons.Share,
-            title = "Sync",
-            subtitle = "",
-        ),
         // [T-stage3-save] 存档命令组（总纲 §3.9）：/save 名称｜/saves 列表｜/load 序号
+        // 2026-10 裁减：clear/thinking/sync 三张金卡按用户评审移除——清空入口在
+        // 对话菜单，思考开关在顶栏徽标，sync 属已退役的双向沟通功能。
         SlashCommand(
             id = "save",
             icon = novex.android.ui.NovexIcons.Archive,
@@ -2033,9 +2022,6 @@ class ChatViewModel(
 
         when (cmd.id) {
             "compact" -> compactAll()
-            "thinking" -> toggleThinking()
-            "clear" -> _clearChatConfirmRequested.value = true
-            "sync" -> startCrossSync(currentInput.trim().removePrefix("/").removePrefix("／").substringAfter(' ', "").trim())
             "save" -> saveGameSlot(currentInput.trim().removePrefix("/").removePrefix("／").substringAfter(' ', "").trim())
             "saves" -> appendSystemInfo(
                 text = "存档",
@@ -3421,6 +3407,23 @@ class ChatViewModel(
         val knownPrompt = novexPromptAuditInput?.prompt
         return estimatePreparedRequest(budgetedRequestHistory(effectiveAgentHistoryUncounted(agentHistory.toList(), allowed)), knownPrompt, agentTools) +
             if (knownPrompt == null) 4096 else 0
+    }
+
+    /**
+     * [A2c-meter] 上下文环的本地兜底：ready=false 时（会话刚装载、模型刚切换、
+     * provider 不回 usage）按本地历史估算点亮额度环，标 estimated；下一轮
+     * API usage 回来照旧覆盖为实数。幂等——已就绪直接跳过。
+     */
+    internal fun refreshLocalContextEstimate() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            if (_contextUsageReady.value) return@launch
+            val estimate = runCatching { retainedContextEstimate() }.getOrDefault(0)
+            if (estimate > 0) {
+                _contextEstimated.value = true
+                _lastTurnContextTokens.value = estimate
+                _contextUsageReady.value = true
+            }
+        }
     }
 
     internal fun checkContextBeforeSend(pendingText: String): PreSendContextAction {

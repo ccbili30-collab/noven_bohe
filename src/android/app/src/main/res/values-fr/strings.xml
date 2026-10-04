@@ -586,10 +586,6 @@
 
     <!-- T241: panneau de commandes slash + feuille Choisir un modèle -->
     <string name="slash_compact_subtitle">Compresser l\'historique en résumé</string>
-    <string name="slash_memory_writes_on">Écriture activée — appuyer pour basculer</string>
-    <string name="slash_memory_writes_off">Écriture désactivée — appuyer pour basculer</string>
-    <string name="slash_thinking_subtitle">Réflexion %1$s — appuyer pour basculer</string>
-    <string name="slash_thinking_unsupported">Non pris en charge par le modèle actuel</string>
     <string name="thinking_level_off">Désactivée</string>
     <string name="thinking_level_low">Faible</string>
     <string name="thinking_level_medium">Moyenne</string>
