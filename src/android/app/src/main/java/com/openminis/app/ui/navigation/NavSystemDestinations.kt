@@ -65,12 +65,9 @@ import com.openminis.app.ui.settings.SharedFolderDetailScreen
 import com.openminis.app.ui.settings.SharedFoldersScreen
 import com.openminis.app.ui.settings.SkillsManagementScreen
 import com.openminis.app.data.repository.EnvVarRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.SkillRepository
 import com.openminis.app.ui.settings.LogDetailScreen
 import com.openminis.app.ui.settings.LogManagementScreen
-import com.openminis.app.ui.settings.MemoryFileEditScreen
-import com.openminis.app.ui.settings.MemoryManagementScreen
 import com.openminis.app.ui.settings.NovexFeedbackScreen
 import com.openminis.app.ui.onboarding.OnboardingModelSelectionScreen
 
@@ -81,7 +78,6 @@ internal fun NavGraphBuilder.registerSystemDestinations(deps: NavDeps) {
     val chatRepository = deps.chatRepository
     val providerRepository = deps.providerRepository
     val skillRepository = deps.skillRepository
-    val memoryRepository = deps.memoryRepository
         composable(Routes.NOVEX_FEEDBACK) {
             NovexFeedbackScreen(onBack = { navController.safePopBackStack() })
         }
@@ -110,14 +106,13 @@ internal fun NavGraphBuilder.registerSystemDestinations(deps: NavDeps) {
                     val label = when (folderId) {
                         "shared" -> ctx.getString(com.openminis.app.R.string.shared_folder_name_shared)
                         "skills" -> ctx.getString(com.openminis.app.R.string.shared_folder_name_skills)
-                        "memory" -> ctx.getString(com.openminis.app.R.string.shared_folder_name_memory)
                         else -> folderId
                     }
                     FilePreviewHolder.fileBrowserViewModel = FileBrowserViewModel(
                         rootPath = hostPath,
                         rootLabel = label,
                         // Route reads through the content bind mounts so the
-                        // host dirs that back /var/minis/{shared,skills,memory}
+                        // host dirs that back /var/minis/{shared,skills}
                         // resolve, matching how chat-files browse works.
                         linuxRootPath = "/var/minis/$folderId",
                         appContext = ctx.applicationContext,
@@ -257,18 +252,6 @@ internal fun NavGraphBuilder.registerSystemDestinations(deps: NavDeps) {
             }
         }
 
-        composable(Routes.MEMORY) {
-            if (memoryRepository != null) {
-                MemoryManagementScreen(
-                    memoryRepository = memoryRepository,
-                    onBack = { navController.safePopBackStack() },
-                    onFileClick = { fileName, isGlobal ->
-                        navController.safeNavigate(Routes.memoryFileEdit(fileName, isGlobal))
-                    },
-                )
-            }
-        }
-
         // [P3.3 裁军] MCP Integrations 管理页路由随 MCP 集成面退役删除
         // （MCPRepository 只服务已下架的 minis-mcp-cli 幽灵提示，无运行时
         // 消费方）。
@@ -280,24 +263,6 @@ internal fun NavGraphBuilder.registerSystemDestinations(deps: NavDeps) {
             )
         }
 
-        composable(
-            route = Routes.MEMORY_FILE_EDIT,
-            arguments = listOf(
-                navArgument("fileName") { type = NavType.StringType },
-                navArgument("isGlobal") { type = NavType.BoolType },
-            ),
-        ) { backStackEntry ->
-            val fileName = backStackEntry.arguments?.getString("fileName") ?: return@composable
-            val isGlobal = backStackEntry.arguments?.getBoolean("isGlobal") ?: false
-            if (memoryRepository != null) {
-                MemoryFileEditScreen(
-                    fileName = fileName,
-                    isGlobal = isGlobal,
-                    memoryRepository = memoryRepository,
-                    onBack = { navController.safePopBackStack() },
-                )
-            }
-        }
 
         // [P3.3 裁军] PERMISSIONS（OffloadPermissionScreen）/ SHIZUKU
         // （ShizukuPermissionScreen）/ SYSTEM_PERMISSIONS

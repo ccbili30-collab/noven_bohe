@@ -96,7 +96,6 @@ fun MoveToSessionSheet(
                             chatRepository.createSession(
                                 modelId = source.modelId,
                                 title = null,
-                                memoryEnabled = false,
                             )
                         }
                         onSelect(target.id)

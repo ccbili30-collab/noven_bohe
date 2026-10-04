@@ -65,9 +65,6 @@ private val standardToolTitles = mapOf(
     "novex_inspect_content" to "查看挂载内容",
     "novex_propose_content_changes" to "提出内容变更",
     "novex_apply_content_changes" to "执行内容变更",
-    "novex_inspect_memory" to "查看长期记忆",
-    "novex_propose_memory_changes" to "提出记忆变更",
-    "novex_apply_memory_changes" to "执行记忆变更",
 ) + com.openminis.app.cards.IntegratedCardToolLabels.values
 
 private val detailFieldLabels = mapOf(

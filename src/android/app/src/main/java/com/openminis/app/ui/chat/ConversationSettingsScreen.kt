@@ -51,7 +51,6 @@ import com.openminis.app.data.character.CharacterCardStore
 import com.openminis.app.data.character.CharacterVersionKind
 import com.openminis.app.data.character.CharacterVersionProfile
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.data.repository.SkillRepository
 import novex.core.ActiveInteractiveFictionSnapshot
@@ -106,7 +105,6 @@ fun ConversationSettingsScreen(
     sessionId: String,
     chatRepository: ChatRepository,
     providerRepository: ProviderRepository,
-    memoryRepository: MemoryRepository? = null,
     skillRepository: SkillRepository? = null,
     // [P3.3 裁军] mcpRepository 参数随 MCP 集成面退役删除。
     onBack: () -> Unit,
@@ -131,7 +129,6 @@ fun ConversationSettingsScreen(
             chatRepository = chatRepository,
             providerRepository = providerRepository,
             appContext = context.applicationContext,
-            memoryRepository = memoryRepository,
             skillRepository = skillRepository,
         ),
     )

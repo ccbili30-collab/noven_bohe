@@ -82,9 +82,7 @@ fun SettingsScreen(
     // [T-storage-entry] 存储管理入口（原 onRootfsClick 参数名与去向不符，改名归位）
     onStorageClick: () -> Unit = {},
     onSkillsClick: () -> Unit = {},
-    onMemoryClick: () -> Unit = {},
     // [P3.3 裁军] onMcpClick（MCP 集成页入口参数）随 MCP 集成面退役摘除。
-    // [T-soul-md] Soul settings page lives between Skills and Memory in the
     // Agent Runtime section; default no-op for callers that haven't wired
     // the route yet.
     onSoulClick: () -> Unit = {},
@@ -92,7 +90,7 @@ fun SettingsScreen(
     onUsageClick: () -> Unit = {},
     onAppearanceClick: () -> Unit = {},
     onLogsClick: () -> Unit = {},
-    // T235: Shared Folders entry (Shared / Skills / Memory). Default no-op
+    // T235: Shared Folders entry (Shared / Skills). Default no-op
     // for back-compat with callers wired before T235.
     onSharedFoldersClick: () -> Unit = {},
     // T50: Background & Notifications screen (battery optimisation +
@@ -187,13 +185,7 @@ fun SettingsScreen(
                 title = stringResource(R.string.settings_soul),
                 subtitle = stringResource(R.string.settings_soul_subtitle),
                 onClick = onSoulClick,
-            )
-            NovexSettingsRow(
-                icon = R.drawable.ic_phosphor_brain,
-                title = stringResource(R.string.settings_memory),
-                subtitle = stringResource(R.string.settings_memory_subtitle),
                 showDivider = false,
-                onClick = onMemoryClick,
             )
         }
         NovexSettingsSection(title = stringResource(R.string.settings_section_about)) {

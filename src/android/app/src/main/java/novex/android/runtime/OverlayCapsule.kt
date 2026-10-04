@@ -567,7 +567,6 @@ class OverlayCapsule(private val context: Context) {
         "file_edit" -> "Edit"
         "browser_use" -> "Browser"
         "read_image" -> "Image"
-        "memory_write", "memory_get" -> "Memory"
         "web_search" -> "Search"
         else -> toolKind
     }

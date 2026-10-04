@@ -323,7 +323,6 @@ class MainActivity : ComponentActivity() {
                     providerRepository = app.providerRepository,
                     envVarRepository = app.envVarRepository,
                     skillRepository = app.skillRepository,
-                    memoryRepository = app.memoryRepository,
                     navController = navController,
                     initialDeepLink = launchDeepLink,
                     initialRoute = novexStartRoute,

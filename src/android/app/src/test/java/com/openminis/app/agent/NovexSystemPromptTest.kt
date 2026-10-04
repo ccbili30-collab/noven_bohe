@@ -29,7 +29,6 @@ class NovexSystemPromptTest {
     fun `tool prompt uses Novex references instead of raw Minis paths`() {
         val prompt = buildNovexToolWorldSection(
             sessionId = "session-safe-tools",
-            memoryEnabled = true,
             persistentContext = "<世界核心规则>角色不能复活</世界核心规则>",
             availableToolNames = com.openminis.app.tools.AgentTools.makeAgentTools(workspaceAvailable = true)
                 .mapTo(linkedSetOf()) { it.name },
@@ -46,7 +45,6 @@ class NovexSystemPromptTest {
     fun `pure chat world section keeps loaded world context without tool instructions`() {
         val section = buildNovexPureWorldSection(
             sessionId = "world-session",
-            memoryEnabled = true,
             persistentContext = "<世界核心规则>角色不能复活</世界核心规则>",
         )
 

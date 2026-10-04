@@ -34,7 +34,6 @@ import novex.android.data.model.ThinkingLevel
 import novex.android.data.model.hasImageInput
 import com.openminis.app.R
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.provider.ImageBudget
 import com.openminis.app.provider.LLMProvider
@@ -46,7 +45,6 @@ import com.openminis.app.tools.FileEditTool
 import com.openminis.app.tools.FileReadTool
 import com.openminis.app.tools.FileWriteTool
 import com.openminis.app.tools.GenerateImageTool
-import com.openminis.app.tools.MemoryTools
 import com.openminis.app.tools.NovexDocumentAgentTools
 import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
@@ -162,7 +160,6 @@ class ChatViewModel(
     internal val chatRepository: ChatRepository,
     internal val providerRepository: ProviderRepository,
     internal val context: Context,
-    val memoryRepository: MemoryRepository? = null,
     val skillRepository: com.openminis.app.data.repository.SkillRepository? = null,
     // [P3.3 裁军] mcpRepository 参数随 MCP 集成面退役（MCPRepository 已删）。
 ) : ViewModel() {
@@ -427,7 +424,6 @@ class ChatViewModel(
             chatRepository: ChatRepository,
             providerRepository: ProviderRepository,
             appContext: Context,
-            memoryRepository: MemoryRepository?,
             skillRepository: com.openminis.app.data.repository.SkillRepository?,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -437,7 +433,6 @@ class ChatViewModel(
                     chatRepository = chatRepository,
                     providerRepository = providerRepository,
                     context = appContext,
-                    memoryRepository = memoryRepository,
                     skillRepository = skillRepository,
                 ) as T
             }
@@ -997,12 +992,6 @@ class ChatViewModel(
     internal val _streamAwaitingSince = MutableStateFlow<Long?>(null)
     val streamAwaitingSince: StateFlow<Long?> = _streamAwaitingSince.asStateFlow()
 
-    // ── [T-stage2-memory] AI 随身笔记本（总纲 §3.7）──
-    /** 内存缓存：注入读它（buildSystemPrompt 在 Main，不碰 IO）；后台整理落盘后刷新。 */
-    internal val _sessionMemory = MutableStateFlow(novex.core.NovexNotebookStore.SessionMemory())
-    private val memoryConsolidating = java.util.concurrent.atomic.AtomicBoolean(false)
-    internal fun memoryStoreFor(sessionId: String) =
-        novex.core.NovexNotebookStore.forSession(context, sessionId)
     // ── [T-stage3-snapshot] 世界快照缓存（总纲 §3.6；压缩时后台刷新）──
     internal val _worldSnapshot = MutableStateFlow<novex.core.NovexStateSnapshot.Snapshot?>(null)
 
@@ -1133,11 +1122,6 @@ class ChatViewModel(
     internal val novexWorkspaceAgentTools by lazy {
         NovexWorkspaceAgentTools(novexConversationWorkspaceStore)
     }
-    internal val novexMemoryStore by lazy {
-        novex.core.FileNovexMemoryStore(
-            java.io.File(context.filesDir, "novex/memory"),
-        )
-    }
     internal val _novexLearningStatus = MutableStateFlow<NovexLearningTaskStatus?>(null)
     val novexLearningStatus: StateFlow<NovexLearningTaskStatus?> = _novexLearningStatus.asStateFlow()
     internal val _novexLearningTask = MutableStateFlow<NovexLearningTaskState?>(null)
@@ -1200,17 +1184,11 @@ class ChatViewModel(
     }
 
     private val sessionCreationMutex = kotlinx.coroutines.sync.Mutex()
-    internal val novexMemoryExecutor by lazy {
-        novex.core.NovexMemoryToolExecutor(novexMemoryService(),
-            java.io.File(context.filesDir, "novex/memory-plans"))
-    }
 
     /**
-     * All agent tool definitions, recomputed on each read so the memory
-     * toggle gate (see [_memoryEnabled]) takes effect immediately when
-     * the user flips /memory mid-session without forcing a VM rebuild.
-     * The cost is negligible — [AgentTools.makeAgentTools] just builds a
-     * fixed list of definition objects, no I/O.
+     * All agent tool definitions, recomputed on each read. The cost is
+     * negligible — [AgentTools.makeAgentTools] just builds a fixed list
+     * of definition objects, no I/O.
      */
     internal val integratedCards by lazy { com.openminis.app.cards.IntegratedCards(context,
         readBinding={currentNovexConfiguration().cardBindingJson},
@@ -1230,12 +1208,12 @@ class ChatViewModel(
     }
 
     /**
-     * [T-stage3-save] 手动存档（/save 名称）：三元组=世界快照+AI 记忆。
+     * [T-stage3-save] 手动存档（/save 名称）：世界快照+账本。
+     * （AI 记忆随记忆功能退役——旧档的 memoryJson 字段保留但不再恢复。）
      */
     private fun saveGameSlot(name: String) {
         viewModelScope.launch {
             val sid = ensureSession()
-            val memory = memoryStoreFor(sid).load().let { loaded -> _sessionMemory.value = loaded; loaded }
             val entry = novex.core.NovexSaveStore.SaveEntry(
                 id = novex.core.NovexSaveStore.manualSaveId(name.ifBlank { "存档" }),
                 name = name.ifBlank { "存档" },
@@ -1243,8 +1221,7 @@ class ChatViewModel(
                 anchorMessageId = synchronized(historyWriteLock) { agentHistory.lastOrNull()?.dbMessageId },
                 snapshotJson = (_worldSnapshot.value ?: novex.core.NovexStateSnapshot
                     .loadLatest(context, sid))?.rawJson,
-                memoryJson = novex.core.NovexNotebookStore
-                    .encode(memory).takeIf { memory.entries.isNotEmpty() },
+                memoryJson = null,
                 ledgerJson = null,
             )
             novex.core.NovexSaveStore.save(context, sid, entry)
@@ -1282,18 +1259,10 @@ class ChatViewModel(
                     _worldSnapshot.value = snap
                 }
             }
-            entry.memoryJson?.let { raw ->
-                runCatching { novex.core.NovexNotebookStore.decode(raw) }.getOrNull()?.let { memory ->
-                    // [净眼 N-2] 回档水位归零——新周期重新数档
-                    val reset = memory.copy(highWaterTickPercent = 0)
-                    memoryStoreFor(sid).save(reset)
-                    _sessionMemory.value = reset
-                }
-            }
             withContext(Dispatchers.Main) {
                 appendSystemInfo(
-                    text = "已回档到「${entry.name}」（${java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(entry.createdAt))}）。世界状态与记忆已恢复；历史保留，本局自此存档点继续。",
-                    iconKind = "memory",
+                    text = "已回档到「${entry.name}」（${java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.ROOT).format(java.util.Date(entry.createdAt))}）。世界状态已恢复；历史保留，本局自此存档点继续。",
+                    iconKind = "card",
                 )
             }
         }
@@ -1394,58 +1363,6 @@ class ChatViewModel(
         return block
     }
 
-    /**
-     * [T-stage2-memory] 水位刻度触发的后台记忆整理（总纲 §3.5/3.7）。
-     * 回合结束后由 [maybeConsolidateMemoryAfterTurn] 调用：跨过整十刻度才跑
-     * （高水位制，回落不重复）；主模型旁路调用整理；护栏——单并发、失败
-     * 静默跳过本档（记忆是潜在收益，绝不阻塞或打断用户）。
-     */
-    internal suspend fun maybeConsolidateMemoryAfterTurn() {
-        // [净眼 P3] /memory 关闭时不整理（与注入门控一致）
-        if (!_memoryEnabled.value) return
-        if (!memoryConsolidating.compareAndSet(false, true)) return
-        try {
-            val sid = activeSessionId
-            val store = memoryStoreFor(sid)
-            val memory = store.load().let { loaded ->
-                _sessionMemory.value = loaded; loaded
-            }
-            val window = effectiveContextWindowTokens() ?: currentProvider?.model?.contextWindowTokens ?: return
-            val systemEstimate = BPETokenizer.countTokens(buildSystemPrompt().orEmpty())
-            val historyEstimate = synchronized(historyWriteLock) {
-                BPETokenizer.countTokens(agentHistory.joinToString("") { it.content })
-            }
-            val reading = novex.core.MemoryWindowBudget.Reading(
-                windowTokens = window, systemTokens = systemEstimate, historyTokens = historyEstimate)
-            val tick = novex.core.MemoryWindowBudget
-                .crossedMemoryTick(memory.highWaterTickPercent, reading) ?: return
-            val provider = currentProvider ?: return
-            val recentTurns = synchronized(historyWriteLock) { agentHistory.takeLast(6) }
-                .joinToString("\n") { it.content.take(2000) }
-            val cardName = integratedCardBinding()?.primary?.let { sel ->
-                runCatching { integratedCards.store.open(sel.rootId) }.getOrNull()?.content?.name
-            }
-            val answer = withContext(Dispatchers.IO) {
-                provider.sendMessage(
-                    listOf(LLMMessage(LLMMessage.Role.USER,
-                        novex.core.NovexNotebookStore.consolidationPrompt(memory, recentTurns, cardName))),
-                    null, 4096)
-            }
-            val now = System.currentTimeMillis()
-            val parsed = withContext(Dispatchers.IO) {
-                novex.core.NovexNotebookStore.parseConsolidation(answer.text, now)
-            }
-            // [净眼 P1-2/P2-3] 会话守卫 + 失败也推进高水位（条目保留旧值——
-            // "跳过本档"语义，防模型持续吐非 JSON 时每回合重复旁路付费）。
-            val next = (parsed ?: memory).copy(highWaterTickPercent = tick, updatedAt = now)
-            withContext(Dispatchers.IO) { store.save(next) }
-            if (activeSessionId == sid) _sessionMemory.value = next
-        } catch (_: Exception) {
-            // 静默（任务书 §3.7 护栏）
-        } finally {
-            memoryConsolidating.set(false)
-        }
-    }
 
     /**
      * [T-stage1-activation] 开局激活协议（总纲 §3.2）：绑定主卡后构建开局
@@ -1583,7 +1500,6 @@ class ChatViewModel(
             visionGroupConfigured = com.openminis.app.tools.VisionGroupResolver.isConfigured(
                 providerRepository, context,
             ),
-            memoryEnabled = _memoryEnabled.value,
             imageGenerationConfigured = providerRepository.resolvedImageGenerationEntries().isNotEmpty(),
             interactiveFictionActive = currentNovexConfiguration().activeInteractiveFiction != null || integratedCards.binding(activeSessionId)!=null,
             documentsAvailable = activeNovexDocumentRefs.isNotEmpty(),
@@ -1620,15 +1536,12 @@ class ChatViewModel(
      */
     internal var activeStreamingTurnId: String? = null
     internal var novexContextRevision = 0L
-    internal var excludedBranchMemoryWrites: Map<String, Int> = emptyMap()
 
     // [P3.3 裁军] BrowserTabPool（browser_use 工具伴奏池）与 showBrowserSheet
     // 状态流随内置浏览器全家（browser/ + ui/browser/）退役删除；
     // toggleBrowserSheet / dismissBrowserSheet / openBrowserSheetForUrl
     // 同批移除（原在 ChatViewModelUiStateExt.kt）。
 
-    internal val _showMemorySheet = MutableStateFlow(false)
-    val showMemorySheet: StateFlow<Boolean> = _showMemorySheet.asStateFlow()
 
     /** Set true by the slash-command "/clear" handler so ChatScreen can mirror
      *  it into the local Compose state that drives the existing
@@ -1641,94 +1554,15 @@ class ChatViewModel(
         _clearChatConfirmRequested.value = false
     }
 
-    internal val _memoryToolRecords = MutableStateFlow<List<MemoryToolRecord>>(emptyList())
-    val memoryToolRecords: StateFlow<List<MemoryToolRecord>> = _memoryToolRecords.asStateFlow()
-
-    /**
-     * Revoke a previously recorded memory_write by removing its entry from
-     * today's or yesterday's daily log on disk, and dropping the row from
-     * [memoryToolRecords] so the SessionMemorySheet reflects the removal.
-     *
-     * Returns the repository result so the UI can show a success / not-found
-     * / I/O error dialog. The original ChatMessage tool block stays in the
-     * conversation history untouched — only the on-disk entry and the
-     * op-log row are mutated.
-     */
-    fun revokeMemoryRecord(record: MemoryToolRecord): com.openminis.app.data.repository.MemoryRepository.EntryMutationResult {
-        val repo = activeMemoryRepository()
-            ?: return com.openminis.app.data.repository.MemoryRepository.EntryMutationResult.IOError("Memory not available")
-        val written = record.writtenContent
-            ?: return com.openminis.app.data.repository.MemoryRepository.EntryMutationResult.NotFound
-        val result = repo.revokeEntry(written)
-        if (result is com.openminis.app.data.repository.MemoryRepository.EntryMutationResult.Success) {
-            _memoryToolRecords.value = _memoryToolRecords.value - record
-        }
-        return result
-    }
-
-    /** Remove writes owned only by physically deleted branch rows. */
-    internal fun revokeMemoryWritesInDeletedRows(
-        deletedMessages: List<novex.android.data.chat.MessageRow>,
-        remainingMessages: List<novex.android.data.chat.MessageRow>,
-    ) {
-        val repository = activeMemoryRepository() ?: return
-        val deletedContents = com.openminis.app.data.ConversationBranchMemory
-            .writesOwnedOnlyByDeletedMessages(deletedMessages, remainingMessages)
-        if (deletedContents.isEmpty()) return
-        Log.i(TAG, "revokeMemoryWritesInDeletedRows: ${deletedContents.size} write(s) to revoke")
-        for (content in deletedContents.asReversed()) {
-            val result = repository.revokeEntry(content)
-            val record = _memoryToolRecords.value.lastOrNull {
-                it.isWrite && it.writtenContent == content
-            }
-            if (record != null) _memoryToolRecords.value = _memoryToolRecords.value - record
-            Log.i(TAG, "  revoke result: ${result::class.simpleName}")
-        }
-    }
-
-    /**
-     * Replace the body of a previously recorded memory_write with
-     * [newContent]. Mirrors iOS `MemoryWriteDetailView.replaceEntryInLog`.
-     * On success, also updates the in-memory [MemoryToolRecord] so a
-     * subsequent revoke or revisit sees the new body.
-     */
-    fun replaceMemoryRecord(
-        record: MemoryToolRecord,
-        newContent: String,
-    ): com.openminis.app.data.repository.MemoryRepository.EntryMutationResult {
-        val repo = activeMemoryRepository()
-            ?: return com.openminis.app.data.repository.MemoryRepository.EntryMutationResult.IOError("Memory not available")
-        val old = record.writtenContent
-            ?: return com.openminis.app.data.repository.MemoryRepository.EntryMutationResult.NotFound
-        val result = repo.replaceEntryBody(old, newContent)
-        if (result is com.openminis.app.data.repository.MemoryRepository.EntryMutationResult.Success) {
-            _memoryToolRecords.value = _memoryToolRecords.value.map {
-                if (it === record) it.copy(
-                    writtenContent = newContent,
-                    preview = newContent.lines().firstOrNull { line -> line.isNotBlank() }?.take(100) ?: "",
-                ) else it
-            }
-        }
-        return result
-    }
-
     // ── Slash commands (mirrors iOS AIChatViewModel) ────────────────────
 
-    // [T-memory-global-toggle-settings-ui-android] Seed from the global
-    // pref so a fresh draft VM honors the user's "memory off by default"
-    // choice from Settings. For loaded sessions, `loadSession()` later
-    // overwrites this with the per-session DB value, which takes
-    // precedence — the global pref only applies to drafts.
-    internal val _memoryEnabled =
-        MutableStateFlow(com.openminis.app.data.MemoryGlobalPrefs.isGlobalEnabled(context))
-    val memoryEnabled: StateFlow<Boolean> = _memoryEnabled.asStateFlow()
 
     internal val _thinkingLevel = MutableStateFlow(ThinkingLevel.OFF)
     val thinkingLevel: StateFlow<ThinkingLevel> = _thinkingLevel.asStateFlow()
 
     /**
      * [T-android-enhanced-cache] Enhanced Cache (1-hour Anthropic cache TTL)
-     * toggle. Per-VM memory state, NOT persisted — mirrors iOS
+     * toggle. Per-VM state, NOT persisted — mirrors iOS
      * `AIChatViewModel.enhancedCacheEnabled`. When true, the active turn's
      * transport provider (P3.1c 起为 NovexTransportProvider 的 anthropic 线) is
      * stamped with `enhancedCache = true` just before the request (see the
@@ -1883,7 +1717,7 @@ class ChatViewModel(
     // ── @ file-mention picker (mirrors iOS AIChatViewModel mention*) ─────
     /**
      * Per-app singleton — scans /var/minis/{workspace,attachments,shared,
-     * skills,memory}/<sessionId>/ on demand, ranks matches by basename
+     * skills,shared}/<sessionId>/ on demand, ranks matches by basename
      * fuzzy score + scope priority. The composer hooks update*MentionMenu*
      * on every keystroke; the popup composes against [mentionEntries].
      */
@@ -2090,7 +1924,6 @@ class ChatViewModel(
         return SessionTokenStats(input, output, cacheRead, cacheWrite, context, loops)
     }
 
-    // [T-android-split-chat] toggleMemorySheet / dismissMemorySheet moved to ChatViewModelUiStateExt.kt.
 
     // ── Slash command API (mirrors iOS AIChatViewModel) ─────────────────
 
@@ -2108,12 +1941,6 @@ class ChatViewModel(
             id = "compact",
             icon = novex.android.ui.NovexIcons.Compress,
             title = "Compact",
-            subtitle = "",
-        ),
-        SlashCommand(
-            id = "memory",
-            icon = novex.android.ui.NovexIcons.Psychology,
-            title = "Memory",
             subtitle = "",
         ),
         SlashCommand(
@@ -2206,7 +2033,6 @@ class ChatViewModel(
 
         when (cmd.id) {
             "compact" -> compactAll()
-            "memory" -> toggleMemoryEnabled()
             "thinking" -> toggleThinking()
             "clear" -> _clearChatConfirmRequested.value = true
             "sync" -> startCrossSync(currentInput.trim().removePrefix("/").removePrefix("／").substringAfter(' ', "").trim())
@@ -2230,23 +2056,6 @@ class ChatViewModel(
         return ""
     }
 
-    /** Toggle memory writes on/off, persist to DB, and append a system-info message. */
-    private fun toggleMemoryEnabled() {
-        val newValue = !_memoryEnabled.value
-        _memoryEnabled.value = newValue
-        viewModelScope.launch {
-            // Toggling before the first message means the row doesn't exist
-            // yet — materialize the session row so the preference lands on
-            // the persisted id instead of silently updating zero rows under
-            // the draft key.
-            val sid = ensureSession()
-            chatRepository.dao.setMemoryFlag(sid, if (newValue) 1 else 0)
-        }
-        appendSystemInfo(
-            text = "Memory writes ${if (newValue) "enabled" else "disabled"}. Reads are unaffected.",
-            iconKind = "memory",
-        )
-    }
 
     /** Toggle thinking between OFF and MEDIUM (matches iOS default toggle semantics). */
     private fun toggleThinking() {
@@ -2292,7 +2101,7 @@ class ChatViewModel(
      * off for this session" must persist as distinct from "never set".
      *
      * Uses [ensureSession] so toggling on a draft (no DB row yet) first
-     * materialises the row, mirroring how toggleMemoryEnabled lands its
+     * materialises the row, mirroring how the model binding lands its
      * preference on the persisted id rather than the `__new__…` draft key.
      */
     private fun persistThinkingOverride(level: ThinkingLevel) {
@@ -2545,13 +2354,6 @@ class ChatViewModel(
                         )
                     }
                 }.distinct()
-                val distillationMemoryRefs = runCatching {
-                    novexMemoryService().inspect(
-                        scope = currentNovexMemoryScope(),
-                        source = currentNovexMemoryReadContext(),
-                        limit = 500,
-                    ).entries.map { it.ref.asResourceRef() }
-                }.getOrDefault(emptyList())
                 val distillationWorkspaceRefs = runCatching {
                     val readScope = novex.core.NovexConversationWorkspaceScope(
                         conversationId = sid,
@@ -2581,7 +2383,7 @@ class ChatViewModel(
                         branchId = lastCompactedDbId,
                         summary = summary,
                         sourceMessageRefs = distillationSourceRefs,
-                        durableFactRefs = (distillationMemoryRefs + distillationWorkspaceRefs).distinct(),
+                        durableFactRefs = distillationWorkspaceRefs,
                         createdAtMillis = System.currentTimeMillis(),
                         historyScopeKey = compactionScopeKey,
                     ),
@@ -2619,13 +2421,6 @@ class ChatViewModel(
                     }
                     _compactSummary.value = summary
                     _cachedLatestMarker = marker
-                    // [净眼 P2-2] 压缩后水位归零重数（总纲 §3.5：压缩后水位
-                    // 归零→新周期刻度重新数；条目保留）
-                    runCatching {
-                        val memoryStore = memoryStoreFor(activeSessionId)
-                        val memory = memoryStore.load()
-                        memoryStore.save(memory.copy(highWaterTickPercent = 0))
-                    }
                     val originals = _messages.value.filterNot {
                         it.role == "system" && it.toolBlocks.firstOrNull()?.toolName == "compact"
                     }.map { it.copy(isCompactedHistory = false) }
@@ -2660,8 +2455,7 @@ class ChatViewModel(
                                 createdAt = snapshot.createdAt,
                                 anchorMessageId = null,
                                 snapshotJson = snapshot.rawJson,
-                                memoryJson = novex.core.NovexNotebookStore
-                                    .encode(_sessionMemory.value).takeIf { _sessionMemory.value.entries.isNotEmpty() },
+                                memoryJson = null,
                                 ledgerJson = null,
                             ))
                     } catch (_: Exception) {
@@ -4350,25 +4144,6 @@ class ChatViewModel(
         }
     }
 
-    private var scopedMemoryKey: String? = null
-    private var scopedMemoryRepository: MemoryRepository? = null
-
-    /** Role memory is isolated by world + player identity + role card. */
-    internal fun activeMemoryRepository(): MemoryRepository? {
-        val configuration = currentNovexConfiguration()
-        val characterId = (configuration.answerIdentity as? AnswerIdentity.CharacterVersion)?.versionId
-            ?: return memoryRepository
-        val worldId = configuration.backgroundSettings.filter { it.subject.kind == NovexContentKind.WORLD }
-            .map { it.subject.id }.sorted().joinToString("|").ifBlank { null }
-        val personaId = configuration.playerIdentity?.id
-        val key = listOf(worldId, personaId, characterId).joinToString("|")
-        if (scopedMemoryKey != key || scopedMemoryRepository == null) {
-            scopedMemoryKey = key
-            scopedMemoryRepository = com.openminis.app.data.character.CharacterCardStore
-                .characterMemoryRepository(context, characterId, worldId, personaId)
-        }
-        return scopedMemoryRepository
-    }
 
     /** null = inherit the role card background; empty = explicitly hide it. */
     fun setImmersiveBackground(path: String?) {
@@ -4592,15 +4367,9 @@ class ChatViewModel(
     internal suspend fun ensureSession(): String = sessionCreationMutex.withLock {
         if (realSessionId.isNotEmpty()) return@withLock realSessionId
         val modelId = currentModel?.id ?: providerRepository.allVisibleEntries().firstOrNull()?.model?.id ?: "unknown"
-        // [T-memory-global-toggle-settings-ui-android] Snapshot the
-        // current in-memory `_memoryEnabled` into the new row. For a
-        // draft VM this matches the global default we seeded at
-        // construction; if the user flipped /memory on the draft
-        // before first send, that choice wins.
         val session = chatRepository.createSession(
             title = initialCardEntry?.first,
             modelId = modelId,
-            memoryEnabled = _memoryEnabled.value,
             characterId = _immersiveProfile.value.character?.id,
             characterSnapshotJson = _immersiveProfile.value.character?.toJson()?.toString(),
             worldSnapshotJson = _immersiveProfile.value.world?.toJson()?.toString(),
@@ -5659,7 +5428,7 @@ class ChatViewModel(
                         chatRepository.appendMessage(sidAtCancel, "assistant", partsJson)
                     }
                     val needsReconcile = if (sidAtCancel != activeSessionId) {
-                        AppLogger.info(TAG_STREAM, "cancel-cleanup partial row landed in old session $sidAtCancel — memory untouched")
+                        AppLogger.info(TAG_STREAM, "cancel-cleanup partial row landed in old session $sidAtCancel — left untouched")
                         false
                     } else {
                         // ⑤：复验与 add 同锁原子——写者已推进则落对账分支，绝不并发 add。

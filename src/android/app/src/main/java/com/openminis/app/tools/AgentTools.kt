@@ -16,9 +16,6 @@ object AgentTools {
         // A text-only model can keep the same artifact-ID contract when a vision
         // group is configured; the adapter returns a text description.
         visionGroupConfigured: Boolean = false,
-        // The per-conversation memory switch gates the Novex inspect/propose/apply
-        // tools as one unit, so the prompt and callable contract cannot disagree.
-        memoryEnabled: Boolean = true,
         imageGenerationConfigured: Boolean = false,
         interactiveFictionActive: Boolean = false,
         documentsAvailable: Boolean = false,
@@ -34,9 +31,6 @@ object AgentTools {
         addAll(NovexIllustrationTools.definitions())
         addAll(NovexManagementTools.modelDefinitions())
         addAll(NovexCardFileTools.definitions())
-        if (memoryEnabled) {
-            addAll(NovexMemoryAgentTools.definitions())
-        }
         if (documentsAvailable) {
             addAll(NovexDocumentAgentTools.providerDefinitions())
         }

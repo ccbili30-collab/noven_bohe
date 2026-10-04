@@ -10,15 +10,14 @@ import novex.android.data.ContentPaths
 object NovexSystemPrompt {
 
     data class Prepared(val prompt: String, val persistentContext: String)
-    fun build(sessionId: String, context: Context, personalitySection: String, memoryEnabled: Boolean,
+    fun build(sessionId: String, context: Context, personalitySection: String,
         toolsEnabled: Boolean = true, availableToolNames: Set<String>): String =
-        buildPrepared(sessionId, context, personalitySection, memoryEnabled, toolsEnabled, availableToolNames).prompt
+        buildPrepared(sessionId, context, personalitySection, toolsEnabled, availableToolNames).prompt
 
     fun buildPrepared(
         sessionId: String,
         context: Context,
         personalitySection: String,
-        memoryEnabled: Boolean,
         toolsEnabled: Boolean = true,
         availableToolNames: Set<String>,
     ): Prepared {
@@ -40,7 +39,6 @@ object NovexSystemPrompt {
         }
         val toolWorldSection = buildNovexToolWorldSection(
             sessionId = sessionId,
-            memoryEnabled = memoryEnabled,
             persistentContext = persistentContext,
             availableToolNames = availableToolNames,
         )
@@ -95,7 +93,6 @@ ${buildNovexReplyStructure(availableToolNames)}
 """.trimIndent()
         val pureWorldSection = buildNovexPureWorldSection(
             sessionId = sessionId,
-            memoryEnabled = memoryEnabled,
             persistentContext = persistentContext,
         )
         return Prepared(completePrompt
@@ -106,12 +103,11 @@ ${buildNovexReplyStructure(availableToolNames)}
 
 internal fun buildNovexToolWorldSection(
     sessionId: String,
-    memoryEnabled: Boolean,
     persistentContext: String,
     availableToolNames: Set<String>,
 ): String = """
 <持续世界与工具>
-这是会话 $sessionId。长期记忆当前${if (memoryEnabled) "开启" else "关闭"}。
+这是会话 $sessionId。
 $persistentContext
 正常系统提示词与当前活动消息分支共同参与本轮调用。对话原文负责叙事连续性，结构化状态负责事实连续性；状态与摘要都不能取代原始消息和已保存成果。
 ${novex.core.NovexProductToolGuide.build(availableToolNames)}
@@ -120,14 +116,12 @@ ${novex.core.NovexProductToolGuide.build(availableToolNames)}
 
 internal fun buildNovexPureWorldSection(
     sessionId: String,
-    memoryEnabled: Boolean,
     persistentContext: String,
 ): String = """
 <持续世界>
 这是会话 $sessionId。以下世界核心规则与当前状态，以及普通用户／助手对话历史，共同构成本轮可用上下文。
 $persistentContext
 当前对话未启用工具：不要尝试调用、模拟或编造任何后台能力，也不要声称已经保存、读取、修改或生成了外部内容。需要维护世界文件、存档、面板或其他后台资料时，请用户在对话设置中启用相应权限，并使用支持工具的模型。
-全局记忆当前${if (memoryEnabled) "开启" else "关闭"}。全局记忆不得在不同文游之间传播世界事实。
 </持续世界>
 """.trimIndent()
 

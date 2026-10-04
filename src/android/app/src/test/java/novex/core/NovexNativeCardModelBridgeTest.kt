@@ -46,7 +46,7 @@ class NovexNativeCardModelBridgeTest {
         File(root, "guide.txt").writeText(NovexProductToolGuide.build(definitions.map { it.name }.toSet()))
         File(root, "formal-builder.txt").writeText(com.openminis.app.agent.NovexSystemPrompt.build(
             "original-case", RuntimeEnvironment.getApplication(), com.openminis.app.agent.SoulStore.LEGACY_NOVEX_DEFAULT_BODY,
-            false, true, definitions.map { it.name }.toSet()))
+            true, definitions.map { it.name }.toSet()))
         val documentTools = NovexDocumentToolRouter(NovexDocumentTools(sourceStore))
         File(root, "ready.json").writeText(JSONObject().put("document", JSONObject(documentTools.execute("document_inspect", JSONObject().put("document_ref", documentRef.value).toString()).toJson()))
             .put("directory", management().inspect(configuration, null, null).toModelToolJson()).toString())

@@ -228,7 +228,6 @@ import com.openminis.app.data.character.effectiveAssistantAvatarPath
 import com.openminis.app.data.character.effectiveAssistantName
 import com.openminis.app.data.character.usesRolePresentation
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.ui.theme.ChatColors
 import com.openminis.app.ui.components.MinisTextButton
@@ -625,7 +624,7 @@ internal fun ChatComposerSection(
                                         ) {
                                             // Single doc icon for every entry — the scope/mount
                                             // capsule on the right already labels what bucket
-                                            // this is (workspace / skills / shared / memory /
+                                            // this is (workspace / skills / shared /
                                             // <mountName>). iOS varies the icon per scope but
                                             // we keep it uniform here so the row stays
                                             // visually consistent at small sizes on Pixel 4a.

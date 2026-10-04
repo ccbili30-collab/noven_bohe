@@ -143,29 +143,3 @@ object EnvVarPrivacyStore {
     }
 }
 
-/**
- * 记忆特性全局默认位（两层模型的全局层，对齐 iOS）：
- *  - **全局**（本件）：新会话的默认值，设置 → 记忆 里翻转。键
- *    `memory.global.enabled`，Novex 默认 false——无关世界不得互相渗漏；
- *  - **按会话**（`SessionRow.memory_enabled`）：具体聊天的覆盖位，经
- *    `/memory` 或 SessionMemorySheet 翻转。会话一旦落行，行值即赢；改
- *    全局永不回溯已存在的会话。
- *
- * 新草稿 VM 在 DB 行尚未物化时挂载：读全局默认播种 `_memoryEnabled`；
- * `ensureSession` 物化该行时把同值传给
- * `ChatRepository.createSession(memoryEnabled = …)`，DB 快照与种子一致。
- */
-object MemoryGlobalPrefs {
-    private const val STORE = "minis_memory_prefs"
-    private const val KEY_GLOBAL = "memory.global.enabled"
-
-    private fun store(context: Context): SharedPreferences =
-        context.applicationContext.getSharedPreferences(STORE, Context.MODE_PRIVATE)
-
-    fun isGlobalEnabled(context: Context): Boolean =
-        store(context).getBoolean(KEY_GLOBAL, false)
-
-    fun setGlobalEnabled(context: Context, enabled: Boolean) {
-        store(context).edit().putBoolean(KEY_GLOBAL, enabled).apply()
-    }
-}

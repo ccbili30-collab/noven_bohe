@@ -65,12 +65,9 @@ import com.openminis.app.ui.settings.SharedFolderDetailScreen
 import com.openminis.app.ui.settings.SharedFoldersScreen
 import com.openminis.app.ui.settings.SkillsManagementScreen
 import com.openminis.app.data.repository.EnvVarRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.SkillRepository
 import com.openminis.app.ui.settings.LogDetailScreen
 import com.openminis.app.ui.settings.LogManagementScreen
-import com.openminis.app.ui.settings.MemoryFileEditScreen
-import com.openminis.app.ui.settings.MemoryManagementScreen
 import com.openminis.app.ui.settings.NovexFeedbackScreen
 import com.openminis.app.ui.onboarding.OnboardingModelSelectionScreen
 
@@ -82,7 +79,6 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
     val chatRepository = deps.chatRepository
     val providerRepository = deps.providerRepository
     val skillRepository = deps.skillRepository
-    val memoryRepository = deps.memoryRepository
     val cardNavigationScope = deps.cardScope
         composable(Routes.SESSION_LIST) {
             // home-v2：没有任何可用模型服务商时默认进会话 tab（新手引导在那里），
@@ -151,7 +147,6 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 onBackReturnsToList = navController.previousBackStackEntry?.destination?.route == Routes.SESSION_LIST,
                 chatRepository = chatRepository,
                 providerRepository = providerRepository,
-                memoryRepository = memoryRepository,
                 skillRepository = skillRepository,
                 onBack = {
                     handleNovexInitialRouteBack(
@@ -229,7 +224,6 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 sessionId = sessionId,
                 chatRepository = chatRepository,
                 providerRepository = providerRepository,
-                memoryRepository = memoryRepository,
                 skillRepository = skillRepository,
                 onCardSettings = {mode->navController.safeNavigate("integrated-card-settings/${android.net.Uri.encode(sessionId)}?mode=${android.net.Uri.encode(mode)}")},
                 onBack = { navController.safePopBackStack() },
@@ -279,7 +273,6 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 onImageGenerationClick = { navController.safeNavigate(Routes.IMAGE_GENERATION_SETTINGS) },
                 onStorageClick = { navController.safeNavigate(Routes.STORAGE) },
                 onSkillsClick = { navController.safeNavigate(Routes.SKILLS) },
-                onMemoryClick = { navController.safeNavigate(Routes.MEMORY) },
                 onSoulClick = { navController.safeNavigate(Routes.SOUL) },
                 onUsageClick = { navController.safeNavigate(Routes.USAGE_STATS) },
                 onAppearanceClick = { navController.safeNavigate(Routes.APPEARANCE) },

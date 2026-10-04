@@ -8,7 +8,6 @@ class IntegratedCardPromptDisciplineTest {
 
     private fun prompt(): String = IntegratedCardPrompt.build(
         identity = "默认",
-        memory = false,
         tools = setOf("read_card"),
     ).prompt
 
@@ -32,7 +31,7 @@ class IntegratedCardPromptDisciplineTest {
 
     @Test
     fun disciplineAppliesWithAndWithoutTools() {
-        val withoutTools = IntegratedCardPrompt.build(identity = "默认", memory = false, tools = emptySet()).prompt
+        val withoutTools = IntegratedCardPrompt.build(identity = "默认", tools = emptySet()).prompt
         assertTrue(withoutTools.contains("整理纪律"))
         assertTrue(withoutTools.contains("文中立"))
     }

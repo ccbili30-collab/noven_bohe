@@ -14,7 +14,6 @@ internal object NovexPreviousSystemPromptControl {
         sessionId: String,
         context: Context,
         personalitySection: String,
-        memoryEnabled: Boolean,
         toolsEnabled: Boolean = true,
         availableToolNames: Set<String>,
     ): String {
@@ -36,7 +35,6 @@ internal object NovexPreviousSystemPromptControl {
         }
         val toolWorldSection = buildNovexToolWorldSection(
             sessionId = sessionId,
-            memoryEnabled = memoryEnabled,
             persistentContext = persistentContext,
             availableToolNames = availableToolNames,
         )
@@ -99,7 +97,6 @@ $toolWorldSection
 """.trimIndent()
         val pureWorldSection = buildNovexPureWorldSection(
             sessionId = sessionId,
-            memoryEnabled = memoryEnabled,
             persistentContext = persistentContext,
         )
         return completePrompt

@@ -42,12 +42,6 @@ internal fun ChatViewModel.filteredSlashCommands(): List<SlashCommand> {
 private fun ChatViewModel.liveSlashSubtitle(cmd: SlashCommand): SlashCommand = with(cmd) { when (id) {
     "compact" -> copy(subtitle = context.getString(R.string.slash_compact_subtitle))
     "sync" -> copy(subtitle = "压缩记忆发给另一边（沟通简报并入两边历史）")
-    "memory" -> copy(
-        subtitle = context.getString(
-            if (_memoryEnabled.value) R.string.slash_memory_writes_on
-            else R.string.slash_memory_writes_off,
-        ),
-    )
     "thinking" -> copy(
         subtitle = if (!currentModelSupportsReasoning) {
             context.getString(R.string.slash_thinking_unsupported)

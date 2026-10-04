@@ -34,7 +34,6 @@ import novex.android.data.model.ThinkingLevel
 import novex.android.data.model.hasImageInput
 import com.openminis.app.R
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.provider.ImageBudget
 import com.openminis.app.provider.LLMProvider
@@ -46,7 +45,6 @@ import com.openminis.app.tools.FileEditTool
 import com.openminis.app.tools.FileReadTool
 import com.openminis.app.tools.FileWriteTool
 import com.openminis.app.tools.GenerateImageTool
-import com.openminis.app.tools.MemoryTools
 import com.openminis.app.tools.NovexDocumentAgentTools
 import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
@@ -594,7 +592,6 @@ internal fun ChatViewModel.friendlyToolTitle(toolName: String): String = com.ope
     "browser_use" -> "Browse Web"
     "read_image" -> "Read Image"
     "generate_image" -> "生成图片"
-    "memory_write" -> "Write Memory"
     "present_choices" -> "提供行动选项"
     "render_panel", "panel", "present_system_panel" -> "显示资料面板"
     "save_checkpoint" -> "保存对话进度"
@@ -618,9 +615,6 @@ internal fun ChatViewModel.friendlyToolTitle(toolName: String): String = com.ope
     "novex_link_cards" -> "关联卡片"
     "novex_propose_content_changes" -> "提出内容变更"
     "novex_apply_content_changes" -> "执行内容变更"
-    "novex_inspect_memory" -> "查看长期记忆"
-    "novex_propose_memory_changes" -> "提出记忆变更"
-    "novex_apply_memory_changes" -> "执行记忆变更"
     "document_inspect" -> "检查文档"
     "document_read" -> "读取文档"
     "learning_prepare" -> "准备资料学习"
@@ -630,7 +624,6 @@ internal fun ChatViewModel.friendlyToolTitle(toolName: String): String = com.ope
     "workspace_write" -> "写入工作区"
     "workspace_edit" -> "编辑工作区"
     "workspace_compute" -> "处理工作区"
-    "memory_get" -> "Read Memory"
     "web_search" -> "Search Web"
     else -> toolName
         .split('_')

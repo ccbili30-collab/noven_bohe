@@ -11,14 +11,6 @@ internal fun ChatViewModel.closeToolDetail() {
     _selectedToolDetailId.value = null
 }
 
-internal fun ChatViewModel.toggleMemorySheet() {
-    _showMemorySheet.value = !_showMemorySheet.value
-}
-
-internal fun ChatViewModel.dismissMemorySheet() {
-    _showMemorySheet.value = false
-}
-
 internal fun ChatViewModel.addAttachment(attachment: InputAttachment) {
     _attachments.value += attachment
 }

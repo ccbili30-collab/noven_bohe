@@ -797,7 +797,6 @@ private suspend fun verifyConnection(
     val verificationTools = AgentTools.makeAgentTools(
         supportsImageInput = false,
         visionGroupConfigured = false,
-        memoryEnabled = true,
     )
     suspend fun probeChat(modelId: String): String? {
         val provider = providerFor(modelId).getOrElse {

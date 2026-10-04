@@ -68,7 +68,7 @@ import novex.android.ui.NovexType
  * 工具调用详情面板（自有实现）。
  *
  * 一个模态面板看一轮里全部工具块：顶栏=图标+名称+复制；主体按工具种类
- * 分派——file_edit 走 diff 视图、file_read/file_write/memory_* 走文档卡、
+ * 分派——file_edit 走 diff 视图、file_read/file_write 走文档卡、
  * read_image 走图预览、其余走命名字段呈现（[buildNovexStandardToolDetailPresentation]）
  * 或增量展开的纯文本；底栏=状态/耗时/翻页。
  *
@@ -211,26 +211,6 @@ private fun ToolSheetBody(
                 scroll = scroll,
                 footnote = if (block.toolName == "file_write" &&
                     block.content.isNotEmpty() && block.content != body) block.content else null,
-            )
-        }
-        "memory_write", "memory_get" -> {
-            val body = if (block.toolName == "memory_write") {
-                argText(args, "content", block.toolArgs).ifEmpty { block.content }
-            } else block.content
-            val keywords = argText(args, "keywords", block.toolArgs)
-            val header = if (keywords.isNotEmpty() && block.toolName == "memory_get") {
-                "关键词：$keywords\n\n"
-            } else ""
-            DocumentPanel(
-                title = block.toolName,
-                icon = NovexIcons.Psychology,
-                iconTint = ToolMemoryAccent.copy(alpha = 0.6f),
-                titleColor = ToolMemoryAccent,
-                metaColor = ToolMemoryAccent.copy(alpha = 0.5f),
-                body = header + body,
-                bodyColor = ToolMemoryAccent.copy(alpha = 0.85f),
-                streaming = live,
-                scroll = scroll,
             )
         }
         "read_image" -> ImagePreviewPanel(block, scroll)
@@ -387,7 +367,7 @@ private fun DiffLine(text: String, color: Color, background: Color) {
     )
 }
 
-// ── 文档卡：file_read / file_write / memory_* 共用的标题条+正文卡 ──────────
+// ── 文档卡：file_read / file_write 共用的标题条+正文卡 ──────────
 
 @Composable
 private fun DocumentPanel(

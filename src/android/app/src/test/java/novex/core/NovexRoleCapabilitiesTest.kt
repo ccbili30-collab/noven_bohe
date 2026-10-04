@@ -12,7 +12,7 @@ class NovexRoleCapabilitiesTest {
     @Test
     fun `changing persona retains available standard tools without enabling absent capabilities`() {
         val available = AgentTools.makeAgentTools(
-            memoryEnabled = false, imageGenerationConfigured = false,
+            imageGenerationConfigured = false,
             interactiveFictionActive = true, documentsAvailable = true,
             sourceCollectionsAvailable = true, workspaceAvailable = true,
         ).mapTo(linkedSetOf()) { it.name }
@@ -34,7 +34,7 @@ class NovexRoleCapabilitiesTest {
         val tools = AgentTools.makeAgentTools().mapTo(linkedSetOf()) { it.name }
         val role = CharacterCard(id = "c1", name = "艾琳", createdAt = 1, updatedAt = 1)
         val prompts = listOf(
-            buildNovexToolWorldSection("session", true, "", tools),
+            buildNovexToolWorldSection("session", "", tools),
             CharacterSystemPromptComposer.compose(role.toJson().toString(), null, null, tools),
         )
         prompts.forEach { prompt ->

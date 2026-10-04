@@ -34,7 +34,6 @@ import novex.android.data.model.ThinkingLevel
 import novex.android.data.model.hasImageInput
 import com.openminis.app.R
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.provider.ImageBudget
 import com.openminis.app.provider.LLMProvider
@@ -46,7 +45,6 @@ import com.openminis.app.tools.FileEditTool
 import com.openminis.app.tools.FileReadTool
 import com.openminis.app.tools.FileWriteTool
 import com.openminis.app.tools.GenerateImageTool
-import com.openminis.app.tools.MemoryTools
 import com.openminis.app.tools.NovexDocumentAgentTools
 import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
@@ -368,7 +366,6 @@ internal fun ChatViewModel.loadSession() {
                 ),
             )
         refreshNovexRuntimeProjection()
-        _memoryEnabled.value = session.memoryEnabled != 0
         // T239: hydrate persisted thinking-mode override. null = unset
         // (use OFF as the legacy default); non-null = explicit user
         // choice persisted across cold-start. runCatching guards against
@@ -435,7 +432,6 @@ internal fun ChatViewModel.loadSession() {
             val messages: List<novex.android.data.chat.MessageRow>,
             val ordered: List<ChatMessage>,
             val llmHistory: List<LLMMessage>,
-            val excludedMemoryWrites: Map<String, Int>,
             val loadMs: Long,
             val transformMs: Long,
         )
@@ -483,11 +479,6 @@ internal fun ChatViewModel.loadSession() {
                 messages = rows,
                 ordered = chatUi,
                 llmHistory = llm,
-                excludedMemoryWrites = com.openminis.app.data.ConversationBranchMemory
-                    .excludedWriteCounts(
-                        allMessages = conversation.allMessages,
-                        activeMessageIds = rows.mapTo(hashSetOf()) { it.id },
-                    ),
                 loadMs = tIoAfterLoad - tIoBeforeLoad,
                 transformMs = tIoAfterTransform - tIoAfterLoad,
             )
@@ -496,7 +487,6 @@ internal fun ChatViewModel.loadSession() {
         activeBranchMessageIds = messages.mapTo(hashSetOf()) { it.id }
         activeBranchPathIds = messages.map { it.id }
         refreshNovexRuntimeProjection()
-        excludedBranchMemoryWrites = loaded.excludedMemoryWrites
         val ordered = loaded.ordered
         val tHangDiagAfterLoad = tHangDiagBeforeLoad + loaded.loadMs
         val tHangDiagAfterTransform = tHangDiagAfterLoad + loaded.transformMs
@@ -612,9 +602,6 @@ internal fun ChatViewModel.loadSession() {
         // [T-stage3-snapshot] 会话载入恢复最新世界快照（压缩后台生成时刷新内存态）
         _worldSnapshot.value = novex.core.NovexStateSnapshot
             .loadLatest(context, sessionId)
-        // [净眼 P1-2] 载入即加载随身笔记（跨重启常驻注入的缓存初始化；
-        // 切换会话时本行同时完成"重置"——注入的永远是本会话的笔记）
-        _sessionMemory.value = memoryStoreFor(sessionId).load()
         _cachedLatestMarker = marker
 
         com.openminis.app.diagnostics.PerfLongCtx.step(

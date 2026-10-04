@@ -228,21 +228,19 @@ import com.openminis.app.data.character.effectiveAssistantAvatarPath
 import com.openminis.app.data.character.effectiveAssistantName
 import com.openminis.app.data.character.usesRolePresentation
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.ui.theme.ChatColors
 import com.openminis.app.ui.components.MinisTextButton
 
 /**
  * 会话页尾的对话框/Sheet 宿主：思维级别、模型选择、资料学习全家、
- * 记忆面板、导出/检查点、图库等。原先是 ChatScreen 函数体的尾部 220 行，
+ * 导出/检查点、图库等。原先是 ChatScreen 函数体的尾部 220 行，
  * 抽出后 VM 侧状态在本文件内 collect，主函数只传开关位。
  */
 @Composable
 internal fun ChatScreenOverlays(
     viewModel: ChatViewModel,
     providerRepository: ProviderRepository,
-    memoryRepository: MemoryRepository?,
     availableGroups: List<ModelGroup>,
     onSettings: () -> Unit,
     onBrowseChatFiles: (String) -> Unit,
@@ -254,8 +252,6 @@ internal fun ChatScreenOverlays(
     previewGallery: Pair<List<com.openminis.app.ui.components.ImageGalleryItem>, Int>?,
     onGalleryDismissed: () -> Unit,
 ) {
-    val showMemorySheet by viewModel.showMemorySheet.collectAsState()
-    val memoryToolRecords by viewModel.memoryToolRecords.collectAsState()
     val selectedGroupId by viewModel.selectedGroupId.collectAsState()
     val pendingNovexLearningPreflight by viewModel.pendingNovexLearningPreflight.collectAsState()
     val novexLearningTask by viewModel.novexLearningTask.collectAsState()
@@ -268,17 +264,6 @@ internal fun ChatScreenOverlays(
     val novexLearningCollections by viewModel.novexLearningCollections.collectAsState()
     // [P3.3 裁军] 内置浏览器底部 Sheet（BrowserSheet/BrowserTabPool）随
     // browser/ + ui/browser/ 整包退役删除。
-
-    // Memory bottom sheet
-    if (showMemorySheet && memoryRepository != null) {
-        SessionMemorySheet(
-            memoryRepository = memoryRepository,
-            toolRecords = memoryToolRecords,
-            onDismiss = { viewModel.dismissMemorySheet() },
-            onRevokeRecord = { record -> viewModel.revokeMemoryRecord(record) },
-            onSaveRecord = { record, newContent -> viewModel.replaceMemoryRecord(record, newContent) },
-        )
-    }
 
     // [T-android-thinking-badge-navbar] Thinking-level sheet opened by tapping
     // the navbar thinking badge. Mirrors iOS ThinkingLevelSheetView: an Off row

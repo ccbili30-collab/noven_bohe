@@ -66,12 +66,9 @@ import com.openminis.app.ui.settings.SharedFolderDetailScreen
 import com.openminis.app.ui.settings.SharedFoldersScreen
 import com.openminis.app.ui.settings.SkillsManagementScreen
 import com.openminis.app.data.repository.EnvVarRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.SkillRepository
 import com.openminis.app.ui.settings.LogDetailScreen
 import com.openminis.app.ui.settings.LogManagementScreen
-import com.openminis.app.ui.settings.MemoryFileEditScreen
-import com.openminis.app.ui.settings.MemoryManagementScreen
 import com.openminis.app.ui.settings.NovexFeedbackScreen
 import com.openminis.app.ui.onboarding.OnboardingModelSelectionScreen
 

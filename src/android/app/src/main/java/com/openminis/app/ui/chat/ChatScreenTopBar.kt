@@ -228,7 +228,6 @@ import com.openminis.app.data.character.effectiveAssistantAvatarPath
 import com.openminis.app.data.character.effectiveAssistantName
 import com.openminis.app.data.character.usesRolePresentation
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.ui.theme.ChatColors
 import com.openminis.app.ui.components.MinisTextButton

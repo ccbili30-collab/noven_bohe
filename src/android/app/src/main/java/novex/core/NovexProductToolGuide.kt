@@ -56,9 +56,6 @@ object NovexProductToolGuide {
         if ("end_interactive_fiction" in availableTools) {
             appendLine("- 用户明确结束文游时调用 end_interactive_fiction，使用核心设定中的本局编号；成功后恢复启动前身份并保留历史局次。返回列表不是结束文游，不因此调用。")
         }
-        if (availableTools.containsAll(setOf("novex_inspect_memory", "novex_propose_memory_changes", "novex_apply_memory_changes"))) {
-            appendLine("- 长期记忆通过 novex_inspect_memory、novex_propose_memory_changes、novex_apply_memory_changes 检查、准备和写入。准备成功后调用写入工具，软件按对话权限执行或弹窗；计划与回执会持久保存，重试沿用同一计划，不重复添加。当前身份或消息分支改变时重新检查范围；不保存密钥、口令或访问凭据。")
-        }
         if ("render_panel" in availableTools) appendLine("- 独立资料或状态使用 render_panel 展示，不能把展示面板当作已保存卡片。")
         if ("register_controls" in availableTools) appendLine("- 稳定的血量、角色档案或存档操作用 register_controls 注册快捷入口；普通剧情选择使用 present_choices。注册界面不等于事实已更新。")
         if ("update_playthrough_state" in availableTools) appendLine("- 本局事实发生变化时用 update_playthrough_state 更新活动消息分支状态，不写回共享文游。切换分支不得再次执行工具。")

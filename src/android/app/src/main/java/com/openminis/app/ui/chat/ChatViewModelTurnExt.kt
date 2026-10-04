@@ -34,7 +34,6 @@ import novex.android.data.model.ThinkingLevel
 import novex.android.data.model.hasImageInput
 import com.openminis.app.R
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.provider.ImageBudget
 import com.openminis.app.provider.LLMProvider
@@ -46,7 +45,6 @@ import com.openminis.app.tools.FileEditTool
 import com.openminis.app.tools.FileReadTool
 import com.openminis.app.tools.FileWriteTool
 import com.openminis.app.tools.GenerateImageTool
-import com.openminis.app.tools.MemoryTools
 import com.openminis.app.tools.NovexDocumentAgentTools
 import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
@@ -158,7 +156,6 @@ internal suspend fun ChatViewModel.installActiveConversation(
         val marker: novex.android.data.chat.CompactMarkerRow?,
         val activeIds: Set<String>,
         val activePathIds: List<String>,
-        val excludedMemoryWrites: Map<String, Int>,
     )
     val projection = withContext(Dispatchers.IO) {
         val rows = conversation.activeMessages
@@ -173,8 +170,6 @@ internal suspend fun ChatViewModel.installActiveConversation(
             marker = chatRepository.latestActiveCompactMarker(sid, rows),
             activeIds = activeIds,
             activePathIds = rows.map { it.id },
-            excludedMemoryWrites = com.openminis.app.data.ConversationBranchMemory
-                .excludedWriteCounts(conversation.allMessages, activeIds),
         )
     }
     val ordered = projection.ordered
@@ -183,7 +178,6 @@ internal suspend fun ChatViewModel.installActiveConversation(
     activeBranchMessageIds = projection.activeIds
     activeBranchPathIds = projection.activePathIds
     refreshNovexRuntimeProjection()
-    excludedBranchMemoryWrites = projection.excludedMemoryWrites
     // [T-run-phase] ⑤：install 重建在 historyWriteLock 内（与纪元读/用户行
     // add/清空互为 happens-before；块内纯内存操作，D4）。
     synchronized(historyWriteLock) {
@@ -416,10 +410,6 @@ fun ChatViewModel.deleteFromMessage(messageId: String) {
                 ?: message.id
             val sid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
             val deletion = chatRepository.deleteMessageBranch(sid, persistedId)
-            revokeMemoryWritesInDeletedRows(
-                deletedMessages = deletion.deletedMessages,
-                remainingMessages = deletion.conversation.allMessages,
-            )
             installActiveConversation(deletion.conversation)
             _canResume.value = false
         } catch (error: Exception) {

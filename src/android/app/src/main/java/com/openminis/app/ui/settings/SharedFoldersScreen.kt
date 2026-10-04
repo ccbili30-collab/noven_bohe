@@ -35,8 +35,8 @@ import novex.android.ui.NovexIcons
 import novex.android.ui.NovexType
 
 /**
- * 设置 → 共享目录。/var/minis/{shared,skills,memory} 三个一等目录入口。
- * skills/memory 由 agent 工具维护，这里只读，防止用户手动改乱。
+ * 设置 → 共享目录。/var/minis/{shared,skills} 两个一等目录入口。
+ * skills 由 agent 工具维护，这里只读，防止用户手动改乱。
  */
 @Composable
 fun SharedFoldersScreen(

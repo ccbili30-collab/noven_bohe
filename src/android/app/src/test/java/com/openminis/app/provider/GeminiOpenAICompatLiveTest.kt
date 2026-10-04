@@ -46,7 +46,6 @@ class GeminiOpenAICompatLiveTest {
         val tools = AgentTools.makeAgentTools(
             supportsImageInput = false,
             visionGroupConfigured = false,
-            memoryEnabled = true,
         )
 
         var chatPasses = 0

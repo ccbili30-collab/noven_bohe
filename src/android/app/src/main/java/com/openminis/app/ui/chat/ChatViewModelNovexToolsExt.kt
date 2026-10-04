@@ -34,7 +34,6 @@ import novex.android.data.model.ThinkingLevel
 import novex.android.data.model.hasImageInput
 import com.openminis.app.R
 import com.openminis.app.data.repository.ChatRepository
-import com.openminis.app.data.repository.MemoryRepository
 import com.openminis.app.data.repository.ProviderRepository
 import com.openminis.app.provider.ImageBudget
 import com.openminis.app.provider.LLMProvider
@@ -46,7 +45,6 @@ import com.openminis.app.tools.FileEditTool
 import com.openminis.app.tools.FileReadTool
 import com.openminis.app.tools.FileWriteTool
 import com.openminis.app.tools.GenerateImageTool
-import com.openminis.app.tools.MemoryTools
 import com.openminis.app.tools.NovexDocumentAgentTools
 import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
@@ -188,50 +186,6 @@ internal fun ChatViewModel.novexManagementService(): NovexManagementService {
     )
 }
 
-internal fun ChatViewModel.currentNovexMemoryScope(): novex.core.NovexMemoryScope {
-    val configuration = currentNovexConfiguration()
-    val characterVersionId = (configuration.answerIdentity as? AnswerIdentity.CharacterVersion)?.versionId
-        ?: return novex.core.NovexMemoryScope.nova()
-    return novex.core.NovexMemoryScope.role(
-        worldId = configuration.backgroundSettings.filter { it.subject.kind == NovexContentKind.WORLD }
-            .map { it.subject.id }.sorted().joinToString("|").ifBlank { null },
-        playerIdentityId = configuration.playerIdentity?.id,
-        characterVersionId = characterVersionId,
-    )
-}
-
-internal fun ChatViewModel.currentNovexMemoryReadContext(
-    extraBranchId: String? = null,
-) = novex.core.NovexMemoryReadContext(
-    conversationId = realSessionId.ifEmpty { activeSessionId },
-    activeBranchIds = (activeBranchPathIds + listOfNotNull(extraBranchId)).distinct(),
-)
-
-internal fun ChatViewModel.novexMemoryService() = novex.core.NovexMemoryService(
-    store = novexMemoryStore,
-    entryIdFactory = { java.util.UUID.randomUUID().toString() },
-)
-
-internal fun ChatViewModel.activeNovexMemoryFragment(): String? {
-    if (!_memoryEnabled.value) return null
-    return runCatching {
-        val entries = novexMemoryService().inspect(
-            scope = currentNovexMemoryScope(),
-            source = currentNovexMemoryReadContext(),
-            limit = 100,
-        ).entries
-        if (entries.isEmpty()) return null
-        buildString {
-            appendLine("<Novex长期记忆>")
-            for (entry in entries) {
-                val line = "- [${entry.ref.value}] ${entry.content}\n"
-                if (length + line.length + 16 > 16_000) break
-                append(line)
-            }
-            append("</Novex长期记忆>")
-        }
-    }.getOrNull()
-}
 
 internal suspend fun ChatViewModel.currentNovexUserRequests(): List<String> {
     val sid = realSessionId.ifEmpty { sessionId }
@@ -798,42 +752,5 @@ internal suspend fun ChatViewModel.loadAccessibleImageArtifact(artifactId: Strin
             file = file,
         )
     }
-
-internal fun ChatViewModel.executeMemoryWriteTool(argsJson: String): ToolExecutionResult {
-    val repo = activeMemoryRepository() ?: return ToolExecutionResult("Error: Memory not available", false)
-    if (!_memoryEnabled.value) {
-        val msg = "Memory writes are disabled for this session (user toggled /memory off). Reads remain available."
-        return ToolExecutionResult(msg, false, toolTitle = "Memory (disabled)")
-    }
-    val result = MemoryTools.executeMemoryWrite(argsJson, repo)
-    // Record for SessionMemorySheet
-    val content = try {
-        JSONObject(argsJson).optString("content", "")
-    } catch (_: Exception) { "" }
-    _memoryToolRecords.value = _memoryToolRecords.value + MemoryToolRecord(
-        title = result.toolTitle,
-        isWrite = true,
-        preview = content.lines().firstOrNull { it.isNotBlank() }?.take(100) ?: "",
-        output = result.output,
-        writtenContent = content,
-    )
-    return ToolExecutionResult(result.output, result.success, toolTitle = result.toolTitle)
-}
-
-internal fun ChatViewModel.executeMemoryGetTool(argsJson: String): ToolExecutionResult {
-    val repo = activeMemoryRepository() ?: return ToolExecutionResult("Error: Memory not available", false)
-    val result = MemoryTools.executeMemoryGet(argsJson, repo, excludedBranchMemoryWrites)
-    val keywords = try {
-        JSONObject(argsJson).optString("keywords", "")
-    } catch (_: Exception) { "" }
-    _memoryToolRecords.value = _memoryToolRecords.value + MemoryToolRecord(
-        title = result.toolTitle,
-        isWrite = false,
-        preview = if (keywords.isNotBlank()) "Search: $keywords" else result.output.take(100),
-        output = result.output,
-        keywords = keywords,
-    )
-    return ToolExecutionResult(result.output, result.success, toolTitle = result.toolTitle)
-}
 
 // ─── UI Helpers ──────────────────────────────────────────────────────
