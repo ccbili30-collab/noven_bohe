@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * 全局开关/确认位的集中存取处（血统清剿 P3.7：AutoCompactPrefs、
  * FastModePrefs、EnhancedCachePrefs、EnvVarPrivacyStore、MemoryGlobalPrefs
  * 五个 50–90 行小 prefs 件按任务书合并为自有单件；对象名与 prefs 名/键集
- * 逐字冻结，消费方零改动）。
+ * 逐字冻结，消费方零改动；MemoryGlobalPrefs 后随记忆功能退役摘除）。
  *
  * 共同形态：都是应用级（非按会话）的 SharedPreferences 布尔位，生命周期
  * 归 MinisApp.onCreate 统一预热。两类细分：
