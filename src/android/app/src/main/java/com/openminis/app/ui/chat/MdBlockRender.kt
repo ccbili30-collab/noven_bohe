@@ -121,6 +121,12 @@ internal fun RenderBlock(block: MdBlock) {
         }
 
         is MdBlock.CodeBlock -> {
+            // HTML 岛：```html 代码块渲成沙箱界面而非代码文本。流式尾块
+            // （liveIncremental）先按代码渲染——未闭合的围栏每帧都在变，
+            // 等到块冻结再装载 WebView，避免流式期间反复重载页面。
+            if (isHtmlIslandLanguage(block.language) && !liveIncremental) {
+                HtmlIsland(block.code)
+            } else {
             val clipboardManager = LocalClipboardManager.current
             var copied by remember { mutableStateOf(false) }
             if (copied) {
@@ -192,6 +198,7 @@ internal fun RenderBlock(block: MdBlock) {
                         )
                     }
                 }
+            }
             }
         }
 
