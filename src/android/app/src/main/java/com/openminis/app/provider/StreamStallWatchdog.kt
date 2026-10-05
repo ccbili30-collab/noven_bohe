@@ -27,10 +27,11 @@ import java.util.concurrent.atomic.AtomicLong
  *  - idle: two consecutive chunks further apart than [idleTimeoutMillis].
  *
  * Any chunk type counts as activity — reasoning/thinking deltas keep arriving
- * during long model thinking, resetting the idle timer. The 300s defaults sit
+ * during long model thinking, resetting the idle timer. The 420s defaults sit
  * ABOVE T171's measured legit silent gap (GPT-5.x Codex reasoning sat silent
- * 2:50–3:10 with no keep-alive bytes; 已删上游 openai 包的 readTimeout 注记) and
- * far BELOW the 3069s black hole that triggered this fix.
+ * 2:50–3:10 with no keep-alive bytes) with extra headroom for congested
+ * relays queuing upstream, and far BELOW the 3069s black hole that triggered
+ * this fix.
  *
  * Fires as [LLMError.NetworkError] so `isRetryable` is true and the existing
  * NovexModelStreamRecovery transient chain (retry ×3 + endpoint fallback)
@@ -40,8 +41,8 @@ import java.util.concurrent.atomic.AtomicLong
  */
 fun Flow<LLMStreamChunk>.failOnStreamStall(
     providerName: String,
-    firstChunkTimeoutMillis: Long = 300_000,
-    idleTimeoutMillis: Long = 300_000,
+    firstChunkTimeoutMillis: Long = 420_000,
+    idleTimeoutMillis: Long = 420_000,
     clock: () -> Long = System::currentTimeMillis,
 ): Flow<LLMStreamChunk> = flow {
     coroutineScope {

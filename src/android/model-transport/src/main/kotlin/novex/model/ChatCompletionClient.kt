@@ -167,6 +167,66 @@ class ChatCompletionCall(private val endpoint: ModelEndpoint,private val timeout
     init { require(timeoutMillis > 0) }
     fun cancel() { cancelled.set(true);active?.disconnect() }
 
+    /**
+     * 发请求体并拿到已就绪的连接（响应码可读、流可取）。
+     *
+     * 中转站友好性三件事都在这里：
+     *  - `Accept-Encoding: identity`：禁止透明 gzip。HttpURLConnection 默认自动请求
+     *    gzip 并透明解压——普通网页无所谓，SSE 流被中转站压缩后会攒批发出，体感是
+     *    回复一段段蹦、首块变慢、断流概率升高；流式数据量小，压缩纯负作用。
+     *  - 连接超时独立收窄到 [CONNECT_TIMEOUT_MILLIS]：timeoutMillis 是读静默预算
+     *    （分钟级），拿它当拨号超时会在 IP 不通/IPv6 黑洞时白烧数分钟。
+     *  - 同主机重定向跟随（≤[MAX_REDIRECT_HOPS] 跳）：中转站的路径规范化、
+     *    http→https 升级、域名内迁移都靠 3xx 维持可用；instanceFollowRedirects
+     *    保持关闭，我们手工跟——只有同主机且仍满足端点协议政策（https 或本机回环）
+     *    才重发，跨主机不跟以免把 Authorization 带给陌生主机。
+     */
+    private fun send(bytes: ByteArray, accept: String): HttpURLConnection {
+        var url = endpoint.completionUrl
+        var hops = 0
+        while (true) {
+            val connection = url.toURL().openConnection() as HttpURLConnection
+            active = connection
+            connection.instanceFollowRedirects = false
+            connection.requestMethod = "POST"; connection.doOutput = true
+            connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
+            connection.readTimeout = timeoutMillis
+            connection.setRequestProperty("Content-Type", contentTypeOf())
+            connection.setRequestProperty("Accept", accept)
+            connection.setRequestProperty("Accept-Encoding", "identity")
+            connection.setRequestProperty("Cache-Control", "no-cache")
+            endpoint.authorize(connection)
+            connection.setFixedLengthStreamingMode(bytes.size)
+            networkAttempted = true
+            connection.outputStream.use { it.write(bytes) }
+            val status = connection.responseCode
+            if (status in 300..399 && hops < MAX_REDIRECT_HOPS) {
+                val location = connection.getHeaderField("Location")?.trim()
+                // 畸形 Location 不跟随也不抛出——原样回落 3xx 归类，由上层呈现。
+                val next = location?.let { runCatching { url.resolve(it) }.getOrNull() }
+                if (next != null && redirectAllowed(next)) {
+                    connection.disconnect()
+                    url = next
+                    hops++
+                    continue
+                }
+            }
+            return connection
+        }
+    }
+
+    /**
+     * 跳转目的地可跟随的判定：满足端点协议政策（https 或本机回环 http），且主机与
+     * 端口与原端点一致——同主机内挪路径才重发凭据，跨主机一律不跟。
+     */
+    private fun redirectAllowed(next: URI): Boolean {
+        val policyOk = next.scheme == "https" ||
+            (next.scheme == "http" && next.host in setOf("127.0.0.1", "localhost", "::1"))
+        return policyOk &&
+            next.host.equals(endpoint.completionUrl.host, ignoreCase = true) &&
+            next.port == endpoint.completionUrl.port
+    }
+
     fun execute(request: TextRequest, modelCapacity: ModelCapacity, selectedWindow: Long,
                 measureCompletePayload: (String) -> TokenMeasurement): ModelResult {
         check(started.compareAndSet(false,true)) { "同一次请求不能重复执行" }
@@ -178,19 +238,10 @@ class ChatCompletionCall(private val endpoint: ModelEndpoint,private val timeout
         if (decision !is CapacityDecision.Fits) return ModelResult.NotSent(decision)
         var connection:HttpURLConnection?=null
         try {
-            connection=endpoint.completionUrl.toURL().openConnection() as HttpURLConnection
-            active=connection
+            val bytes=body.toByteArray(Charsets.UTF_8)
+            connection=send(bytes,"application/json")
             if(cancelled.get()) return ModelResult.Cancelled
-            connection.instanceFollowRedirects=false
-            connection.requestMethod="POST";connection.doOutput=true
-            connection.connectTimeout=timeoutMillis;connection.readTimeout=timeoutMillis
-            connection.setRequestProperty("Content-Type", contentTypeOf())
-            endpoint.authorize(connection)
-            val bytes=body.toByteArray(Charsets.UTF_8);connection.setFixedLengthStreamingMode(bytes.size)
-            networkAttempted=true
-            connection.outputStream.use { it.write(bytes) }
             val status=connection.responseCode
-            if(cancelled.get()) return ModelResult.Cancelled
             if(status !in 200..299) return ModelResult.Rejected(status,when(status) {
                 401,403 -> "authentication";429 -> "rate_limit";in 300..399 -> "redirect";in 500..599 -> "service";else -> "request"
             },connection.getHeaderField("Retry-After"))
@@ -206,8 +257,9 @@ class ChatCompletionCall(private val endpoint: ModelEndpoint,private val timeout
      * 流式调用，与 [execute] 同一风格：同步阻塞在调用线程上，无内部重试。
      *
      * 线程与背压：[onChunk] 在调用线程上就地回调——读一段原文、解出若干块、逐块回调，再读下一段。
-     * 模块不在回调之外缓冲事件，慢消费者会自然放慢读取（即背压）。超时语义沿用 [timeoutMillis]：
-     * 连接阶段与相邻数据块之间的间隔各自受上限约束，持续有数据的流不受总时长限制。
+     * 模块不在回调之外缓冲事件，慢消费者会自然放慢读取（即背压）。超时语义：[timeoutMillis] 约束
+     * 相邻数据块之间的间隔，持续有数据的流不受总时长限制；连接阶段另有固定的
+     * [CONNECT_TIMEOUT_MILLIS] 拨号预算。
      *
      * 取消：[cancel] 可从任意线程随时调用，未完的读取立刻断开并返回 [StreamResult.Cancelled]；
      * 已送达的块不撤回。块顺序即服务端事件顺序；收尾结论见 [StreamResult]。
@@ -226,19 +278,10 @@ class ChatCompletionCall(private val endpoint: ModelEndpoint,private val timeout
         if (decision !is CapacityDecision.Fits) return StreamResult.NotSent(decision)
         var connection:HttpURLConnection?=null
         try {
-            connection=endpoint.completionUrl.toURL().openConnection() as HttpURLConnection
-            active=connection
+            val bytes=body.toByteArray(Charsets.UTF_8)
+            connection=send(bytes,"text/event-stream")
             if(cancelled.get()) return StreamResult.Cancelled
-            connection.instanceFollowRedirects=false
-            connection.requestMethod="POST";connection.doOutput=true
-            connection.connectTimeout=timeoutMillis;connection.readTimeout=timeoutMillis
-            connection.setRequestProperty("Content-Type", contentTypeOf())
-            endpoint.authorize(connection)
-            val bytes=body.toByteArray(Charsets.UTF_8);connection.setFixedLengthStreamingMode(bytes.size)
-            networkAttempted=true
-            connection.outputStream.use { it.write(bytes) }
             val status=connection.responseCode
-            if(cancelled.get()) return StreamResult.Cancelled
             if(status !in 200..299) {
                 onChunk(httpFailure(status,connection.getHeaderField("Retry-After"),connection.errorStream))
                 return StreamResult.Failed
@@ -359,4 +402,11 @@ class ChatCompletionCall(private val endpoint: ModelEndpoint,private val timeout
             }
         }
     } catch(failure:Exception) { ModelResult.InvalidResponse("服务回复格式不完整或尚不支持") }
+
+    companion object {
+        /** 拨号阶段独立预算：IP 不可达/IPv6 黑洞时快速失败，不拿读超时（分钟级）烧连接阶段。 */
+        private const val CONNECT_TIMEOUT_MILLIS = 20_000
+        /** 同主机重定向的最大跟随跳数。 */
+        private const val MAX_REDIRECT_HOPS = 3
+    }
 }
