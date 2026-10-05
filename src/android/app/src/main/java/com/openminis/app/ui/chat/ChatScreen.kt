@@ -1306,7 +1306,16 @@ fun ChatScreen(
         viewModel.setInputText("")
         keyboardController?.hide()
         focusManager.clearFocus()
-        viewModel.sendMessage(rawText)
+        // 挂起的紫卡胶囊序列化回 〔能力名〕前缀随这条消息走——气泡渲染与
+        // 模型对照表都认这个标记；只挂了胶囊没敲字时胶囊即全文。
+        val caps = viewModel.takePendingCapabilities()
+        val text = if (caps.isEmpty()) {
+            rawText
+        } else buildString {
+            caps.forEach { append('〔').append(it).append('〕') }
+            if (rawText.isNotBlank()) append(' ').append(rawText)
+        }
+        viewModel.sendMessage(text)
     }
     // [T-android-composer-input-blocked-while-streaming] True only while the
     // user's FINGER is actively dragging the message list. Explicit navigation

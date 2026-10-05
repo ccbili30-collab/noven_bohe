@@ -285,6 +285,8 @@ internal fun ChatComposerSection(
     val context = LocalContext.current
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    // 紫卡点按挂起的胶囊：输入框上方真胶囊 chip，发送时序列化回 〔能力名〕。
+    val pendingCapabilities by viewModel.pendingCapabilities.collectAsState()
     var sendSwipeLocation by env.sendSwipeLocation
     var sendSwipeProgress by env.sendSwipeProgress
     var inputFieldValue by env.inputFieldValue
@@ -476,7 +478,7 @@ internal fun ChatComposerSection(
                                         .clip(RoundedCornerShape(9.dp))
                                         .novexClickable {
                                             viewModel.setInputText(viewModel.dismissSlashMenu(inputText))
-                                            viewModel.appendToInputText("〔$label〕")
+                                            viewModel.addPendingCapability(label)
                                         }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -994,6 +996,47 @@ internal fun ChatComposerSection(
                             }
                         }
                     }
+                    // [A2c-cards] 紫卡待发送胶囊条：点托盘紫卡挂上的 〔能力名〕
+                    // 在这里是一颗真胶囊（圆角、可 × 删），不进输入文本。
+                    if (pendingCapabilities.isNotEmpty()) {
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(pendingCapabilities, key = { it }) { cap ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(Color(0xFF8A63D2).copy(alpha = 0.14f))
+                                        .border(0.5.dp, Color(0xFF8A63D2).copy(alpha = 0.45f), RoundedCornerShape(50))
+                                        .padding(start = 10.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                                ) {
+                                    Text(
+                                        text = cap,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF8A63D2),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = novex.android.ui.NovexIcons.Cancel,
+                                        contentDescription = "移除能力",
+                                        tint = Color(0xFF8A63D2).copy(alpha = 0.7f),
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clip(CircleShape)
+                                            .novexClickable { viewModel.removePendingCapability(cap) },
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
                     // Attachment thumbnails inside the box (iOS: 64×64 squares)
                     if (attachments.isNotEmpty()) {
                         LazyRow(
@@ -1291,7 +1334,8 @@ internal fun ChatComposerSection(
                     // satisfies the composer's send guard. Without this an
                     // image-only "look at this" send is impossible.
                     val hasText = inputText.isNotBlank()
-                    val hasContent = hasText || attachments.isNotEmpty()
+                    // 挂起的紫卡胶囊也算可发内容——只点一张紫卡直接发送是合法路径。
+                    val hasContent = hasText || attachments.isNotEmpty() || pendingCapabilities.isNotEmpty()
                     val showStop = isStreaming && !hasContent
                     if (showStop) {
                         Box(
