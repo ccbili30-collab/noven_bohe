@@ -4,6 +4,7 @@ import android.app.Application
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,112 +17,6 @@ import org.robolectric.annotation.Config
 class SkillRepositoryBundledAssetSkillTest {
 
     private fun newRepository(): SkillRepository = SkillRepository(RuntimeEnvironment.getApplication())
-
-    @Test
-    fun bundledWenyouMakerInstallsWithReferences() {
-        val repo = newRepository()
-
-        val skill = repo.skills.value.firstOrNull { it.id == "wenyou-maker" }
-        assertNotNull("wenyou-maker should be installed on first init", skill)
-        assertEquals("1.3.0", skill!!.version)
-        assertEquals(SkillRepository.ImportSource.BUNDLED, skill.importSource)
-        assertTrue("name must be ASCII so slugify can derive the id", skill.name == "wenyou-maker")
-        assertTrue(
-            "description carries the Chinese trigger text",
-            skill.description.contains("文游"),
-        )
-
-        val files = repo.listSkillFiles("wenyou-maker")
-        assertTrue("SKILL.md on disk: $files", files.contains("SKILL.md"))
-        for (reference in listOf("engine.md", "pack-template.md", "database.md", "acceptance.md")) {
-            assertTrue("references/$reference on disk: $files", files.contains("references/$reference"))
-        }
-        val engine = repo.readSkillFile("wenyou-maker", "references/engine.md")
-        assertTrue("engine.md content intact", engine.orEmpty().contains("仲裁优先级"))
-    }
-
-    @Test
-    fun sameVersionReinstallDoesNotClobberUserEdits() {
-        val first = newRepository()
-        val skillDir = File(
-            File(RuntimeEnvironment.getApplication().filesDir, "minis-global/skills"),
-            "wenyou-maker",
-        )
-        val edited = File(skillDir, "references/engine.md")
-        edited.writeText("用户改过的引擎文本")
-
-        // Second init runs installBundledSkills again; same version + files
-        // present means the installer must skip entirely.
-        val second = newRepository()
-        assertEquals("用户改过的引擎文本", edited.readText())
-        val skill = second.skills.value.first { it.id == "wenyou-maker" }
-        assertEquals("1.3.0", skill.version)
-    }
-
-    @Test
-    fun halfInstalledSkillSelfHealsWithoutVersionBump() {
-        val first = newRepository()
-        val skillDir = File(
-            File(RuntimeEnvironment.getApplication().filesDir, "minis-global/skills"),
-            "wenyou-maker",
-        )
-        // Simulate a half install: registry row exists (init created it) but the
-        // directory was wiped before sibling files landed.
-        skillDir.deleteRecursively()
-
-        val second = newRepository()
-        val files = second.listSkillFiles("wenyou-maker")
-        assertTrue("references restored without a version bump: $files", files.contains("references/engine.md"))
-    }
-
-    @Test
-    fun skillPromptFragmentDisclosesWenyouMakerWhenEnabled() {
-        val repo = newRepository()
-        val fragment = repo.skillPromptFragment(sessionId = "session-a")
-        assertNotNull("bundled skills are enabled by default, fragment must exist", fragment)
-        assertTrue(
-            "fragment should disclose wenyou-maker",
-            fragment!!.contains("wenyou-maker"),
-        )
-        assertTrue(
-            "fragment should point at the readable SKILL.md path",
-            fragment.contains("/var/minis/skills/wenyou-maker/SKILL.md"),
-        )
-    }
-
-    @Test
-    fun bundledCardOrganizerInstallsWithReferences() {
-        val repo = newRepository()
-
-        val skill = repo.skills.value.firstOrNull { it.id == "card-organizer" }
-        assertNotNull("card-organizer should be installed on first init", skill)
-        assertEquals("1.0.0", skill!!.version)
-        assertEquals(SkillRepository.ImportSource.BUNDLED, skill.importSource)
-        assertTrue(
-            "description carries the trigger words",
-            skill.description.contains("建卡"),
-        )
-
-        val files = repo.listSkillFiles("card-organizer")
-        assertTrue("SKILL.md on disk: $files", files.contains("SKILL.md"))
-        assertTrue("organizing-rules on disk: $files", files.contains("references/organizing-rules.md"))
-        assertTrue("tic-ban on disk: $files", files.contains("references/tic-ban.md"))
-        val rules = repo.readSkillFile("card-organizer", "references/organizing-rules.md")
-        assertTrue("organizing rules intact", rules.orEmpty().contains("原文保真"))
-        val ban = repo.readSkillFile("card-organizer", "references/tic-ban.md")
-        assertTrue("tic ban table intact", ban.orEmpty().contains("不是……而是"))
-    }
-
-    @Test
-    fun wenyouMakerUpgradesToBundledVersion() {
-        val repo = newRepository()
-        val skill = repo.skills.value.first { it.id == "wenyou-maker" }
-        assertEquals("asset skill ships 1.3.0 with the discipline section", "1.3.0", skill.version)
-        assertTrue("SKILL.md body carries the discipline", skill.body.contains("整理纪律"))
-        assertTrue("SKILL.md body carries the human-only style rule", skill.body.contains("文风人工化"))
-        // [T-schema-optional-fields] 1.2.0 批次：建卡配方改 bulk-first。
-        assertTrue("SKILL.md body teaches bulk-first card building", skill.body.contains("create_card_bulk"))
-    }
 
     @Test
     fun bundledDeslopSkillsInstallWithUpstreamContentIntact() {
@@ -153,6 +48,74 @@ class SkillRepositoryBundledAssetSkillTest {
         assertTrue(
             "LICENSE attribution kept",
             repo.listSkillFiles("humanizer-zh").contains("LICENSE"),
+        )
+    }
+
+    @Test
+    fun sameVersionReinstallDoesNotClobberUserEdits() {
+        newRepository()
+        val skillDir = File(
+            File(RuntimeEnvironment.getApplication().filesDir, "minis-global/skills"),
+            "human-writing",
+        )
+        val edited = File(skillDir, "references/fiction.md")
+        edited.writeText("用户改过的参考文本")
+
+        // Second init runs the seed again; same version + files present means
+        // the installer must skip entirely.
+        val second = newRepository()
+        assertEquals("用户改过的参考文本", edited.readText())
+        val skill = second.skills.value.first { it.id == "human-writing" }
+        assertTrue(skill.version.isNotBlank())
+    }
+
+    @Test
+    fun halfInstalledSkillSelfHealsWithoutVersionBump() {
+        newRepository()
+        val skillDir = File(
+            File(RuntimeEnvironment.getApplication().filesDir, "minis-global/skills"),
+            "human-writing",
+        )
+        // Simulate a half install: registry row exists (init created it) but the
+        // directory was wiped before sibling files landed.
+        skillDir.deleteRecursively()
+
+        val second = newRepository()
+        val files = second.listSkillFiles("human-writing")
+        assertTrue("references restored without a version bump: $files", files.contains("references/fiction.md"))
+    }
+
+    @Test
+    fun skillPromptFragmentDisclosesBundledSkillsWhenEnabled() {
+        val repo = newRepository()
+        val fragment = repo.skillPromptFragment(sessionId = "session-a")
+        assertNotNull("bundled skills are enabled by default, fragment must exist", fragment)
+        assertTrue(
+            "fragment should disclose humanizer-zh",
+            fragment!!.contains("humanizer-zh"),
+        )
+        assertTrue(
+            "fragment should point at the readable SKILL.md path",
+            fragment.contains("/var/minis/skills/humanizer-zh/SKILL.md"),
+        )
+    }
+
+    @Test
+    fun retiredBundledSkillsAreRemovedOnNextInit() {
+        val first = newRepository()
+        // Simulate a stale bundled install from an older release.
+        first.add(
+            name = "wenyou-maker",
+            description = "stale",
+            body = "stale",
+            source = SkillRepository.ImportSource.BUNDLED,
+        )
+        assertNotNull(first.skills.value.firstOrNull { it.id == "wenyou-maker" })
+
+        val second = newRepository()
+        assertNull(
+            "retired BUNDLED skill must be pruned on re-init",
+            second.skills.value.firstOrNull { it.id == "wenyou-maker" },
         )
     }
 }

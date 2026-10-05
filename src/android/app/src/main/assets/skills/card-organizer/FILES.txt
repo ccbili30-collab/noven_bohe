@@ -1,3 +1,0 @@
-SKILL.md
-references/organizing-rules.md
-references/tic-ban.md

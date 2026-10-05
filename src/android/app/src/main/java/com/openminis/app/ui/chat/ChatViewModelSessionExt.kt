@@ -319,6 +319,8 @@ internal fun ChatViewModel.loadSession() {
         // Existing session: load from DB
         val session = chatRepository.sessionById(sessionId) ?: return@launch
         if (!inputEditedBeforeLoad && _inputText.value.isEmpty()) _inputText.value = session.composerDraft.orEmpty()
+        // 挂起的紫卡胶囊随会话走——上个会话没发出去的胶囊不许带到本会话。
+        _pendingCapabilities.value = emptyList()
         _sessionTitle.value = session.title ?: "New Chat"
         _sessionCategory.value = session.category
         val sessionCharacter = session.characterSnapshotJson?.let {

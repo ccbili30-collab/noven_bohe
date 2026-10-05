@@ -805,6 +805,28 @@ class ChatViewModel(
         _inputText.value = joined
     }
 
+    // ── 紫卡待发送胶囊 ──────────────────────────────────────────────────
+    // 紫卡点按不再把 〔能力名〕写进输入文本（裸括号混在正文里可被光标拆散，
+    // 而且发送前用户看到的是未渲染标记）。改成挂起的胶囊：输入框上方一颗
+    // 真胶囊 chip，可单独删除；下一次发送时序列化回 〔能力名〕 前缀拼进
+    // 正文——气泡渲染、模型对照表、持久化链路全部不变。
+    internal val _pendingCapabilities = MutableStateFlow<List<String>>(emptyList())
+    val pendingCapabilities: StateFlow<List<String>> = _pendingCapabilities.asStateFlow()
+
+    fun addPendingCapability(label: String) {
+        val name = label.trim()
+        if (name.isEmpty() || name in _pendingCapabilities.value) return
+        _pendingCapabilities.value = _pendingCapabilities.value + name
+    }
+
+    fun removePendingCapability(label: String) {
+        _pendingCapabilities.value = _pendingCapabilities.value - label
+    }
+
+    /** 发送口取走并清空挂起胶囊；未发送的胶囊不受斜杠指令执行影响。 */
+    fun takePendingCapabilities(): List<String> =
+        _pendingCapabilities.value.also { _pendingCapabilities.value = emptyList() }
+
     internal val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
 
