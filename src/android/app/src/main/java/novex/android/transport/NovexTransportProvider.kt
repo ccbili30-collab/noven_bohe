@@ -1201,11 +1201,12 @@ class NovexTransportProvider(
 
     internal companion object {
         /**
-         * 读超时：上游该线路为 600s 读超时 + 300s 停滞看门狗；这里取
-         * 300s 对齐看门狗边界（合法的长思考静默实测 ~190s，留有余量），
-         * 连接阶段同样受此上限，黑洞连接由看门狗先一步切断。
+         * 读超时（socket 兜底）：上游该线路为 600s 读超时，此处对齐；功能性静默上限
+         * 由 420s 停滞看门狗先一步承担（合法长思考静默实测 ~190s，排队中的中转站
+         * 上游可能更久，故留倍余量）。连接阶段不受此值约束——ChatCompletionCall
+         * 内部用独立的 20s 拨号预算。
          */
-        const val CALL_TIMEOUT_MILLIS = 300_000
+        const val CALL_TIMEOUT_MILLIS = 600_000
 
         /**
          * Codex OAuth 客户端版本（Version / User-Agent 指纹头共用）。0.142.3 →

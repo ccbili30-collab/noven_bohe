@@ -247,4 +247,47 @@ class ChatCompletionStreamTest {
         assertTrue(decoder.feed("data: {\"choices\":[],\"usage\":{}}\n\n").isEmpty())
         assertTrue(decoder.feed("data: {\"choices\":[{\"delta\":{\"content\":null}}]}\n\n").isEmpty())
     }
+    @Test fun `流式请求声明 SSE 语义并显式拒绝压缩`()=server { server,endpoint ->
+        var accept:String? = null;var acceptEncoding:String? = null;var cacheControl:String? = null
+        server.createContext("/chat/completions") { exchange ->
+            accept=exchange.requestHeaders.getFirst("Accept")
+            acceptEncoding=exchange.requestHeaders.getFirst("Accept-Encoding")
+            cacheControl=exchange.requestHeaders.getFirst("Cache-Control")
+            streamBody(exchange,listOf("data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n\n","data: [DONE]\n\n"))
+        }
+        assertEquals(StreamResult.Completed,ChatCompletionCall(endpoint).stream(payload,capacity,128_000,::measure){})
+        // gzip 关死是中转站流式顺畅的前提：压缩会让 SSE 攒批发出。
+        assertEquals("text/event-stream",accept)
+        assertEquals("identity",acceptEncoding)
+        assertEquals("no-cache",cacheControl)
+    }
+    @Test fun `同主机重定向被跟随且按原方法重发`()=server { server,endpoint ->
+        server.createContext("/chat/completions") { exchange ->
+            exchange.responseHeaders.set("Location","/moved/chat")
+            exchange.sendResponseHeaders(302,-1);exchange.close()
+        }
+        var redirectedAuth:String? = null;var redirectedMethod:String? = null;var redirectedBody:String? = null
+        server.createContext("/moved/chat") { exchange ->
+            redirectedMethod=exchange.requestMethod
+            redirectedAuth=exchange.requestHeaders.getFirst("Authorization")
+            redirectedBody=exchange.requestBody.bufferedReader().use { it.readText() }
+            streamBody(exchange,listOf("data: {\"choices\":[{\"delta\":{\"content\":\"搬过来\"}}]}\n\n","data: [DONE]\n\n"))
+        }
+        val chunks=ConcurrentLinkedQueue<StreamChunk>()
+        assertEquals(StreamResult.Completed,ChatCompletionCall(endpoint).stream(payload,capacity,128_000,::measure){chunks.add(it)})
+        assertEquals("POST",redirectedMethod)
+        assertEquals("Bearer public",redirectedAuth)
+        assertTrue(JSONObject(redirectedBody).getBoolean("stream"))
+        assertEquals(listOf(StreamChunk.TextDelta("搬过来"),StreamChunk.Done(null)),chunks.toList())
+    }
+    @Test fun `跨主机或跨端口重定向不跟随且按 3xx 归类`()=server { server,endpoint ->
+        server.createContext("/chat/completions") { exchange ->
+            // 同主机不同端口：端口漂移视为跨源，凭据不外送。
+            exchange.responseHeaders.set("Location","http://127.0.0.1:1/elsewhere")
+            exchange.sendResponseHeaders(302,-1);exchange.close()
+        }
+        val chunks=ConcurrentLinkedQueue<StreamChunk>()
+        assertEquals(StreamResult.Failed,ChatCompletionCall(endpoint).stream(payload,capacity,128_000,::measure){chunks.add(it)})
+        assertEquals(listOf(StreamChunk.Failure("HTTP 302",302,"redirect",null,null)),chunks.toList())
+    }
 }
