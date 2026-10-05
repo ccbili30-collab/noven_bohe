@@ -1593,6 +1593,25 @@ fun ChatScreen(
         }
     }
 
+    // HTML 岛数据桥：卡名/卡类 + 本局状态 → window.NOVEN_FRAME。
+    // playthroughState 也喂给下方状态半圆，故提升到 provider 之前收集。
+    val playthroughState by viewModel.activePlaythroughState.collectAsState()
+    val islandCard by produceState<Pair<String, String>?>(null, sessionId) {
+        viewModel.novexConfigurationJson.collect { raw ->
+            value = runCatching {
+                novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
+            }.getOrNull()?.cardBindingJson
+                ?.let(com.openminis.app.cards.CardBinding::decode)
+                ?.primary
+                ?.let { sel ->
+                    withContext(Dispatchers.IO) {
+                        runCatching { viewModel.integratedCards.store.open(sel.rootId) }.getOrNull()
+                    }
+                }
+                ?.content?.let { it.name to it.kind.name.lowercase() }
+        }
+    }
+
     CompositionLocalProvider(
         LocalMarkdownFontScale provides markdownFontScale,
         LocalToolPreviewEnabled provides toolPreviewEnabled,
@@ -1603,6 +1622,11 @@ fun ChatScreen(
         // map (which is last-writer-wins across sessions).
         LocalMarkdownSessionId provides sessionId,
         LocalImmersiveChatProfile provides immersiveProfile,
+        LocalHtmlIslandBridge provides HtmlIslandBridge(
+            cardName = islandCard?.first,
+            cardKind = islandCard?.second,
+            state = playthroughState,
+        ),
     ) {
     val immersiveBackground = immersiveProfile.backgroundPath
         ?.let { java.io.File(it) }
@@ -1681,7 +1705,6 @@ fun ChatScreen(
                     }
                 },
         ) {
-            val playthroughState by viewModel.activePlaythroughState.collectAsState()
             var latestDataUpdate by remember(sessionId) { mutableStateOf<NovexDataUpdateEvent?>(null) }
             LaunchedEffect(viewModel, sessionId) {
                 viewModel.novexDataUpdates.collect { event -> latestDataUpdate = event }
