@@ -5,6 +5,8 @@ import novex.content.ContentRef
 import novex.content.ModuleRouting
 import novex.content.effectiveRouting
 import novex.storage.TextPages
+import novex.core.NovexExternalCardImport
+import novex.storage.RawTextImport
 
 /**
  * [T-stage1-activation] 开局激活协议（总纲 §3.2，阶段 1 PR-B）。
@@ -61,6 +63,7 @@ object NovexCardActivation {
         val collectedModuleIds = mutableSetOf<String>()
         var defaultCount = 0
         var charCount = 0
+        var verbatimCount = 0
         cards.forEach { card ->
             val cardDefaults = card.modules.flatMap(::flatten)
                 .filter { it.second.effectiveRouting() == ModuleRouting.DEFAULT }
@@ -70,11 +73,22 @@ object NovexCardActivation {
             cardDefaults.forEach { (_, module) ->
                 defaultCount++
                 collectedModuleIds.add(module.id)
-                listing.appendLine("  · ${module.name}")
+                // [verbatim-defer] 原文导入模块不在资料包内联全文：逐轮采用
+                // 对 ROUTED_ACTIVATION 模块有分页兜底（放不下退 partial+
+                // next_offset，read_text_block 续读），激活整读只是重复同
+                // 一原文且会顶爆单条消息上限——卡仍完整可用。
+                val verbatim = module.isVerbatimSource(card, readText)
+                if (verbatim) verbatimCount++
+                listing.appendLine("  · ${module.name}${if (verbatim) "（原文导入 · 按需分页载入）" else ""}")
                 defaults.appendLine()
                 defaults.appendLine("## ${module.name}")
+                if (verbatim) {
+                    defaults.appendLine("本模块为整份导入原文，不在开局包内联——对话中将按需分页提供，亦可用 read_text_block 查阅。")
+                }
                 module.blocks.forEach { block ->
-                    val text = (block as? novex.content.ContentBlock.Text)?.let { readText(it.content) }
+                    val text = (block as? novex.content.ContentBlock.Text)?.let {
+                        if (verbatim) null else readText(it.content)
+                    }
                     if (!text.isNullOrBlank()) {
                         charCount += text.length
                         defaults.appendLine(text)
@@ -109,7 +123,8 @@ object NovexCardActivation {
         return ActivationMaterial(
             packageText = packageText,
             defaultModuleIds = collectedModuleIds,
-            label = "已载入开局资料 · $defaultCount 个模块 · 约${formatChars(charCount)}",
+            label = "已载入开局资料 · $defaultCount 个模块 · 约${formatChars(charCount)}" +
+                if (verbatimCount > 0) "（原文导入 ×$verbatimCount 按需载入）" else "",
             perTurnText = perTurn.toString().trim(),
             styleText = style.toString().trim(),
             defaultModuleCount = defaultCount,
@@ -141,6 +156,26 @@ object NovexCardActivation {
             "开局资料包约 $cost token，超出本会话可用上下文 $availableTokens；" +
                 "请在卡设置中减少默认模块、调大对话容量，或换一张更轻的卡。携带清单：${material.label}"
         }
+    }
+
+    /**
+     * [verbatim-defer] 原文导入模块判定：新格式=块的 ContentRef 即卡级
+     * `novex.import.original` 原文引用；旧库迁移=卡级 `legacy/module/{id}`
+     * 扩展里存原 contentJson，其 `_novexTransferSource.novex_verbatim` 为真。
+     * 两条导入路径共用同一语义：原文整份保留，逐轮分页提供。
+     */
+    internal fun novex.content.ContentModule.isVerbatimSource(
+        card: ContentDocument,
+        readText: (ContentRef) -> String,
+    ): Boolean {
+        val original = card.extensions[RawTextImport.ORIGINAL]
+        if (original != null && blocks.any { it is novex.content.ContentBlock.Text && it.content == original }) {
+            return true
+        }
+        val legacy = card.extensions["legacy/module/" + id.substringAfterLast(":")]
+            ?.let { ref -> runCatching { readText(ref) }.getOrNull() }
+            ?.let(NovexExternalCardImport::isVerbatimModule) == true
+        return legacy
     }
 
     private fun flatten(module: novex.content.ContentModule): List<Pair<Unit, novex.content.ContentModule>> =
