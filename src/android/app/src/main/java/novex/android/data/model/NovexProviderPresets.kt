@@ -27,6 +27,13 @@ object NovexProviderPresets {
      * 绝不能追加 /v1——预设必须以 appendV1Suffix=false 落库。
      */
     const val ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+
+    /**
+     * 智谱 Coding Plan 套餐通道：与按量端点同 host 同协议，仅路径多一段
+     * /coding/，计费走套餐额度而非 token 按量。用户在自定义供应商里填
+     * 这个基址即可接入；目录与思考席位按本文件既有规则命中。
+     */
+    const val ZHIPU_CODING_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
     const val ZHIPU_KEY_HELP_URL = "https://open.bigmodel.cn/usercenter/apikeys"
     const val ZHIPU_LABEL = "智谱"
 
@@ -35,6 +42,19 @@ object NovexProviderPresets {
 
     fun isZhipuBase(base: String?): Boolean =
         runCatching { URI(base.orEmpty().trim()).host?.lowercase() }.getOrNull() == ZHIPU_HOST
+
+    /** Coding Plan 通道判定：同 host，路径带 /coding/ 段。 */
+    fun isZhipuCodingPlanBase(base: String?): Boolean =
+        runCatching { URI(base.orEmpty().trim()) }.getOrNull()
+            ?.let { it.host?.lowercase() == ZHIPU_HOST && it.path.orEmpty().contains("/coding/") }
+            ?: false
+
+    /**
+     * 智谱 host 的目录按通道分派：Coding Plan 端点铺套餐目录（与按量
+     * 目录型号重叠但上下文/输出规格不同），其余铺按量静态表。
+     */
+    fun zhipuCatalogForBase(base: String?): List<LLMModel> =
+        if (isZhipuCodingPlanBase(base)) zhipuCodingPlanModels else zhipuStaticModels
 
     /** DeepSeek 官方 host（api.deepseek.com），/models 兜底目录的命中判定用。 */
     fun isDeepSeekBase(base: String?): Boolean =
@@ -69,6 +89,99 @@ object NovexProviderPresets {
             maxOutputTokens = 128_000,
             supportsReasoning = true,
             reasoningEffortValues = listOf("low", "high", "max"),
+        ),
+    )
+
+    /**
+     * Coding Plan 通道静态目录（同样无 /models 端点）。型号与规格来自
+     * z.ai coding 供应商目录（glm-4.x/5.x 全系）；思考 effort 档位仅
+     * 官方文档确证的 5.3 系照录 low/high/max，其余型号不发明档位。
+     */
+    val zhipuCodingPlanModels: List<LLMModel> = listOf(
+        LLMModel(
+            id = "glm-5.3",
+            displayName = "GLM-5.3",
+            provider = "智谱 Coding Plan",
+            contextWindow = 1_000_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+            reasoningEffortValues = listOf("low", "high", "max"),
+        ),
+        LLMModel(
+            id = "glm-5.3-flash",
+            displayName = "GLM-5.3-Flash",
+            provider = "智谱 Coding Plan",
+            contextWindow = 1_000_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+            reasoningEffortValues = listOf("low", "high", "max"),
+            inputModalities = listOf("text", "image"),
+        ),
+        LLMModel(
+            id = "glm-5.3-highspeed",
+            displayName = "GLM-5.3-Highspeed",
+            provider = "智谱 Coding Plan",
+            contextWindow = 1_000_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+        ),
+        LLMModel(
+            id = "glm-5.2",
+            displayName = "GLM-5.2",
+            provider = "智谱 Coding Plan",
+            contextWindow = 1_000_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+        ),
+        LLMModel(
+            id = "glm-5.2-highspeed",
+            displayName = "GLM-5.2-Highspeed",
+            provider = "智谱 Coding Plan",
+            contextWindow = 1_000_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+        ),
+        LLMModel(
+            id = "glm-5.1",
+            displayName = "GLM-5.1",
+            provider = "智谱 Coding Plan",
+            contextWindow = 200_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+        ),
+        LLMModel(
+            id = "glm-5-turbo",
+            displayName = "GLM-5-Turbo",
+            provider = "智谱 Coding Plan",
+            contextWindow = 200_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+        ),
+        LLMModel(
+            id = "glm-5v-turbo",
+            displayName = "GLM-5V-Turbo",
+            provider = "智谱 Coding Plan",
+            contextWindow = 200_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+            inputModalities = listOf("text", "image"),
+        ),
+        LLMModel(
+            id = "glm-4.7",
+            displayName = "GLM-4.7",
+            provider = "智谱 Coding Plan",
+            contextWindow = 200_000,
+            maxOutputTokens = 128_000,
+            supportsReasoning = true,
+        ),
+        LLMModel(
+            id = "glm-4.6v",
+            displayName = "GLM-4.6V",
+            provider = "智谱 Coding Plan",
+            contextWindow = 128_000,
+            maxOutputTokens = 32_000,
+            supportsReasoning = true,
+            inputModalities = listOf("text", "image"),
         ),
     )
 
