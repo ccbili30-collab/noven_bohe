@@ -31,6 +31,9 @@ object AgentTools {
         addAll(NovexIllustrationTools.definitions())
         addAll(NovexManagementTools.modelDefinitions())
         addAll(NovexCardFileTools.definitions())
+        // skill_read：技能按需加载的唯一读取面。设备路径 file_read 已退役
+        // （NovexRawToolRetirementTest 契约），技能挂载以窄面工具单独开放。
+        add(SkillReadTool.definition())
         if (documentsAvailable) {
             addAll(NovexDocumentAgentTools.providerDefinitions())
         }

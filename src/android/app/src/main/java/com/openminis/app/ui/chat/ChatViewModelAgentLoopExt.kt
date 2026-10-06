@@ -50,6 +50,7 @@ import com.openminis.app.tools.NovexLearningAgentTools
 import com.openminis.app.tools.NovexWorkspaceAgentTools
 import com.openminis.app.tools.NovexManagementTools
 import com.openminis.app.tools.ReadImageTool
+import com.openminis.app.tools.SkillReadTool
 import com.openminis.app.tools.ToolExecutionResult
 import novex.content.effectiveRouting
 import novex.content.effectiveTemporality
@@ -2034,6 +2035,22 @@ internal suspend fun ChatViewModel.executeAuthorizedTool(
         FileReadTool.NAME -> {
             val result = FileReadTool.execute(argsJson, activeSessionId, context)
             // Record skill usage when SKILL.md under /var/minis/skills/<id>/ is read.
+            if (result.success) {
+                runCatching {
+                    val readPath = JSONObject(argsJson).optString("path", "")
+                    if (readPath.isNotEmpty()) {
+                        skillRepository?.skillIdFromPath(readPath)?.let { sid ->
+                            skillRepository.recordSkillUse(sid)
+                        }
+                    }
+                }
+            }
+            result
+        }
+        // 技能按需加载的窄面入口：只放行 /var/minis/skills/ 前缀（通用
+        // file_read 已退役不进 schema），执行复用 FileReadTool 的挂载解析。
+        SkillReadTool.NAME -> {
+            val result = SkillReadTool.execute(argsJson, activeSessionId, context)
             if (result.success) {
                 runCatching {
                     val readPath = JSONObject(argsJson).optString("path", "")
