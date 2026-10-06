@@ -82,8 +82,15 @@ internal fun HtmlIsland(html: String) {
 
     var showSource by remember(html) { mutableStateOf(false) }
     var measuredCssHeight by remember(html) { mutableIntStateOf(0) }
+    var islandError by remember(html) { mutableStateOf<String?>(null) }
+    // 渲染进程死亡自疗计数：onRenderProcessGone 销毁死 view 后 bump，
+    // key(reloadTick) 触发 AndroidView 重建+整页重载（sync 看到
+    // loadedHtml==null 会重新 loadDataWithBaseURL）。
+    var reloadTick by remember { mutableIntStateOf(0) }
     val renderer = remember { IslandRenderer() }
     renderer.onHeight = { measuredCssHeight = it }
+    renderer.onCrash = { reloadTick++ }
+    renderer.onError = { islandError = it }
 
     val shape = RoundedCornerShape(10.dp)
     Box(
@@ -110,16 +117,30 @@ internal fun HtmlIsland(html: String) {
                 )
             }
         } else {
-            val islandHeight = (measuredCssHeight.takeIf { it > 0 }
-                ?: IslandDefaultHeightDp).coerceAtMost(IslandMaxHeightDp)
-            AndroidView(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(islandHeight.dp),
-                factory = { ctx -> renderer.create(ctx) },
-                update = { wv -> renderer.sync(wv, html, frameJson) },
-                onRelease = { wv -> wv.destroy() },
-            )
+            Column(Modifier.fillMaxWidth()) {
+                islandError?.let { err ->
+                    // 页面没画出内容的兜底条：主文档错误 / 空 body / 脚本
+                    // 崩溃都落这里——岛不再静默黑/白，用户能直接看源码。
+                    Text(
+                        text = "界面未渲染：$err · 点右上角 </> 看源码",
+                        fontSize = BaseFontSize * 0.78f,
+                        color = colors.blockquote,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+                val islandHeight = (measuredCssHeight.takeIf { it > 0 }
+                    ?: IslandDefaultHeightDp).coerceAtMost(IslandMaxHeightDp)
+                androidx.compose.runtime.key(reloadTick) {
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(islandHeight.dp),
+                        factory = { ctx -> renderer.create(ctx) },
+                        update = { wv -> renderer.sync(wv, html, frameJson) },
+                        onRelease = { wv -> runCatching { wv.destroy() } },
+                    )
+                }
+            }
         }
         // 源码/界面切换：右上角半透明小图标，不占独立抬头行（沉浸优先）。
         Icon(
@@ -143,7 +164,10 @@ private class IslandRenderer {
     private var loadedHtml: String? = null
     private var pageReady = false
     private var frameJson = "{}"
+    private var boundView: WebView? = null
     var onHeight: ((Int) -> Unit)? = null
+    var onCrash: (() -> Unit)? = null
+    var onError: ((String?) -> Unit)? = null
 
     fun create(context: android.content.Context): WebView = WebView(context).apply {
         configure(this)
@@ -153,6 +177,27 @@ private class IslandRenderer {
                 // 页面可能声明了全新 document 上下文；重注当前帧保证脚本
                 // 读到的是最新数据而非装载时的快照。
                 view.evaluateJavascript(frameUpdateJs(frameJson), null)
+                // 空渲染检测：脚本崩溃/CSP 拦截后 body 会空无一物——透明
+                // WebView 透出气泡底色就是"纯黑/纯白"的来源。显式报出来
+                // 让岛走失败占位，而不是一块死颜色。
+                view.evaluateJavascript(
+                    "(document.body?(document.body.innerText||'').trim().length" +
+                        "+document.body.childElementCount:0)",
+                ) { count ->
+                    if (count?.trim()?.trim('"') == "0") {
+                        onError?.invoke("页面无内容（脚本可能已中断）")
+                    }
+                }
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: android.webkit.WebResourceError,
+            ) {
+                if (request.isForMainFrame) {
+                    onError?.invoke(error.description?.toString() ?: "文档加载失败")
+                }
             }
 
             override fun shouldOverrideUrlLoading(
@@ -172,7 +217,13 @@ private class IslandRenderer {
             }
 
             override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
-                view.destroy()
+                // 契约：返回 true 就必须销毁死 view——但销毁不等于修复，
+                // 还得让 Compose 重建一个 WebView 并把整页重新装上。
+                runCatching { view.destroy() }
+                loadedHtml = null
+                pageReady = false
+                boundView = null
+                onCrash?.invoke()
                 return true
             }
         }
@@ -181,6 +232,9 @@ private class IslandRenderer {
                 val text = message.message()
                 if (text.startsWith(IslandHeightSignal)) {
                     text.removePrefix(IslandHeightSignal).toIntOrNull()?.let { onHeight?.invoke(it) }
+                    // 有高度=body 已画出内容——清掉 onPageFinished 时点对
+                    // 异步建 DOM 的岛可能的"空页面"误报。
+                    onError?.invoke(null)
                     return true
                 }
                 return false
@@ -188,12 +242,15 @@ private class IslandRenderer {
         }
     }
 
-    /** html 变了重载整页；只是帧数据变了走热更新。 */
+    /** html 变了重载整页；只是帧数据变了走热更新。新 view 必重载——
+     *  loadedHtml 不随 view 重建转移（切源码往返、渲染进程重建的 blank 根因）。 */
     fun sync(wv: WebView, html: String, frame: String) {
         frameJson = frame
-        if (loadedHtml != html) {
+        if (boundView !== wv || loadedHtml != html) {
+            boundView = wv
             loadedHtml = html
             pageReady = false
+            onError?.invoke(null)
             wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frame), "text/html", "utf-8", null)
         } else if (pageReady) {
             wv.evaluateJavascript(frameUpdateJs(frame), null)
@@ -207,7 +264,19 @@ private fun configure(wv: WebView) {
     wv.settings.blockNetworkLoads = true
     wv.settings.allowFileAccess = false
     wv.settings.allowContentAccess = false
-    wv.settings.domStorageEnabled = false
+    // DOM 存储放开：localStorage/sessionStorage 在 domStorageEnabled=false
+    // 下访问即抛 SecurityError，岛脚本一碰就整段崩——页面空渲染透出
+    // 气泡底色（纯黑/纯白的第一成因）。存储落在 WebView 私有目录且
+    // 断网+CSP connect-src 'none'，无泄漏面。
+    wv.settings.domStorageEnabled = true
+    // 暗色模式下 WebView 的算法暗化会把浅色岛面整体反色成近黑——岛页
+    // 自己经 NOVEN_FRAME.theme 管主题，宿主不替它改色。
+    if (android.os.Build.VERSION.SDK_INT >= 29) {
+        wv.settings.forceDark = android.webkit.WebSettings.FORCE_DARK_OFF
+    }
+    if (android.os.Build.VERSION.SDK_INT >= 33) {
+        wv.settings.isAlgorithmicDarkeningAllowed = false
+    }
     wv.settings.mediaPlaybackRequiresUserGesture = true
     wv.setBackgroundColor(0x00000000)
 }
@@ -217,7 +286,8 @@ private fun configure(wv: WebView) {
  * 高度回报 ResizeObserver。`</` 序列转义防 JSON 里出现 "</script>"
  * 提前截断内嵌脚本。
  */
-private fun wrapIslandDocument(html: String, frameJson: String): String = buildString {
+/** internal 供包装页契约测试。 */
+internal fun wrapIslandDocument(html: String, frameJson: String): String = buildString {
     append("<!DOCTYPE html><html><head>")
     append("<meta charset=\"utf-8\">")
     append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
@@ -226,9 +296,11 @@ private fun wrapIslandDocument(html: String, frameJson: String): String = buildS
     append("<script>window.NOVEN_FRAME=")
     append(frameJson.replace("</", "<\\/"))
     append(";</script>")
-    append("<script>(function(){var r=function(){var b=document.body;if(b)console.log('")
+    // 本脚本在 <head> 执行、document.body 尚不存在——观察器挂接必须等
+    // DOMContentLoaded；load 报一次高，定时回报兜底 JS 异步建 DOM。
+    append("<script>(function(){var r=function(){var b=document.body,e=document.documentElement;var h=b?Math.max(b.scrollHeight,b.offsetHeight,e.scrollHeight,e.offsetHeight):0;if(h>0)console.log('")
     append(IslandHeightSignal)
-    append("'+Math.ceil(Math.max(b.scrollHeight,b.offsetHeight)))};if(window.ResizeObserver&&document.body)new ResizeObserver(r).observe(document.body);window.addEventListener('load',r);r()})();</script>")
+    append("'+Math.ceil(h))};var ro=null;function a(){if(ro||!window.ResizeObserver)return;ro=new ResizeObserver(r);ro.observe(document.documentElement);if(document.body)ro.observe(document.body)}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',a);else a();window.addEventListener('load',r);setInterval(r,1200);r()})();</script>")
     append("</head><body>")
     append(html)
     append("</body></html>")

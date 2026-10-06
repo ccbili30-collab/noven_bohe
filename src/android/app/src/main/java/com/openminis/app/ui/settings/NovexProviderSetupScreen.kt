@@ -192,7 +192,9 @@ internal fun novexProviderInstanceForSave(
         label = label.ifBlank { fallbackLabel },
         providerType = providerType,
         customBaseURL = base.trim().trimEnd('/'),
-        appendV1Suffix = appendV1Suffix,
+        // 智谱 host 全线终态路径（按量 /api/paas/v4 与套餐
+        // /api/coding/paas/v4 同则）：追加 /v1 必 404，落库恒关。
+        appendV1Suffix = if (novex.android.data.model.NovexProviderPresets.isZhipuBase(base)) false else appendV1Suffix,
         useResponsesAPI = direction == NovexProviderDirection.RESPONSES,
         isEnabled = true,
         // 官方预设的取钥链接随实例落库（编辑既有实例时保留原值，不冲掉）。
@@ -338,7 +340,7 @@ fun NovexProviderSetupScreen(
             emptyMap()
         }
         return if (novex.android.data.model.NovexProviderPresets.isZhipuBase(values.base)) {
-            live + novex.android.data.model.NovexProviderPresets.zhipuStaticModels.associateBy { it.id }
+            live + novex.android.data.model.NovexProviderPresets.zhipuCatalogForBase(values.base).associateBy { it.id }
         } else {
             live
         }
@@ -457,7 +459,13 @@ fun NovexProviderSetupScreen(
                 OutlinedTextField(
                     label = { Text("接口地址") },
                     value = apiBase,
-                    onValueChange = { apiBase = it; invalidateVerification() },
+                    onValueChange = {
+                        apiBase = it
+                        // 智谱 host（含 Coding Plan 通道）全是终态路径——
+                        // 填进去即收起 /v1 追加，与落库强制关同则。
+                        if (novex.android.data.model.NovexProviderPresets.isZhipuBase(it)) appendV1Suffix = false
+                        invalidateVerification()
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -553,10 +561,11 @@ fun NovexProviderSetupScreen(
                             if (presetSpec?.staticOnly == true ||
                                 novex.android.data.model.NovexProviderPresets.isZhipuBase(values.base)
                             ) {
+                                val catalog = novex.android.data.model.NovexProviderPresets.zhipuCatalogForBase(values.base)
                                 fetchedModels.clear()
-                                fetchedModels.addAll(novex.android.data.model.NovexProviderPresets.zhipuStaticModels.map { it.id })
+                                fetchedModels.addAll(catalog.map { it.id })
                                 fetchedMetadata.clear()
-                                novex.android.data.model.NovexProviderPresets.zhipuStaticModels.forEach { fetchedMetadata[it.id] = it }
+                                catalog.forEach { fetchedMetadata[it.id] = it }
                                 fetchedMetadataSource = novexCanonicalBase(values.base, appendV1Suffix) to values.key
                                 if (selectedModels.none { it in fetchedModels }) {
                                     setSelectedModels(listOf(fetchedModels.first()))

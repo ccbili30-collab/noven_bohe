@@ -64,6 +64,28 @@ class NovexProviderPresetsTest {
     }
 
     @Test
+    fun `Coding Plan 通道按路径命中且铺套餐目录`() {
+        val coding = "https://open.bigmodel.cn/api/coding/paas/v4"
+        // 同 host：思考席位与智谱专属处理照常命中。
+        assertTrue(NovexProviderPresets.isZhipuBase(coding))
+        assertTrue(NovexProviderPresets.isZhipuCodingPlanBase(coding))
+        assertTrue(NovexProviderPresets.isZhipuCodingPlanBase("$coding/"))
+        // 按量路径与伪造中转都不算套餐通道。
+        assertFalse(NovexProviderPresets.isZhipuCodingPlanBase(NovexProviderPresets.ZHIPU_BASE_URL))
+        assertFalse(NovexProviderPresets.isZhipuCodingPlanBase("https://open.bigmodel.cn.relay.tld/api/coding/paas/v4"))
+        assertFalse(NovexProviderPresets.isZhipuCodingPlanBase(null))
+
+        val codingIds = NovexProviderPresets.zhipuCatalogForBase(coding).map { it.id }
+        assertTrue("coding catalog must offer glm-4.7", "glm-4.7" in codingIds)
+        assertTrue("glm-5.3" in codingIds)
+        // 按量目录仍是双旗舰，不被套餐目录污染。
+        assertEquals(
+            listOf("glm-5.3", "glm-5.3-flash"),
+            NovexProviderPresets.zhipuCatalogForBase(NovexProviderPresets.ZHIPU_BASE_URL).map { it.id },
+        )
+    }
+
+    @Test
     fun `深度求索兜底目录是官方双模型`() {
         assertEquals(
             listOf("deepseek-chat", "deepseek-reasoner"),
