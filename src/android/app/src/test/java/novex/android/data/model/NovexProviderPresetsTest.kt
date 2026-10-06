@@ -66,9 +66,12 @@ class NovexProviderPresetsTest {
     @Test
     fun `Coding Plan 通道按路径命中且铺套餐目录`() {
         val coding = "https://open.bigmodel.cn/api/coding/paas/v4"
+        val codingIntl = "https://api.z.ai/api/coding/paas/v4"
         // 同 host：思考席位与智谱专属处理照常命中。
         assertTrue(NovexProviderPresets.isZhipuBase(coding))
+        assertTrue(NovexProviderPresets.isZhipuBase(codingIntl))
         assertTrue(NovexProviderPresets.isZhipuCodingPlanBase(coding))
+        assertTrue(NovexProviderPresets.isZhipuCodingPlanBase(codingIntl))
         assertTrue(NovexProviderPresets.isZhipuCodingPlanBase("$coding/"))
         // 按量路径与伪造中转都不算套餐通道。
         assertFalse(NovexProviderPresets.isZhipuCodingPlanBase(NovexProviderPresets.ZHIPU_BASE_URL))
