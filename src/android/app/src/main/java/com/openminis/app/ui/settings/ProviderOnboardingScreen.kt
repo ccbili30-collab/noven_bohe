@@ -35,15 +35,16 @@ import novex.android.ui.NovexType
 /**
  * 「添加供应商」前置步：选择接入方式（provider onboarding）。
  *
- * 三张卡——智谱 / 深度求索 / 自定义——前两张带官方预设（base 预填、取钥
- * 链接、模型目录），第三张进既有手动流程。logo 均为磁贴形态（统一圆角
- * 裁切）：智谱黑底白 Z、DeepSeek 蓝鲸落在白底上、自定义用白底小鸟
- * （透明版黑线在深色模式会隐形，务必用白底版）。
+ * 四张卡——智谱 / 智谱 Coding Plan / 深度求索 / 自定义——前三张带官方
+ * 预设（base 预填、取钥链接、模型目录），第四张进既有手动流程。logo 均
+ * 为磁贴形态（统一圆角裁切）：智谱黑底白 Z、DeepSeek 蓝鲸落在白底上、
+ * 自定义用白底小鸟（透明版黑线在深色模式会隐形，务必用白底版）。
  */
 @Composable
 fun ProviderOnboardingScreen(
     onBack: () -> Unit,
     onPickZhipu: () -> Unit,
+    onPickZhipuCoding: () -> Unit,
     onPickDeepSeek: () -> Unit,
     onPickCustom: () -> Unit,
 ) {
@@ -64,8 +65,15 @@ fun ProviderOnboardingScreen(
                 logoRes = R.drawable.img_provider_zhipu,
                 logoOnWhiteTile = false,
                 title = "智谱（Z.ai）",
-                description = "GLM 系列官方接口；内置模型目录，无需拉取",
+                description = "GLM 系列官方接口，token 按量计费；内置模型目录，无需拉取",
                 onClick = onPickZhipu,
+            )
+            ProviderPresetCard(
+                logoRes = R.drawable.img_provider_zhipu,
+                logoOnWhiteTile = false,
+                title = "智谱 Coding Plan",
+                description = "GLM Coding Plan 套餐通道，走订阅额度；内置套餐目录",
+                onClick = onPickZhipuCoding,
             )
             ProviderPresetCard(
                 logoRes = R.drawable.img_provider_deepseek,

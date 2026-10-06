@@ -18,6 +18,7 @@ object NovexProviderPresets {
 
     /** 导航参数用预设键（add_provider?preset=…）。 */
     const val PRESET_ZHIPU = "zhipu"
+    const val PRESET_ZHIPU_CODING = "zhipu-coding"
     const val PRESET_DEEPSEEK = "deepseek"
 
     // ---- 智谱（Z.ai / BigModel） -----------------------------------------

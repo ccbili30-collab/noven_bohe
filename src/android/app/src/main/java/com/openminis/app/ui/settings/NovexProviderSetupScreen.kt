@@ -229,6 +229,17 @@ internal fun novexPresetSpec(preset: String?): NovexPresetSpec? = when (preset) 
         staticModels = novex.android.data.model.NovexProviderPresets.zhipuStaticModels,
         staticOnly = true,
     )
+    novex.android.data.model.NovexProviderPresets.PRESET_ZHIPU_CODING -> NovexPresetSpec(
+        label = "智谱 Coding Plan",
+        headerTitle = "连接智谱 Coding Plan（Z.ai）接口",
+        headerSubtitle = "GLM Coding Plan 套餐通道，计费走订阅额度；地址与套餐模型目录已预填，填入密钥即可保存启用。",
+        keyHelpLabel = "前往智谱开放平台（bigmodel.cn）获取密钥",
+        base = novex.android.data.model.NovexProviderPresets.ZHIPU_CODING_BASE_URL,
+        keyHelpUrl = novex.android.data.model.NovexProviderPresets.ZHIPU_KEY_HELP_URL,
+        appendV1 = false,
+        staticModels = novex.android.data.model.NovexProviderPresets.zhipuCodingPlanModels,
+        staticOnly = true,
+    )
     novex.android.data.model.NovexProviderPresets.PRESET_DEEPSEEK -> NovexPresetSpec(
         label = novex.android.data.model.NovexProviderPresets.DEEPSEEK_LABEL,
         headerTitle = "连接深度求索（DeepSeek）接口",
@@ -289,6 +300,8 @@ fun NovexProviderSetupScreen(
     }
     var manualModelId by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    // 拉取成功的可见反馈（静态目录重铺秒出无网络，没提示会"像没反应"）。
+    var fetchNotice by remember { mutableStateOf<String?>(null) }
     var fetchingModels by remember { mutableStateOf(false) }
     var checkingModelId by remember { mutableStateOf<String?>(null) }
     var verificationJob by remember { mutableStateOf<Job?>(null) }
@@ -482,27 +495,34 @@ fun NovexProviderSetupScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
             }
-            HorizontalDivider(color = NovexColors.Divider, thickness = 0.5.dp)
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // 官方预设（智谱两通道/DeepSeek）地址是限定终态路径，/v1 不是
+            // 用户决策——整条收起；自定义流程里一旦填了智谱 host 同样收起
+            //（落库侧 isZhipuBase 强制关兜底，双保险）。
+            if (presetSpec == null &&
+                !novex.android.data.model.NovexProviderPresets.isZhipuBase(apiBase)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("自动补全 /v1", style = NovexType.ItemTitle, color = NovexColors.Text)
-                    Text(
-                        if (appendV1Suffix) "填写域名即可；请求时自动补上 /v1"
-                        else "关闭后完全按填写的接口地址请求",
-                        style = NovexType.Metadata,
-                        color = NovexColors.SecondaryText,
+                HorizontalDivider(color = NovexColors.Divider, thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("自动补全 /v1", style = NovexType.ItemTitle, color = NovexColors.Text)
+                        Text(
+                            if (appendV1Suffix) "填写域名即可；请求时自动补上 /v1"
+                            else "关闭后完全按填写的接口地址请求",
+                            style = NovexType.Metadata,
+                            color = NovexColors.SecondaryText,
+                        )
+                    }
+                    NovexCheckToggle(
+                        checked = appendV1Suffix,
+                        onCheckedChange = {
+                            appendV1Suffix = it
+                            invalidateVerification()
+                        },
                     )
                 }
-                NovexCheckToggle(
-                    checked = appendV1Suffix,
-                    onCheckedChange = {
-                        appendV1Suffix = it
-                        invalidateVerification()
-                    },
-                )
             }
             HorizontalDivider(color = NovexColors.Divider, thickness = 0.5.dp)
             // 取钥链接按实例自适应：带 keyHelpUrl 的实例显示取钥入口（通用机制）
@@ -547,7 +567,10 @@ fun NovexProviderSetupScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "从接口拉取可用模型，或手动输入模型名。",
+                        if (presetSpec?.staticOnly == true)
+                            "官方无模型列表接口，内置目录已铺好——勾选即可，也可手动加型号。"
+                        else
+                            "从接口拉取可用模型，或手动输入模型名。",
                         style = NovexType.Metadata,
                         color = NovexColors.SecondaryText,
                         modifier = Modifier.weight(1f),
@@ -557,7 +580,8 @@ fun NovexProviderSetupScreen(
                         onClick = {
                             val values = validate(requireModels = false) ?: return@OutlinedButton
                             // [T-provider-onboarding] 智谱官方无 /models 端点：「拉取」=
-                            // 重铺内置静态目录，不打网络。
+                            // 重铺内置静态目录，不打网络——给个反馈，不然
+                            // 秒出的重铺在已预填列表上毫无视觉变化。
                             if (presetSpec?.staticOnly == true ||
                                 novex.android.data.model.NovexProviderPresets.isZhipuBase(values.base)
                             ) {
@@ -567,6 +591,8 @@ fun NovexProviderSetupScreen(
                                 fetchedMetadata.clear()
                                 catalog.forEach { fetchedMetadata[it.id] = it }
                                 fetchedMetadataSource = novexCanonicalBase(values.base, appendV1Suffix) to values.key
+                                error = null
+                                fetchNotice = "已载入内置模型目录 ${catalog.size} 款"
                                 if (selectedModels.none { it in fetchedModels }) {
                                     setSelectedModels(listOf(fetchedModels.first()))
                                 }
@@ -583,6 +609,8 @@ fun NovexProviderSetupScreen(
                                 fetchedModels.clear(); fetchedModels.addAll(ids)
                                 if (models.isEmpty()) error = "没有拉取到模型，请检查地址和密钥，或继续手动填写模型名称。"
                                 else {
+                                    error = null
+                                    fetchNotice = "已拉取 ${models.size} 款模型"
                                     if (selectedModels.none { it in ids }) setSelectedModels(listOf(ids.first()))
                                 }
                                 fetchingModels = false
@@ -601,6 +629,14 @@ fun NovexProviderSetupScreen(
                             Text("拉取模型")
                         }
                     }
+                }
+                fetchNotice?.let {
+                    Text(
+                        it,
+                        style = NovexType.Metadata,
+                        color = NovexColors.Primary,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
