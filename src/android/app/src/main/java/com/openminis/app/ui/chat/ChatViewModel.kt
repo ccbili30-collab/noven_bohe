@@ -1359,9 +1359,19 @@ class ChatViewModel(
                 }
             }
         }
-        val constants = documents.flatMap { it.modules.flattenModules() }.filter {
-            it.effectiveRouting() == novex.content.ModuleRouting.DEFAULT &&
-                it.effectiveTemporality() == novex.content.ModuleTemporality.CONSTANT
+        val readText: (novex.content.ContentRef) -> String = {
+            novex.storage.TextPages(integratedCards.store.contents).read(it, 0, Int.MAX_VALUE).text
+        }
+        // [verbatim-defer] 原文导入模块不是"开局即定的规则"——它是整份外部
+        // 卡原文，重注入整读会顶爆上下文；逐轮分页路径已负责按需供给。
+        val constants = documents.flatMap { card ->
+            card.modules.flattenModules().filter { module ->
+                module.effectiveRouting() == novex.content.ModuleRouting.DEFAULT &&
+                    module.effectiveTemporality() == novex.content.ModuleTemporality.CONSTANT &&
+                    runCatching {
+                        with(com.openminis.app.cards.NovexCardActivation) { module.isVerbatimSource(card, readText) }
+                    }.getOrDefault(false).not()
+            }
         }
         if (constants.isEmpty()) {
             constantReinjectionCache = revKey to null
@@ -1375,7 +1385,7 @@ class ChatViewModel(
                 appendLine("## ${module.name}")
                 module.blocks.forEach { block ->
                     val text = (block as? novex.content.ContentBlock.Text)?.let {
-                        runCatching { novex.storage.TextPages(integratedCards.store.contents).read(it.content, 0, Int.MAX_VALUE).text }.getOrNull()
+                        runCatching { readText(it.content) }.getOrNull()
                     }
                     if (!text.isNullOrBlank()) appendLine(text)
                 }

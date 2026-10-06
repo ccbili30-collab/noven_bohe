@@ -87,6 +87,65 @@ class NovexCardActivationTest {
     }
 
     @Test
+    fun `verbatim import module defers to a pointer instead of inlining full text`() {
+        // 暴力导入：块 ContentRef == 卡级 novex.import.original 扩展值
+        val verbatimRef = ContentRef("ref://verbatim")
+        val verbatim = ContentModule("v-mod", "原始设定",
+            listOf(ContentBlock.Text("v-b", verbatimRef)))
+        val card = ContentDocument("raw", CardKind.WORLD, "v7.1-1.png",
+            listOf(verbatim, textModule("engine", "引擎宪法", "引擎宪法正文。")),
+            extensions = mapOf(novex.storage.RawTextImport.ORIGINAL to verbatimRef),
+        )
+        val material = NovexCardActivation.build(listOf(card), readText = { ref ->
+            when (ref.value) {
+                "ref://verbatim" -> "原文正文内容".repeat(50_000)  // 300KB 级原文
+                else -> texts[ref.value] ?: ""
+            }
+        })
+        // verbatim 原文不进资料包（不内联、不计字数）
+        assertTrue(!material.packageText.contains("原文正文内容"))
+        // 声明式降级：模块仍在清单与包内，明示按需分页
+        assertTrue(material.packageText.contains("· 原始设定（原文导入 · 按需分页载入）"))
+        assertTrue(material.packageText.contains("不在开局包内联"))
+        assertTrue(material.packageText.contains("read_text_block"))
+        // 普通模块照常全文内联
+        assertTrue(material.packageText.contains("引擎宪法正文。"))
+        assertEquals(2, material.defaultModuleCount)
+        assertTrue("verbatim" in material.defaultModuleIds || "v-mod" in material.defaultModuleIds)
+        // 大原文不再顶爆单条消息上限：资料包很小
+        NovexCardActivation.requireFits(material, availableTokens = 100_000, count = { it.length })
+    }
+
+    @Test
+    fun `verbatim marker on legacy module extension also defers`() {
+        // 旧库迁移卡：legacy/module/{id} 扩展存 contentJson，novex_verbatim=true
+        val card = ContentDocument("legacy-card", CardKind.WORLD, "旧卡",
+            listOf(ContentModule("legacy-card:module:m1", "原始设定",
+                listOf(ContentBlock.Text("b1", ContentRef("ref://verbatim"))))),
+            extensions = mapOf("legacy/module/m1" to ContentRef("ref://legacy-json")),
+        )
+        val legacyJson = org.json.JSONObject().put("_novexTransferSource",
+            org.json.JSONObject().put("extensions",
+                org.json.JSONObject().put("novex_verbatim", true))).toString()
+        val material = NovexCardActivation.build(listOf(card), readText = { ref ->
+            when (ref.value) {
+                "ref://verbatim" -> "原文正文内容"
+                "ref://legacy-json" -> legacyJson
+                else -> ""
+            }
+        })
+        assertTrue(!material.packageText.contains("原文正文内容"))
+        assertTrue(material.packageText.contains("按需分页载入"))
+    }
+
+    @Test
+    fun `non-verbatim default module still inlines fully`() {
+        val material = build(card(textModule("engine", "引擎宪法", "引擎宪法正文。")))
+        assertTrue(material.packageText.contains("引擎宪法正文。"))
+        assertTrue(!material.packageText.contains("按需分页载入"))
+    }
+
+    @Test
     fun `binding activation key round-trips and excludes itself`() {
         val binding = CardBinding(primary = novex.runtime.SourceSelection("world"))
         val key = binding.copy(activatedKey = null).encode()
