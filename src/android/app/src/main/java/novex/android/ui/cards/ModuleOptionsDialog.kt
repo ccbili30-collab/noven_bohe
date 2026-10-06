@@ -60,6 +60,10 @@ import novex.content.effectiveTemporality
             FilterChip(enabled=!busy,selected=temporality==value,onClick={temporality=value},label={Text(label)})
         }
         OutlinedTextField(enabled=!busy,value=tags,onValueChange={tags=it},label={Text("标签，每行一个")})
+        // 前端件约定：打 novex-frontend 标签的模块，正文中的 ```novex-def
+        // 定义会在会话开局预铺进前端件注册表（见 ui/chat/NovexArtifacts.kt）。
+        Text("打上 novex-frontend 标签的模块会成为前端件——正文写 ```novex-def 模板，会话中每轮只发 novex-use 数据更新界面。",
+            style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         error?.let {Text(it,color=MaterialTheme.colorScheme.error)}
     }},confirmButton={TextButton(enabled=!busy && (routing!=ModuleRouting.STANDBY.name || kind!="keywords" || entries(words).isNotEmpty()),onClick={
         val use=when(kind){"always"->ModuleUse.Always;"manual"->ModuleUse.Manual;"keywords"->ModuleUse.Keywords(entries(words),sensitive,all);else->null}

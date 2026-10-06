@@ -124,8 +124,14 @@ internal fun RenderBlock(block: MdBlock) {
             // HTML 岛：```html 代码块渲成沙箱界面而非代码文本。流式尾块
             // （liveIncremental）先按代码渲染——未闭合的围栏每帧都在变，
             // 等到块冻结再装载 WebView，避免流式期间反复重载页面。
+            // ```novex-def / ```novex-use 是前端件注册/调用指令（见
+            // NovexArtifacts.kt），同样等冻结再投影。
             if (isHtmlIslandLanguage(block.language) && !liveIncremental) {
                 HtmlIsland(block.code)
+            } else if (isNovexDefLanguage(block.language) && !liveIncremental) {
+                RenderNovexDefChip(block.code)
+            } else if (isNovexUseLanguage(block.language) && !liveIncremental) {
+                RenderNovexUse(block.code)
             } else {
             val clipboardManager = LocalClipboardManager.current
             var copied by remember { mutableStateOf(false) }

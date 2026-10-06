@@ -1,0 +1,2 @@
+# Novex 说明书 —— Novex 内置技能
+SKILL.md

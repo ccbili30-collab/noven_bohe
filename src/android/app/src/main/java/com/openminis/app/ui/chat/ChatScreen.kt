@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.openminis.app.cards.isFrontendModule
+import novex.content.flattenModules
 import novex.core.ConversationControlBehavior
 import novex.core.NovexLearningControl
 import novex.core.NovexLearningControlPolicy
@@ -1593,6 +1595,53 @@ fun ChatScreen(
         }
     }
 
+    // 卡级前端件预铺：绑定卡（主卡+背景卡）里带 novex-frontend 标签的模块，
+    // 其正文中的 ```novex-def 定义在会话开始即注册——玩家开局就能被
+    // novex-use 调用，模型不必现场重写模板。
+    val cardArtifactDefs by produceState<Map<String, NovexArtifactDef>>(emptyMap(), sessionId) {
+        viewModel.novexConfigurationJson.collect { raw ->
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    val binding = novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
+                        ?.cardBindingJson
+                        ?.let(com.openminis.app.cards.CardBinding::decode)
+                        ?: return@withContext emptyMap()
+                    val pages = novex.storage.TextPages(viewModel.integratedCards.store.contents)
+                    val defs = LinkedHashMap<String, NovexArtifactDef>()
+                    (listOfNotNull(binding.primary) + binding.backgrounds).forEach { sel ->
+                        val doc = runCatching { viewModel.integratedCards.store.open(sel.rootId) }
+                            .getOrNull()
+                            ?.content
+                            ?.let { novex.content.ContentTargets.find(it, sel.targetId) }
+                            ?: return@forEach
+                        doc.modules.flattenModules()
+                            .filter { it.isFrontendModule() }
+                            .forEach { module ->
+                                module.blocks
+                                    .filterIsInstance<novex.content.ContentBlock.Text>()
+                                    .forEach { block ->
+                                        collectDefsFromText(
+                                            pages.read(block.content, 0, Int.MAX_VALUE).text,
+                                        ).forEach { defs[it.id] = it }
+                                    }
+                            }
+                    }
+                    defs.toMap()
+                }.getOrDefault(emptyMap())
+            }
+        }
+    }
+
+    // 前端件场景：从转录消息里扫 ```novex-def/```novex-use 围栏（解析在
+    // 后台线程，注册表经 CompositionLocal 供消息流内 use 块解析，顶/底
+    // 槽位由下方 Column 里的钉位渲染）。卡预铺 defs 在前，消息内同名 def
+    // 可覆盖（运行中重新注册即生效）。
+    val novexArtifactScene by produceState(NovexArtifactScene.EMPTY, transcriptMessages, cardArtifactDefs) {
+        value = withContext(Dispatchers.Default) {
+            collectNovexArtifactScene(transcriptMessages, seedDefs = cardArtifactDefs)
+        }
+    }
+
     // HTML 岛数据桥：卡名/卡类 + 本局状态 → window.NOVEN_FRAME。
     // playthroughState 也喂给下方状态半圆，故提升到 provider 之前收集。
     val playthroughState by viewModel.activePlaythroughState.collectAsState()
@@ -1627,6 +1676,7 @@ fun ChatScreen(
             cardKind = islandCard?.second,
             state = playthroughState,
         ),
+        LocalNovexArtifactDefs provides novexArtifactScene.defs,
     ) {
     val immersiveBackground = immersiveProfile.backgroundPath
         ?.let { java.io.File(it) }
@@ -1716,6 +1766,16 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("正在压缩对话，原消息保留", Modifier.weight(1f))
                 novex.android.ui.TextButton(onClick = viewModel::cancelCompaction) { Text("停止") }
+            }
+
+            // 前端件顶槽：最近一次 use 指定 slot:"top" 的件钉在转录区上方，
+            // 不随消息滚动。每轮只是拿注册表模板就地新画一份投影。
+            if (novexArtifactScene.topPins.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
+                    novexArtifactScene.topPins.forEach { (def, use) ->
+                        RenderNovexArtifact(def, use.data)
+                    }
+                }
             }
 
             // Dismiss keyboard when the USER scrolls the messages. Gated on
@@ -1896,6 +1956,15 @@ fun ChatScreen(
                     scrollToLatestOnce = scrollToLatestOnce,
                 )
                 // above the LazyColumn (top-center), animates in once the
+            }
+
+            // 前端件底槽：slot:"bottom" 的件钉在转录区与输入区之间。
+            if (novexArtifactScene.bottomPins.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
+                    novexArtifactScene.bottomPins.forEach { (def, use) ->
+                        RenderNovexArtifact(def, use.data)
+                    }
+                }
             }
 
             // T-chat-title-pill-edit: reuse SessionEditSheet from the session

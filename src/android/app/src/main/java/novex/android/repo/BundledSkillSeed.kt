@@ -34,6 +34,7 @@ internal class BundledSkillSeed(
         "skills/humanizer-zh",
         "skills/human-writing",
         "skills/island-craft",
+        "skills/novex-manual",
     )
 
     /**
