@@ -29,24 +29,31 @@ object NovexProviderPresets {
     const val ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 
     /**
-     * 智谱 Coding Plan 套餐通道：与按量端点同 host 同协议，仅路径多一段
-     * /coding/，计费走套餐额度而非 token 按量。用户在自定义供应商里填
-     * 这个基址即可接入；目录与思考席位按本文件既有规则命中。
+     * 智谱 Coding Plan 套餐通道：与按量端点同协议，仅路径多一段
+     * /coding/，计费走套餐额度而非 token 按量。国内与国际站各一条
+     * 基址（同 key 通用），用户在自定义供应商里填即可接入。
      */
     const val ZHIPU_CODING_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4"
+    const val ZAI_CODING_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
     const val ZHIPU_KEY_HELP_URL = "https://open.bigmodel.cn/usercenter/apikeys"
     const val ZHIPU_LABEL = "智谱"
 
-    /** 智谱官方 host（思考席位与静态目录的命中判定用）。 */
+    /**
+     * 智谱官方 host（思考席位与静态目录的命中判定用）。两个都是真官方
+     * 域：open.bigmodel.cn 是国内站，api.z.ai 是国际站（z.ai）——同一
+     * 套 GLM 接口方言，Coding Plan 两侧都开。
+     */
     val ZHIPU_HOST = "open.bigmodel.cn"
+    val Z_AI_HOST = "api.z.ai"
+    private val ZHIPU_HOSTS = setOf(ZHIPU_HOST, Z_AI_HOST)
 
     fun isZhipuBase(base: String?): Boolean =
-        runCatching { URI(base.orEmpty().trim()).host?.lowercase() }.getOrNull() == ZHIPU_HOST
+        runCatching { URI(base.orEmpty().trim()).host?.lowercase() }.getOrNull() in ZHIPU_HOSTS
 
-    /** Coding Plan 通道判定：同 host，路径带 /coding/ 段。 */
+    /** Coding Plan 通道判定：官方 host 路径带 /coding/ 段。 */
     fun isZhipuCodingPlanBase(base: String?): Boolean =
         runCatching { URI(base.orEmpty().trim()) }.getOrNull()
-            ?.let { it.host?.lowercase() == ZHIPU_HOST && it.path.orEmpty().contains("/coding/") }
+            ?.let { it.host?.lowercase() in ZHIPU_HOSTS && it.path.orEmpty().contains("/coding/") }
             ?: false
 
     /**

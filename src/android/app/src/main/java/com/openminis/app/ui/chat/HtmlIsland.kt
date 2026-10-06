@@ -165,6 +165,7 @@ private class IslandRenderer {
     private var pageReady = false
     private var frameJson = "{}"
     private var boundView: WebView? = null
+    private var pushedFrame: String? = null
     var onHeight: ((Int) -> Unit)? = null
     var onCrash: (() -> Unit)? = null
     var onError: ((String?) -> Unit)? = null
@@ -176,6 +177,7 @@ private class IslandRenderer {
                 pageReady = true
                 // 页面可能声明了全新 document 上下文；重注当前帧保证脚本
                 // 读到的是最新数据而非装载时的快照。
+                pushedFrame = frameJson
                 view.evaluateJavascript(frameUpdateJs(frameJson), null)
                 // 空渲染检测：脚本崩溃/CSP 拦截后 body 会空无一物——透明
                 // WebView 透出气泡底色就是"纯黑/纯白"的来源。显式报出来
@@ -223,6 +225,7 @@ private class IslandRenderer {
                 loadedHtml = null
                 pageReady = false
                 boundView = null
+                pushedFrame = null
                 onCrash?.invoke()
                 return true
             }
@@ -252,7 +255,11 @@ private class IslandRenderer {
             pageReady = false
             onError?.invoke(null)
             wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frame), "text/html", "utf-8", null)
-        } else if (pageReady) {
+        } else if (pageReady && pushedFrame != frame) {
+            // 帧去重：宿主每次重组都会走到这（bridge 是逐重组新建的值），
+            // 帧内容没变就不派发——否则岛页会被 noven:frame 事件流反复
+            // 热刷新，表现为整个界面抽动。
+            pushedFrame = frame
             wv.evaluateJavascript(frameUpdateJs(frame), null)
         }
     }
@@ -298,7 +305,10 @@ internal fun wrapIslandDocument(html: String, frameJson: String): String = build
     append(";</script>")
     // 本脚本在 <head> 执行、document.body 尚不存在——观察器挂接必须等
     // DOMContentLoaded；load 报一次高，定时回报兜底 JS 异步建 DOM。
-    append("<script>(function(){var r=function(){var b=document.body,e=document.documentElement;var h=b?Math.max(b.scrollHeight,b.offsetHeight,e.scrollHeight,e.offsetHeight):0;if(h>0)console.log('")
+    // 量高量"真实内容底"（最后一个子元素的 rect.bottom+scrollY），
+    // 不量 scrollHeight——documentElement/body 的 scrollHeight 会跟随
+    // 视口高度，min-height:100vh 的岛会自我膨胀出大块空白底。
+    append("<script>(function(){var r=function(){var b=document.body;if(!b)return;var h=b.scrollHeight;var kids=b.children,lb=0;for(var i=0;i<kids.length;i++){var bt=kids[i].getBoundingClientRect().bottom+window.scrollY;if(bt>lb)lb=bt}if(lb>0&&lb<h)h=lb;if(h>0)console.log('")
     append(IslandHeightSignal)
     append("'+Math.ceil(h))};var ro=null;function a(){if(ro||!window.ResizeObserver)return;ro=new ResizeObserver(r);ro.observe(document.documentElement);if(document.body)ro.observe(document.body)}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',a);else a();window.addEventListener('load',r);setInterval(r,1200);r()})();</script>")
     append("</head><body>")
