@@ -112,6 +112,10 @@ object ThinkingContractResolver {
         // host 命中，中转不设席。
         { p -> if (p.zhipuDirect) patternSeat("*glm*", "glm-zhipu-official", null, ThinkingWireFormat.GlmZhipuSibling) else null },
         { _ -> patternSeat("*deepseek-v4*", "deepseek-v4-official", null, ThinkingWireFormat.DeepSeekSibling, echo = afterToolEcho) },
+        // 中转站常把 deepseek-v4-flash 改名重发（deepseek-flash / deepseek-4-flash），
+        // v4 前缀席匹配不到这类裸 id——它们会落到默认座再被 selfFamilySilent 静默吞掉
+        // 思考参数。同模型同款兄弟键形态，补一席盖住所有 flash 拼法。
+        { _ -> patternSeat("*deepseek*flash*", "deepseek-flash", null, ThinkingWireFormat.DeepSeekSibling, echo = afterToolEcho) },
         { p -> defaultSeat(p.offEffort) },
     )
 

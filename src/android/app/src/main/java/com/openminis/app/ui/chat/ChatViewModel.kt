@@ -1791,6 +1791,16 @@ class ChatViewModel(
         get() = currentModel?.supportsReasoning == true
 
     /**
+     * 推理能力未被目录否定——true（声明支持）与 null（未知，多为中转站自命名
+     * 模型、models.dev 查无此 id）都放行；只有显式 false 才视为不支持。
+     * 与 wire 层 ThinkingContractResolver.guardsOff 同口径（那边也只拦
+     * `== false`）——UI 若按 `== true` 卡，未知模型会形成死锁：徽章在思考
+     * 关闭时隐藏，用户永远没有入口把它打开。
+     */
+    val currentModelReasoningAllowed: Boolean
+        get() = currentModel?.supportsReasoning != false
+
+    /**
      * [T-android-thinking-level-arch] The thinking ceiling the currently-bound
      * model actually supports. Prefers the active ModelEntry's
      * effectiveMaxThinkingLevel (so a user override on the entry is honored);
@@ -1911,7 +1921,7 @@ class ChatViewModel(
     /** Read-only view of the current thinking configuration for the model. */
     fun thinkingInfo(): ThinkingInfo? {
         val model = currentModel ?: return null
-        val supported = model.supportsReasoning == true
+        val supported = model.supportsReasoning != false
         val level = _thinkingLevel.value
         val enabled = supported && level.isEnabled
         val levelText = if (enabled) level.displayName else "—"
@@ -2067,7 +2077,7 @@ class ChatViewModel(
 
     /** Toggle thinking between OFF and MEDIUM (matches iOS default toggle semantics). */
     private fun toggleThinking() {
-        if (!currentModelSupportsReasoning) {
+        if (!currentModelReasoningAllowed) {
             appendSystemInfo(
                 text = "The current model does not support deep thinking.",
                 iconKind = "thinking",
@@ -2089,7 +2099,7 @@ class ChatViewModel(
      * ignored when the current model doesn't support reasoning.
      */
     fun setThinkingLevel(level: ThinkingLevel) {
-        if (!currentModelSupportsReasoning) return
+        if (!currentModelReasoningAllowed) return
         // [T-android-thinking-level-arch] Double-safety clamp: the composer UI
         // already filters to availableThinkingLevels, but never fully trust the
         // caller — cap to the current model's ceiling so a stale/over-range

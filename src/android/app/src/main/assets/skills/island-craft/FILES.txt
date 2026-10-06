@@ -1,0 +1,5 @@
+# 界面岛与聊天排版创作技能 —— Novex 内置技能
+SKILL.md
+references/canvas.md
+references/design.md
+references/example-phone.md

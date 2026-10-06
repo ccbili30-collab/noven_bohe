@@ -792,7 +792,7 @@ internal suspend fun ChatViewModel.runAgentLoopBody(
                         boundedHistory,
                         requestSystemPrompt, output,
                         tools = if (requestToolsEnabled) conversationTools else emptyList(),
-                        thinkingLevel = if (currentModelSupportsReasoning) _thinkingLevel.value else ThinkingLevel.OFF,
+                        thinkingLevel = if (currentModelReasoningAllowed) _thinkingLevel.value else ThinkingLevel.OFF,
                     ).collect { chunk ->
                         _streamAwaitingSince.value = null
                         streamedTurn.accept(chunk, currentProvider.streamTextIsMonolithic, ::publishStream)

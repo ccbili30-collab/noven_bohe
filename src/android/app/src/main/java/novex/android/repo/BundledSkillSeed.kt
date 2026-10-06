@@ -33,6 +33,7 @@ internal class BundledSkillSeed(
     private val assetSkillDirs = listOf(
         "skills/humanizer-zh",
         "skills/human-writing",
+        "skills/island-craft",
     )
 
     /**

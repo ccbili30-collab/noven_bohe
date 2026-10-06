@@ -376,7 +376,7 @@ internal fun ChatTopBar(
                             val hasThinkingBadge = viewModel.availableThinkingLevels.isNotEmpty() &&
                                 (
                                     thinkingLevelBadgeState.isEnabled ||
-                                        viewModel.currentModelSupportsReasoning
+                                        viewModel.currentModelReasoningAllowed
                                 )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
