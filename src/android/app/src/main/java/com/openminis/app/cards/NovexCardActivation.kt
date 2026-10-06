@@ -64,6 +64,11 @@ object NovexCardActivation {
         var defaultCount = 0
         var charCount = 0
         var verbatimCount = 0
+        // 前端件定义不管路由都会被会话预铺进注册表——尾注提示按全模块计数，
+        // 而非只数 DEFAULT 清单里的行。
+        val frontendCount = cards.sumOf { card ->
+            card.modules.flatMap(::flatten).count { it.second.isFrontendModule() }
+        }
         cards.forEach { card ->
             val cardDefaults = card.modules.flatMap(::flatten)
                 .filter { it.second.effectiveRouting() == ModuleRouting.DEFAULT }
@@ -79,7 +84,13 @@ object NovexCardActivation {
                 // 一原文且会顶爆单条消息上限——卡仍完整可用。
                 val verbatim = module.isVerbatimSource(card, readText)
                 if (verbatim) verbatimCount++
-                listing.appendLine("  · ${module.name}${if (verbatim) "（原文导入 · 按需分页载入）" else ""}")
+                val frontend = module.isFrontendModule()
+                listing.appendLine(
+                    "  · ${module.name}" +
+                        if (verbatim) "（原文导入 · 按需分页载入）"
+                        else if (frontend) "（前端 · 内含界面模板定义）"
+                        else "",
+                )
                 defaults.appendLine()
                 defaults.appendLine("## ${module.name}")
                 if (verbatim) {
@@ -117,6 +128,12 @@ object NovexCardActivation {
             }
             appendLine(defaults.toString().trimEnd())
             appendLine()
+            // 前端件尾注：卡内模块带 novex-def 定义时，把调用约定一并交给
+            // 模型——只发 novex-use 数据块，不重写模板。
+            if (frontendCount > 0) {
+                appendLine("本卡含前端件模板（novex-def 定义）。更新界面只发 ```novex-use 数据块（id/slot/data），不要重写模板。")
+                appendLine()
+            }
             appendLine("──")
             append("以上为本局全部开局资料，已就位。请以此为准运行本卡。")
         }
