@@ -79,6 +79,20 @@ private val numberedListStartRegex = Regex("^(\\d+)")
 private val numberedListPrefixRegex = Regex("^\\d+[.)\\s]+")
 
 /**
+ * 裸 HTML 块的起始标签（块级/结构性标签；对齐 CommonMark type-6 HTML block
+ * 的近似口径）。模型经常不套 ```html 围栏直写标记——以这些标签起头、含
+ * 闭合标记（</ 或 />）的一段吃成界面岛。散文里的行内标签（<b>/<em>）不在
+ * 此列；没有闭合标记的孤立标签提及仍按段落走。
+ */
+private val htmlBlockStartRegex = Regex(
+    "^<(!--|!doctype|html|head|body|main|section|article|header|footer|nav|aside|figure|figcaption|" +
+        "div|style|script|template|table|thead|tbody|tfoot|tr|td|th|ul|ol|li|dl|dt|dd|form|fieldset|" +
+        "button|select|option|textarea|input|label|details|summary|dialog|center|marquee|iframe|svg|" +
+        "canvas|video|audio|picture|source|h[1-6]|p|blockquote|pre)([\\s>/]|$)",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
  * A blockquote line must be `>` followed by a space, a tab, or end of line.
  * Anything else (e.g. `>foo`, `>5`, `>=`) is regular prose — likely shell
  * output or a comparison emitted by the LLM, not an intentional quote.
@@ -386,7 +400,12 @@ internal suspend fun parseMarkdownBlocks(content: String): List<MdBlock> {
                 i++
                 while (i < lines.size) {
                     rawLines.add(lines[i])
-                    if (lines[i].trimStart().startsWith("```")) { i++; break }
+                    // 闭合行只能是纯围栏（≥3 反引号 + 空白）——CommonMark 规定闭合
+                    // 围栏不得带信息串。带信息串的 ```css / ```js 行是块内内容
+                    // （模型在 HTML 里嵌一个 ``` 子块很常见），认作闭合会把岛从
+                    // 中间截断，后半截 HTML/CSS 裸漏成文本。
+                    val candidate = lines[i].trimStart()
+                    if (candidate.startsWith("```") && candidate.dropWhile { it == '`' }.isBlank()) { i++; break }
                     codeLines.add(lines[i])
                     i++
                 }
@@ -517,6 +536,22 @@ internal suspend fun parseMarkdownBlocks(content: String): List<MdBlock> {
                 blocks.add(MdBlock.OrderedList(rawLines.joinToString("\n"), items, startNum))
             }
 
+            // 裸 HTML 块（无围栏）：块级标签起头、到空行为止。产物复用
+            // CodeBlock(language="html")——渲染层同一条岛路径接管，双语法合一。
+            htmlBlockStartRegex.containsMatchIn(trimmed) -> {
+                val rawLines = mutableListOf<String>()
+                while (i < lines.size && lines[i].isNotBlank()) {
+                    rawLines.add(lines[i])
+                    i++
+                }
+                val html = rawLines.joinToString("\n")
+                if (html.contains("</") || html.contains("/>")) {
+                    blocks.add(MdBlock.CodeBlock(html, "html", html))
+                } else {
+                    blocks.add(MdBlock.Paragraph(html))
+                }
+            }
+
             // Empty line
             trimmed.isEmpty() -> { i++ }
 
@@ -527,7 +562,8 @@ internal suspend fun parseMarkdownBlocks(content: String): List<MdBlock> {
                     val l = lines[i]
                     val t = l.trimStart()
                     if (t.isEmpty() || t.startsWith("#") || t.startsWith("```") ||
-                        isBlockquoteLine(t) || t.matches(thematicBreakRegex) ||
+                        isBlockquoteLine(t) || htmlBlockStartRegex.containsMatchIn(t) ||
+                        t.matches(thematicBreakRegex) ||
                         t.matches(bulletListItemRegex) || t.matches(numberedListItemRegex) ||
                         t.matches(standaloneImageLineRegex) ||
                         (t.contains('|') && i + 1 < lines.size &&

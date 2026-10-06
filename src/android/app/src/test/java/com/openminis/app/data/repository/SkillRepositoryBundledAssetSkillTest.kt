@@ -52,6 +52,28 @@ class SkillRepositoryBundledAssetSkillTest {
     }
 
     @Test
+    fun bundledIslandCraftSkillInstallsWithReferences() {
+        val repo = newRepository()
+
+        val islandCraft = repo.skills.value.firstOrNull { it.id == "island-craft" }
+        assertNotNull("island-craft should be installed on first init", islandCraft)
+        assertTrue(
+            "trigger description must name the html island",
+            islandCraft!!.description.contains("界面岛"),
+        )
+        assertTrue(
+            "SKILL.md body survives",
+            islandCraft.body.contains("NOVEN_FRAME"),
+        )
+
+        val refs = repo.listSkillFiles("island-craft")
+        assertTrue("references on disk: $refs", refs.contains("references/canvas.md"))
+        assertTrue("references on disk: $refs", refs.contains("references/design.md"))
+        val design = repo.readSkillFile("island-craft", "references/design.md")
+        assertTrue("design reference content intact", design.orEmpty().contains("状态 HUD"))
+    }
+
+    @Test
     fun sameVersionReinstallDoesNotClobberUserEdits() {
         newRepository()
         val skillDir = File(

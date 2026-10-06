@@ -7,6 +7,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -85,35 +86,13 @@ internal fun HtmlIsland(html: String) {
     renderer.onHeight = { measuredCssHeight = it }
 
     val shape = RoundedCornerShape(10.dp)
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 8.dp)
             .clip(shape)
             .border(1.dp, colors.divider, shape),
     ) {
-        // 岛头：类型标记 + 源码/界面切换。
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
-        ) {
-            Text(
-                "界面",
-                fontSize = BaseFontSize * 0.72f,
-                color = colors.text.copy(alpha = 0.45f),
-                modifier = Modifier.align(Alignment.CenterStart),
-            )
-            Icon(
-                imageVector = if (showSource) NovexIcons.Visibility else NovexIcons.Code,
-                contentDescription = if (showSource) "查看界面" else "查看源码",
-                tint = colors.text.copy(alpha = 0.4f),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .size(16.dp)
-                    .clickable { showSource = !showSource },
-            )
-        }
         if (showSource) {
             Box(
                 Modifier
@@ -142,6 +121,20 @@ internal fun HtmlIsland(html: String) {
                 onRelease = { wv -> wv.destroy() },
             )
         }
+        // 源码/界面切换：右上角半透明小图标，不占独立抬头行（沉浸优先）。
+        Icon(
+            imageVector = if (showSource) NovexIcons.Visibility else NovexIcons.Code,
+            contentDescription = if (showSource) "查看界面" else "查看源码",
+            tint = Color.White.copy(alpha = 0.65f),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(6.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { showSource = !showSource }
+                .background(Color.Black.copy(alpha = 0.28f))
+                .padding(4.dp)
+                .size(14.dp),
+        )
     }
 }
 
