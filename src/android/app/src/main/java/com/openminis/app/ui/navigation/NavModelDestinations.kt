@@ -88,12 +88,13 @@ internal fun NavGraphBuilder.registerModelDestinations(deps: NavDeps) {
             )
         }
 
-        // [T-provider-onboarding] 添加供应商前置步：三卡选接入方式，
+        // [T-provider-onboarding] 添加供应商前置步：四卡选接入方式，
         // 官方卡带预设进连接页，自定义卡走既有手动流程。
         composable(Routes.PROVIDER_ONBOARDING) {
             ProviderOnboardingScreen(
                 onBack = { navController.safePopBackStack() },
                 onPickZhipu = { navController.safeNavigate(Routes.addProvider(novex.android.data.model.NovexProviderPresets.PRESET_ZHIPU)) },
+                onPickZhipuCoding = { navController.safeNavigate(Routes.addProvider(novex.android.data.model.NovexProviderPresets.PRESET_ZHIPU_CODING)) },
                 onPickDeepSeek = { navController.safeNavigate(Routes.addProvider(novex.android.data.model.NovexProviderPresets.PRESET_DEEPSEEK)) },
                 onPickCustom = { navController.safeNavigate(Routes.addProvider()) },
             )

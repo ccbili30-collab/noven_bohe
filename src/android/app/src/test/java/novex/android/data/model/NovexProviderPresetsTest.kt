@@ -86,6 +86,10 @@ class NovexProviderPresetsTest {
             listOf("glm-5.3", "glm-5.3-flash"),
             NovexProviderPresets.zhipuCatalogForBase(NovexProviderPresets.ZHIPU_BASE_URL).map { it.id },
         )
+        // onboarding 预设键与套餐基址是接入契约，改不得。
+        assertEquals("zhipu-coding", NovexProviderPresets.PRESET_ZHIPU_CODING)
+        assertEquals("https://open.bigmodel.cn/api/coding/paas/v4", NovexProviderPresets.ZHIPU_CODING_BASE_URL)
+        assertEquals("https://api.z.ai/api/coding/paas/v4", NovexProviderPresets.ZAI_CODING_BASE_URL)
     }
 
     @Test
