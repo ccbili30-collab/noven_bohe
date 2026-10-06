@@ -244,7 +244,7 @@ class SkillRepository(context: Context) {
             append("Skills:\n")
             append(
                 "Reusable instruction sets stored at /var/minis/skills/<name>/SKILL.md. " +
-                    "Load a skill by calling the file_read tool with the skill's <path> below " +
+                    "Load a skill by calling the skill_read tool with the skill's <path> below " +
                     "(workspace tools cannot read these files).\n\n",
             )
             append(xml)
@@ -255,7 +255,7 @@ class SkillRepository(context: Context) {
                 val names = omitted.take(nameBudget).joinToString(", ") { it.name }
                 append("\n\n")
                 append(omitted.size).append(" more skills not shown above: ").append(names)
-                append(". List /var/minis/skills/ or grep to search all.")
+                append(". Their files are under /var/minis/skills/<id>/ — skill_read can open them.")
             }
         }
     }

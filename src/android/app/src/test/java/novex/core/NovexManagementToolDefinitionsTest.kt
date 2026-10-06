@@ -58,6 +58,18 @@ class NovexManagementToolDefinitionsTest {
     }
 
     @Test
+    fun `skill read is exposed so installed skills stay loadable on demand`() {
+        // 技能目录提示词只给名字+路径，让模型按需 skill_read 加载全文；
+        // 定义缺席时提示词教了模型调一个它不存在的工具（孤儿工具回归）。
+        // 通用 file_read 已按裁军契约退役，技能挂载走窄面 skill_read。
+        val names = AgentTools.makeAgentTools().mapTo(linkedSetOf()) { it.name }
+        assertTrue("skill_read" in names)
+        assertFalse("file_read" in names)
+        val skillRead = AgentTools.makeAgentTools().single { it.name == "skill_read" }
+        assertTrue("path" in skillRead.required)
+    }
+
+    @Test
     fun `proposal contract tells the model the required fields for structured changes`() {
         val contract = com.openminis.app.tools.NovexManagementTools.advancedGuide()
         val compact = AgentTools.makeAgentTools().single { it.name == "novex_propose_content_changes" }
