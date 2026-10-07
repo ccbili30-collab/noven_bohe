@@ -228,7 +228,17 @@ private val CardPadding=18.dp
                     }
                 }}
             }
-            module.blocks.forEach {block->when(block) {
+            // [T008] 结构化阅读态：模板模块（时间线/属性面板/关系）单文本块时走专用渲染；
+            // 解析失败或超长在渲染层内部回退 Markdown，行为零回归。
+            val structured=structuredKindFor(module.name)
+            if(structured!=null && module.children.isEmpty() && module.blocks.size==1 && module.blocks[0] is ContentBlock.Text) {
+                segment("structured-${module.id}") {
+                    Column(Modifier.fillMaxWidth().padding(horizontal=CardPadding,vertical=4.dp).then(if(onModule!=null)Modifier.clickable {onModule(module.id)} else Modifier)) {
+                        StructuredModuleReading(module,structured,model)
+                    }
+                }
+            }
+            else module.blocks.forEach {block->when(block) {
                 is ContentBlock.Text->pages(block.id,block.content)
                 is ContentBlock.Image->{
                     segment(block.id){Column(Modifier.padding(horizontal=CardPadding,vertical=8.dp).then(if(onModule!=null)Modifier.clickable {onModule(module.id)} else Modifier)){
