@@ -106,6 +106,7 @@ import androidx.compose.ui.semantics.semantics
             CardPage.BLOCKS -> model.returnFromBlockOrder()
             CardPage.PREVIEW -> model.previewBack()
             CardPage.OVERVIEW -> model.detail()
+            CardPage.INJECTION -> model.detail()
         }
     }
     if(deleteCard)AlertDialog(onDismissRequest={if(!state.busy)deleteCard=false},title={Text("删除这张卡片？")},
@@ -132,8 +133,10 @@ import androidx.compose.ui.semantics.semantics
             CardPage.BLOCKS->"图文顺序"
             CardPage.PREVIEW->"预览"
             CardPage.OVERVIEW->"设定总览"
+            CardPage.INJECTION->"注入管理"
         },onBack={if(!state.busy || state.page==CardPage.DETAIL)back()},actions={when(state.page) {
                 CardPage.DETAIL->{}
+                CardPage.INJECTION->{}
                 CardPage.OVERVIEW->{
                     TextButton(enabled=!state.busy && !state.purifying,onClick=model::purifyOverview){Text(if(state.overviewMeta==null)"AI 提纯" else "重新提纯",color=NovenColors.Mint)}
                 }
@@ -237,6 +240,8 @@ import androidx.compose.ui.semantics.semantics
                             if(state.targetId==null || state.targetId==state.saved?.id)DropdownMenuItem(text={Text("删除")},onClick={more=false;deleteCard=true})
                         }
                         Spacer(Modifier.width(6.dp))
+                        FloatingCircleAction(NovexIcons.PushPin,"注入管理",!state.busy && state.saved!=null){model.injectionPage()}
+                        Spacer(Modifier.width(6.dp))
                         FloatingCircleAction(NovexIcons.Description,"设定总览",!state.busy && state.saved!=null){model.overviewPage()}
                         }
                         Spacer(Modifier.width(6.dp))
@@ -264,6 +269,7 @@ import androidx.compose.ui.semantics.semantics
             }
             CardPage.PREVIEW->state.draft?.let {CardReading(novex.content.ContentTargets.find(it.content,state.previewTargetId?:it.content.id),model,onCharacter=model::previewCharacter,readingScope="draft")}
             CardPage.OVERVIEW->state.shownSaved?.let {saved->CardOverviewPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
+            CardPage.INJECTION->state.shownSaved?.let {saved->CardInjectionPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
             CardPage.MODULES->state.shownDraft?.let {card->ModuleTreeEditor(card,model,header={
                 CardHero(card,model,editing=true,onImage=model::pictures,onName={cardName=card.name;renameCard=true},onIntroduction=openIntroduction)
             },footer={

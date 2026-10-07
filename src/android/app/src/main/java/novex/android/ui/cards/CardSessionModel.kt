@@ -15,7 +15,7 @@ import novex.storage.*
 
 data class CardOpening(val root:String,val target:String,val error:String?=null)
 
-enum class CardPage { DETAIL, MODULES, EDIT, PREVIEW, BLOCKS, PICTURES, OVERVIEW }
+enum class CardPage { DETAIL, MODULES, EDIT, PREVIEW, BLOCKS, PICTURES, OVERVIEW, INJECTION }
 data class CardSession(val page:CardPage=CardPage.DETAIL,val previewReturn:CardPage=CardPage.EDIT,val pictureReturn:CardPage=CardPage.MODULES,val saved:ContentDocument?=null,val draft:CardDraft?=null,
     val moduleId:String?=null,val blockId:String?=null,val title:String="",val text:TextFieldValue=TextFieldValue(),
     val markdownRef:ContentRef?=null,val textStart:Long=0,val textEnd:Long=0,val textMore:Boolean=false,val loadedText:String="",
@@ -183,6 +183,8 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     private suspend fun readExtensionText(card:ContentDocument,key:String):String?=withContext(Dispatchers.IO) {
         card.extensions[key]?.let {ref->runCatching { pageReader.read(ref,0,1 shl 16).text }.getOrNull()}
     }
+    /** 从阅读器进入注入管理页（只读聚合视图，编辑动作进模块编辑页）。 */
+    fun injectionPage()=action { state=state.copy(page=CardPage.INJECTION) }
     /** 从阅读器进入设定总览管理页（基于已保存卡，不强制开草稿）。 */
     fun overviewPage()=action {
         val card=requireNotNull(state.shownSaved)
