@@ -15,11 +15,13 @@ import novex.storage.*
 
 data class CardOpening(val root:String,val target:String,val error:String?=null)
 
-enum class CardPage { DETAIL, MODULES, EDIT, PREVIEW, BLOCKS, PICTURES }
+enum class CardPage { DETAIL, MODULES, EDIT, PREVIEW, BLOCKS, PICTURES, OVERVIEW }
 data class CardSession(val page:CardPage=CardPage.DETAIL,val previewReturn:CardPage=CardPage.EDIT,val pictureReturn:CardPage=CardPage.MODULES,val saved:ContentDocument?=null,val draft:CardDraft?=null,
     val moduleId:String?=null,val blockId:String?=null,val title:String="",val text:TextFieldValue=TextFieldValue(),
     val markdownRef:ContentRef?=null,val textStart:Long=0,val textEnd:Long=0,val textMore:Boolean=false,val loadedText:String="",
-    val editorEntryTarget:String?=null,val previewTargetId:String?=null,val recoveryInput:String?=null,val dirty:Boolean=false,val busy:Boolean=false,val error:String?=null,val targetId:String?=null) {
+    val editorEntryTarget:String?=null,val previewTargetId:String?=null,val recoveryInput:String?=null,val dirty:Boolean=false,val busy:Boolean=false,val error:String?=null,val targetId:String?=null,
+    // [T008] 设定总览提纯：进行中标记、待采纳稿（先进待审，采纳才落卡）。
+    val purifying:Boolean=false,val purifyDraft:String?=null,val overviewMeta:OverviewMeta?=null) {
     val shownSaved:ContentDocument? get()=saved?.let {ContentTargets.find(it,targetId?:it.id)}
     val shownDraft:ContentDocument? get()=draft?.content?.let {ContentTargets.find(it,targetId?:it.id)}
 }
@@ -149,7 +151,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 阅读态发起编辑共用前置：开草稿并进入模块编辑页，目标校验与 introduction() 同源。 */
     private suspend fun beginDraftFromReading() {
         flush()
-        if(state.page==CardPage.DETAIL) {
+        if(state.page==CardPage.DETAIL || state.page==CardPage.OVERVIEW) {
             val draft=beginEditing()
             val target=state.targetId?:draft.content.id
             require(target==draft.content.id || draft.content.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
@@ -176,6 +178,71 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         state=state.copy(draft=next)
         loadModule(requireNotNull(next.position.moduleId),null)
     }
+    // ---------- [T008] 设定总览：管理页 / AI 提纯 / 采纳 ----------
+    /** 总览页读取的扩展文本（提纯元数据等）。 */
+    private suspend fun readExtensionText(card:ContentDocument,key:String):String?=withContext(Dispatchers.IO) {
+        card.extensions[key]?.let {ref->runCatching { pageReader.read(ref,0,1 shl 16).text }.getOrNull()}
+    }
+    /** 从阅读器进入设定总览管理页（基于已保存卡，不强制开草稿）。 */
+    fun overviewPage()=action {
+        val card=requireNotNull(state.shownSaved)
+        val meta=readExtensionText(card,OverviewPurifier.META_EXTENSION_KEY)?.let {OverviewMeta.parse(it)}
+        state=state.copy(page=CardPage.OVERVIEW,overviewMeta=meta,purifyDraft=null)
+    }
+    /** 当前总览正文（供总览页渲染）；无总览模块返回 null。 */
+    suspend fun overviewText(card:ContentDocument):String? {
+        val module=card.overviewModule()?:return null
+        val ref=module.blocks.filterIsInstance<ContentBlock.Text>().firstOrNull()?.content?:return null
+        val builder=StringBuilder()
+        var offset=0L
+        // 总览本身有篇幅上限，两页 4096 足够；超出按截断处理。
+        repeat(2) {
+            val page=runCatching { textPage(ref,offset,4096) }.getOrNull()?:return@repeat
+            builder.append(page.text)
+            if(page.next==null)return@repeat
+            offset+=4096
+        }
+        return builder.toString().ifBlank { null }
+    }
+    /** AI 提纯：读已保存卡的模块正文 → 候选模型 → 待审稿（不落卡）。 */
+    fun purifyOverview()=action {
+        val card=requireNotNull(state.shownSaved)
+        state=state.copy(purifying=true,error=null,purifyDraft=null)
+        try {
+            val sources=OverviewPurifier.collectSources(card){ref,start,count->textPage(ref,start,count).text}
+            val result=OverviewPurifier.purify(getApplication(),card,sources)
+            result.fold(
+                onSuccess={text->state=state.copy(purifying=false,purifyDraft=text)},
+                onFailure={e->state=state.copy(purifying=false,error="提纯未完成：${e.message ?: e.javaClass.simpleName}")}
+            )
+        } catch(cancelled:kotlinx.coroutines.CancellationException) {throw cancelled}
+        catch(e:Exception) {state=state.copy(purifying=false,error="提纯未完成：${e.message ?: e.javaClass.simpleName}")}
+    }
+    /** 采纳提纯稿：写总览模块 + 元数据扩展槽，立即提交为已保存（提纯是完整编辑）。 */
+    fun adoptPurifiedOverview(onAdopted:()->Unit={})=action(onAdopted) {
+        val text=requireNotNull(state.purifyDraft)
+        val fromPage=state.page
+        beginDraftFromReading()
+        val target=state.targetId?:requireNotNull(state.draft).content.id
+        val shown=requireNotNull(state.shownDraft)
+        var next=requireNotNull(state.draft)
+        val editor=CardEditor(store)
+        val existing=shown.overviewModule()
+        val overviewId=if(existing!=null)existing.id else {
+            val added=withContext(Dispatchers.IO){editor.apply(next.content.id,next.version,target,EditorCommand.AddModule("总览"))}
+            next=added
+            requireNotNull(added.position.moduleId)
+        }
+        val moduleName=existing?.name?.ifBlank { "总览" } ?: "总览"
+        next=withContext(Dispatchers.IO){editor.apply(next.content.id,next.version,target,EditorCommand.WriteMarkdownText(overviewId,moduleName,text))}
+        val covered=requireNotNull(state.shownDraft).bodyModules().size
+        val meta=OverviewMeta(purifiedAtMs=System.currentTimeMillis(),coveredModules=covered,approxTokens=(text.length*3/4))
+        next=withContext(Dispatchers.IO){editor.apply(next.content.id,next.version,target,EditorCommand.PutExtensionText(OverviewPurifier.META_EXTENSION_KEY,meta.toJson()))}
+        val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
+        state=state.copy(saved=committed.content,draft=null,page=if(fromPage==CardPage.DETAIL)CardPage.OVERVIEW else fromPage,
+            purifyDraft=null,overviewMeta=meta,dirty=false,moduleId=null,blockId=null)
+    }
+    fun dismissPurifyDraft(){if(!state.busy)state=state.copy(purifyDraft=null)}
     fun addPresentedModule(horizontal:Boolean)=action {
         flush();val draft=requireNotNull(state.draft)
         val command=EditorCommand.AddPresentedModule(horizontal,requireNotNull(state.shownDraft).introductionModule()?.id)

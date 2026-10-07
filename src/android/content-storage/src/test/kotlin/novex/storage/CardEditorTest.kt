@@ -97,4 +97,15 @@ class CardEditorTest {
         assertEquals(listOf("第二段","第一段"),saved.content.modules[0].blocks.map {store.contents.open((it as ContentBlock.Text).content).bufferedReader().use {r->r.readText()}})
     }
 
+    @Test fun `扩展槽写入可提交回读且不改模块树`() {
+        val store=CardStore(temporary.newFolder().toPath());val drafts=CardDrafts(store);val editor=CardEditor(store)
+        val initial=drafts.create(ContentDocument("card",CardKind.CHARACTER,"角色",listOf(ContentModule("m","模块",emptyList()))))
+        val changed=editor.apply("card",initial.version,"card",EditorCommand.PutExtensionText("lore-overview-meta","{\"coveredModules\":3}"))
+        val ref=requireNotNull(changed.content.extensions["lore-overview-meta"])
+        assertEquals("{\"coveredModules\":3}",store.contents.open(ref).bufferedReader().use { it.readText() })
+        val saved=drafts.commit("card",changed.version)
+        assertEquals(ref,saved.content.extensions["lore-overview-meta"])
+        assertEquals(initial.content.modules,saved.content.modules)
+        assertThrows(IllegalArgumentException::class.java){editor.apply("card",changed.version,"card",EditorCommand.PutExtensionText("bad key","x"))}
+    }
 }
