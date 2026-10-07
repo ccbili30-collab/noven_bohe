@@ -48,11 +48,19 @@ internal class ReadingMemory {
 internal fun ContentDocument.introductionModule():ContentModule? =
     modules.firstOrNull {it.name in setOf("简介","人物简介","世界简介") && it.children.isEmpty() && it.characterIds.isEmpty()}
 
+/**
+ * 设定总览：对话时默认注入的精简背景（T008）。与简介同一命名识别先例——
+ * 用户存量卡缺此模块即"还没有总览"，零迁移；不删除或改写原模块。
+ */
+internal fun ContentDocument.overviewModule():ContentModule? =
+    modules.firstOrNull {it.name in setOf("总览","设定总览") && it.children.isEmpty() && it.characterIds.isEmpty()}
+
 // 简介在主图下的基本信息区编辑和展示，不再重复作为横向页签。
 // 不删除或改写原模块，正文、编号、模型采用和导出保持原样。
 internal fun ContentDocument.bodyModules():List<ContentModule> {
     val introductionId=introductionModule()?.id
-    return modules.filterNot {it.id==introductionId}
+    val overviewId=overviewModule()?.id
+    return modules.filterNot {it.id==introductionId || it.id==overviewId}
 }
 
 @Composable internal fun ModuleExcerpt(module:ContentModule?,model:CardSessionModel) {
@@ -152,12 +160,14 @@ private val CardPadding=18.dp
 }
 
 /** 同一渲染树读取正式内容或草稿；横向选择仅改变展示，不改变采用规则。 */
-@Composable fun CardReading(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
-    key(card.id,readingScope){CardReadingContent(FolderContents.organize(card),model,modifier,onCharacter,readingScope,onModule,onImage,onName,onEmpty,onIntroduction,byline,trailing,chromeOverlay)}
+@Composable fun CardReading(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,onOverview:(()->Unit)?=null,onManageModules:(()->Unit)?=null,bottomChrome:Boolean=false,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
+    key(card.id,readingScope){CardReadingContent(FolderContents.organize(card),model,modifier,onCharacter,readingScope,onModule,onImage,onName,onEmpty,onIntroduction,onOverview,onManageModules,bottomChrome,byline,trailing,chromeOverlay)}
 }
 
-@Composable private fun CardReadingContent(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
+@Composable private fun CardReadingContent(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,onOverview:(()->Unit)?=null,onManageModules:(()->Unit)?=null,bottomChrome:Boolean=false,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
     val bodyModules=card.bodyModules()
+    // 总览钉死在页签序列首位：横向=第一页签，连续=第一分节。
+    val rootTabs=listOfNotNull(card.overviewModule())+bodyModules
     val memory=remember(card.id,readingScope){model.readingMemory(card.id,readingScope)}
     val list=rememberLazyListState(memory.scrollIndex,memory.scrollOffset)
     DisposableEffect(list){onDispose {memory.scrollIndex=list.firstVisibleItemIndex;memory.scrollOffset=list.firstVisibleItemScrollOffset}}
@@ -188,7 +198,12 @@ private val CardPadding=18.dp
     fun LazyListScope.modules(modules:List<ContentModule>,parent:String,horizontal:Boolean,showHeading:Boolean=true,fold:Boolean=false,depth:Int=0,mutedText:Boolean=false) {
         val selected=memory.selected[parent]?.takeIf {id->modules.any {it.id==id}}?:modules.firstOrNull()?.id
         if(horizontal && modules.isNotEmpty())segment("tabs-$parent") {
-            CardTabStrip(modules,selected){id->if(parent==card.id)selectRoot(id) else memory.selected[parent]=id}
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)){CardTabStrip(modules,selected){id->if(parent==card.id)selectRoot(id) else memory.selected[parent]=id}}
+                if(parent==card.id && onManageModules!=null)Box(Modifier.padding(end=4.dp)) {
+                    Icon(NovexIcons.MoreVert,"模块管理",Modifier.clickable(enabled=!model.state.busy){onManageModules()}.padding(horizontal=10.dp,vertical=12.dp).size(20.dp),tint=NovexColors.SecondaryText)
+                }
+            }
         }
         (if(horizontal)modules.filter {it.id==selected} else modules).forEach {module->
             // 横向页签的选中模块正文直接内联（页签即标题）；纵向模块带下级或为嵌套子级时可折叠。
@@ -233,17 +248,17 @@ private val CardPadding=18.dp
             segment("divider-${module.id}"){CardDivider(Modifier.padding(horizontal=16.dp))}
         }
     }
-    LazyColumn(modifier.fillMaxSize().pointerInput(card.id,bodyModules.map {it.id},continuous) {
-        if(!continuous && bodyModules.size>1) {
+    LazyColumn(modifier.fillMaxSize().pointerInput(card.id,rootTabs.map {it.id},continuous) {
+        if(!continuous && rootTabs.size>1) {
             var distance=0f
             detectHorizontalDragGestures(onDragStart={distance=0f},onDragCancel={distance=0f},onDragEnd={
                 if(kotlin.math.abs(distance)>size.width*0.15f) {
-                    val current=bodyModules.indexOfFirst {it.id==(memory.selected[card.id]?:bodyModules.first().id)}.coerceAtLeast(0)
-                    bodyModules.getOrNull(current+if(distance<0)1 else -1)?.let {selectRoot(it.id)}
+                    val current=rootTabs.indexOfFirst {it.id==(memory.selected[card.id]?:rootTabs.first().id)}.coerceAtLeast(0)
+                    rootTabs.getOrNull(current+if(distance<0)1 else -1)?.let {selectRoot(it.id)}
                 }
             }) {change,amount->distance+=amount;change.consume()}
         }
-    },state=list,contentPadding=PaddingValues(bottom=20.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
+    },state=list,contentPadding=PaddingValues(bottom=if(bottomChrome)108.dp else 20.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
         item("hero"){CardHero(card,model,onImage=onImage,onName=onName,onIntroduction=onIntroduction,chromeOverlay=chromeOverlay)}
         // 卡顶条：恒定发出，提供圆角与封面重叠；角色卡的叠放头像槽位也在这里。
         segment("card-top",first=true) {
@@ -264,6 +279,20 @@ private val CardPadding=18.dp
         card.introductionModule()?.let {introduction->
             modules(listOf(introduction),"${card.id}-introduction",horizontal=false,showHeading=false,mutedText=true)
         }
+        // 空总览引导：有素材层的卡提示补一份总览；已有总览则作为首 tab 渲染。
+        if(card.overviewModule()==null && onOverview!=null)segment("overview-empty") {
+            Column(Modifier.fillMaxWidth().padding(horizontal=CardPadding,vertical=10.dp)) {
+                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Icon(NovexIcons.Description,null,Modifier.size(18.dp),tint=NovenColors.Mint)
+                    Text("设定总览",style=NovexType.ItemTitle,color=NovenColors.Text)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("对话时默认注入的精简背景；详细模块可在携带设置中按需附加。还没有总览。",
+                    style=NovexType.Metadata,color=NovexColors.SecondaryText)
+                TextButton(enabled=!model.state.busy,onClick=onOverview){Text("编辑总览",color=NovenColors.Mint)}
+            }
+            CardDivider(Modifier.padding(horizontal=CardPadding))
+        }
         if(byline!=null)segment("byline") {
             Box(Modifier.fillMaxWidth().padding(horizontal=CardPadding,vertical=4.dp)){byline()}
             CardDivider(Modifier.padding(start=CardPadding,end=CardPadding,top=6.dp))
@@ -271,7 +300,7 @@ private val CardPadding=18.dp
         if(card.usesMainSlot())segment("main-slot") {
             Column { Row(Modifier.fillMaxWidth()){CardTab("主要",true,{})};CardDivider() }
         }
-        modules(bodyModules,card.id,!card.usesMainSlot())
+        modules(rootTabs,card.id,!card.usesMainSlot())
         if(bodyModules.isEmpty() && onEmpty!=null)segment("empty-module") {
             AddModuleRow(onEmpty,!model.state.busy)
         }

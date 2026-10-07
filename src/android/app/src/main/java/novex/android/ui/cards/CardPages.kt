@@ -14,9 +14,12 @@ import novex.android.ui.NovexPageTopBar
 import novex.android.ui.NovexColors
 import novex.android.ui.NovexType
 import novex.android.ui.NovexIcons
+import novex.android.ui.NovexSelectionSheet
+import novex.android.ui.NovexSelectionAction
 import com.openminis.app.ui.noven.NovenColors
 import com.openminis.app.ui.noven.NovenProfileStore
 import novex.content.flattenModules
+import novex.content.ReadingLayout
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -71,6 +74,7 @@ import androidx.compose.ui.semantics.semantics
     var newCharacter by remember {mutableStateOf(false)}
     var copyCharacter by remember {mutableStateOf(false)}
     var more by remember {mutableStateOf(false)}
+    var moduleSheet by remember {mutableStateOf(false)}
     var deleteCard by remember {mutableStateOf(false)}
     var moduleOptions by remember {mutableStateOf(false)}
     var imageOptions by remember {mutableStateOf(false)}
@@ -107,6 +111,15 @@ import androidx.compose.ui.semantics.semantics
         text={Text("从库中移除这张卡片及其内部角色。已有对话不会被删除；引用此卡的对话将无法继续读取它。历史与原始资源保留。")},
         confirmButton={TextButton(enabled=!state.busy,onClick={deleteCard=false;model.deleteCard(onExit)}){Text("删除")}},
         dismissButton={TextButton(enabled=!state.busy,onClick={deleteCard=false}){Text("取消")}})
+    if(moduleSheet)NovexSelectionSheet(
+        title="模块",
+        actions=listOf(
+            NovexSelectionAction("添加模块",description="新建模块并开始编辑",enabled=!state.busy){model.addModuleFromReading()},
+            NovexSelectionAction("管理模块",description="排序、嵌套与删除",enabled=!state.busy){model.edit()},
+            NovexSelectionAction(if(ReadingViewPrefs.current()==ReadingLayout.PAGED)"切换为连续阅读" else "切换为翻页模式",
+                description=if(ReadingViewPrefs.current()==ReadingLayout.PAGED)"所有模块连成一页，上下滑动阅读" else "模块分页，左右滑动切换"){model.setReadingLayout(if(ReadingViewPrefs.current()==ReadingLayout.PAGED)ReadingLayout.CONTINUOUS else ReadingLayout.PAGED)},
+        ),
+        onDismissRequest={if(!state.busy)moduleSheet=false})
     BackHandler(enabled=!keyboardVisible){if(!state.busy || state.page==CardPage.DETAIL)back()}
     Scaffold(
         containerColor=NovenColors.Canvas,
@@ -183,7 +196,7 @@ import androidx.compose.ui.semantics.semantics
                     val context=LocalContext.current
                     val profileStore=remember {NovenProfileStore.get(context)}
                     val profile=profileStore.profile
-                    CardReading(card,model,onCharacter=model::showTarget,onModule={model.editPart(it)},onImage={model.edit()},onName={model.edit()},onEmpty={model.edit()},onIntroduction={model.edit()},chromeOverlay=true,
+                    CardReading(card,model,onCharacter=model::showTarget,onModule={model.editPart(it)},onImage={model.edit()},onName={model.edit()},onEmpty={model.edit()},onIntroduction={model.edit()},onOverview={model.overview()},onManageModules={moduleSheet=true},bottomChrome=true,chromeOverlay=true,
                         byline={
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                                 if(profile.avatarPath!=null)AsyncImage(model=java.io.File(profile.avatarPath),contentDescription="作者头像",
@@ -221,6 +234,24 @@ import androidx.compose.ui.semantics.semantics
                         }
                         Spacer(Modifier.width(6.dp))
                         FloatingCircleAction(NovexIcons.Edit,"编辑卡片",!state.busy && state.saved!=null){model.edit()}
+                    }
+                    // 底部页铬（T008 阅读器）：页码点随当前页签走，「+」呼出模块操作面板。
+                    val readingMemory=model.readingMemory(card.id,"saved")
+                    val rootTabs=remember(card){listOfNotNull(card.overviewModule())+card.bodyModules()}
+                    // 布局切换发布在版本号上（全局 prefs 非快照），翻页/连读即时生效。
+                    val horizontal=remember(model.readingLayoutVersion){card.rootModulesHorizontal()}
+                    Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom=16.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                        if(horizontal && rootTabs.size>1)Row(horizontalArrangement=Arrangement.spacedBy(6.dp),modifier=Modifier.padding(bottom=10.dp)) {
+                            rootTabs.forEach {tab->
+                                val active=(readingMemory.selected[card.id]?:rootTabs.firstOrNull()?.id)==tab.id
+                                Box(Modifier.size(6.dp).clip(CircleShape).background(if(active)NovenColors.Mint else NovexColors.SurfaceMuted.copy(alpha=0.5f)))
+                            }
+                        } else Spacer(Modifier.height(10.dp))
+                        Box(Modifier.size(54.dp).clip(CircleShape).background(NovenColors.Mint)
+                            .clickable(enabled=!state.busy && !files.state.busy){moduleSheet=true}
+                            .semantics{contentDescription="添加模块"},contentAlignment=Alignment.Center) {
+                            Text("+",color=NovenColors.OnMint,style=MaterialTheme.typography.headlineMedium)
+                        }
                     }
                 }
             }

@@ -146,6 +146,36 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         state=state.copy(draft=next)
         loadModule(requireNotNull(next.position.moduleId),null)
     }
+    /** 阅读态发起编辑共用前置：开草稿并进入模块编辑页，目标校验与 introduction() 同源。 */
+    private suspend fun beginDraftFromReading() {
+        flush()
+        if(state.page==CardPage.DETAIL) {
+            val draft=beginEditing()
+            val target=state.targetId?:draft.content.id
+            require(target==draft.content.id || draft.content.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
+            state=state.copy(draft=draft,page=CardPage.MODULES,editorEntryTarget=target)
+        }
+    }
+    /** 设定总览：已有则定位编辑，没有则新建命名模块（命名识别见 overviewModule()）。 */
+    fun overview(onReady:()->Unit={})=action(onReady) {
+        beginDraftFromReading()
+        val existing=requireNotNull(state.shownDraft).overviewModule()
+        if(existing!=null)loadModule(existing.id,null)
+        else {
+            val draft=requireNotNull(state.draft)
+            val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.AddModule("总览"))}
+            state=state.copy(draft=next)
+            loadModule(requireNotNull(next.position.moduleId),null)
+        }
+    }
+    /** 阅读器底部「+」：从浏览直进新建模块编辑，免先跳编辑树。 */
+    fun addModuleFromReading(onReady:()->Unit={})=action(onReady) {
+        beginDraftFromReading()
+        val draft=requireNotNull(state.draft)
+        val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.AddModule(""))}
+        state=state.copy(draft=next)
+        loadModule(requireNotNull(next.position.moduleId),null)
+    }
     fun addPresentedModule(horizontal:Boolean)=action {
         flush();val draft=requireNotNull(state.draft)
         val command=EditorCommand.AddPresentedModule(horizontal,requireNotNull(state.shownDraft).introductionModule()?.id)
@@ -326,7 +356,10 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     // [T-reading-view-global] 布局降级为全局视图偏好（用户裁决：纯渲染模式，
     // 数据不变，默认翻页）——写偏好即生效，不碰卡数据、不产生修订。
     // 卡内 appearance.readingLayout 只剩编辑器归置新模块的存量信号。
-    fun setReadingLayout(layout:ReadingLayout)=ReadingViewPrefs.set(getApplication(), layout)
+    // 阅读布局是全局 SharedPreferences，非 Compose 快照；版本号让阅读界面在切换后重组。
+    var readingLayoutVersion by mutableStateOf(0)
+        private set
+    fun setReadingLayout(layout:ReadingLayout){ReadingViewPrefs.set(getApplication(), layout);readingLayoutVersion++}
     fun removeResource(id:String,removeUses:Boolean,onSaved:()->Unit={})=applyComposition(EditorCommand.RemoveResource(id,removeUses),onSaved)
     fun removeCharacter(id:String,onSaved:()->Unit={})=applyComposition(EditorCommand.RemoveCharacter(id),onSaved)
     private fun applyComposition(command:EditorCommand,onSaved:()->Unit={})=action(onSaved) {
