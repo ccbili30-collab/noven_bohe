@@ -39,6 +39,8 @@ sealed interface EditorCommand {
     data class WriteText(val moduleId:String,val blockId:String?,val moduleName:String,val text:String,val position:EditorPosition):EditorCommand
     data class ReplaceTextRange(val moduleId:String,val blockId:String,val expectedContent:ContentRef,val start:Long,val end:Long,val text:String,val position:EditorPosition,val moduleName:String?=null):EditorCommand
     data class WriteCaption(val moduleId:String,val blockId:String,val moduleName:String,val text:String,val position:EditorPosition):EditorCommand
+    /** [T008] 把文本写入卡级扩展槽（ContentChange.SetExtension 的存储通道）。 */
+    data class PutExtensionText(val key:String,val text:String):EditorCommand
 }
 
 /** 与页面及模型协议无关的共同编辑入口；调用方负责工具权限和编辑占用。 */
@@ -213,6 +215,9 @@ class CardEditor(private val store:CardStore) {
                 card=ContentChanges.apply(card,ContentChange.EditBlocks(listOf(BlockEdit.Replace(block.id,block.copy(caption=text(command.text))))))
                 card=ContentChanges.apply(card,ContentChange.ReplaceModule(module(currentModule.id).copy(name=command.moduleName)))
                 position=command.position.copy(moduleId=currentModule.id,blockId=block.id)
+            }
+            is EditorCommand.PutExtensionText->{
+                card=ContentChanges.apply(card,ContentChange.SetExtension(command.key,text(command.text)))
             }
         }
         if(command is EditorCommand.RemoveResource && position.moduleId!=null) {

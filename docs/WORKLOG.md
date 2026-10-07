@@ -34,13 +34,13 @@
 
 | 编号 | 日期 | 任务 | 状态 | 领域 |
 |---|---|---|---|---|
-| （空——随时登记） | | | | |
+| T008 | 2026-10-07 | 卡类编辑器 1:1 复刻（阅读器主页/设定总览/注入管理/新模块/AI 修订待审；设计稿+规格见仓库外 design/card-ui-2026-10/） | P1+P2 完成·模拟器实机验证通过·待净眼+CI | 3.1/3.2 |
 
 ## 2. 活跃区（并发协调板：进行中任务的文件占用）
 
 | 任务 | 执行者 | 占用文件/目录 | 分支/worktree |
 |---|---|---|---|
-| （空） | | | |
+| T008 卡类编辑器复刻 | ZCode | novex/android/ui/cards/*、novex/content(ContentModule/Document)*、novex/android/ui/Novex* 组件、NavCardDestinations.kt、ReadingViewPrefs.kt（注：ui-work 树另有在途改动占用 AgentTools/CharacterModels/strings.xml/ChatScreen 域，T008 避开，合并时协调） | feat/card-lore-editor @ worktrees/tasks/card-lore |
 
 > 派活前查此表；占用冲突时改派其他文件域或排队。
 
@@ -125,3 +125,17 @@
 ## 7. 归档索引
 
 - `docs/WORKLOG-ARCHIVE-4.0.0-pre.md` — T005-T007（清洗收官/审计条件/4.0 切换发布三役，2026-10-02）
+
+---
+
+### T008 · 卡类编辑器 1:1 复刻（2026-10-07）
+- 背景：对标特盐级 OC/世界观档案功能（功能全要、界面自有设计）。核心三层架构：素材层（模块全量，可几十万字）→ 提纯层（设定总览=默认喂 AI）→ 注入层（模块自定义注入）+ AI 反向编辑（一切 AI 写入先进修订待审，采纳才落档）。设计稿 15 张+交互规格：Novex-Development/design/card-ui-2026-10/（仓库外，勿提交）。
+- 范围：A 线集成卡（novex/android/ui/cards + novex/content 文件存储）；阅读器主页（头图+模块 tab+HorizontalPager+总览第一页+页码点+连续阅读开关）；模块管理/添加抽屉；设定总览（数据+AI 提纯+diff）；注入管理页；新模块类型（关系/轨迹/多形态完整版/力量体系/宗教政治/文化美学等）编辑器；AI 修订待审流。**不动**：B 线 Room content_modules、LLMProvider、包名、/var/minis、KaTeX、签名链；避开 ui-work 在途文件（AgentTools.kt/CharacterModels.kt/strings.xml/ChatScreen*）。
+- 验收：模拟器截图逐页对照设计稿（visual-frontend-replica 方法：≥2 轮修正）；行为钉测试；CI checks=pass；净眼 pass 后方可合并。
+- 冻结面引用：§4 全表（尤其 prefs 只增键、导出契约、合并纪律）。
+- 领域：3.1 应用前端 / 3.2 应用后端
+- 执行记录：worktree worktrees/tasks/card-lore，分支 feat/card-lore-editor（源 bohe/next@553f5adf）。
+  - 575da09c 任务书登记；ddb18422 P1 阅读器（总览钉首页/页码点/FAB/⋯面板）；5f85acbe P2 总览（SetExtension 扩展槽+提纯待审链路+总览页）；daf1f37c 注入管理页；ee12b083 页铬叠钮修复（模拟器实测发现）。
+  - 验证：:content-storage/:content-core 测试绿（含扩展槽行为钉）；:app NovexCard* 绿；模拟器(emulator-5554)实机走查 阅读器/编辑总览/保存流/模块面板/总览页/注入管理页 全通过，截图 design/card-ui-2026-10/shots/08~12。
+  - 遗留：①tab 条 ⋯ 在 cards 域已接（onManageModules=面板）；完整重排/显隐抽屉待 P3；②提纯链路已就绪但模拟器无供应商未跑 LLM 实调；③发现 App 存在 A/B 两线卡系统（首页空态新建=A线集成卡；另有路径产出 B 线目录卡走旧 UI）——归属与统一是产品决策，已在会话记录。
+  - 增量（同日续）：5bf246cf 模板体系（世界8类+角色7类+通用2类脚手架宫格，设计稿02，实机 shots13/14）；f05f0ca2 结构化阅读态（时间线渲时间轴/属性面板/关系卡，设计稿04/05/06，解析层6测试钉死，实机 shots15 视觉确认薄荷圆点+贯穿线+节点卡）。

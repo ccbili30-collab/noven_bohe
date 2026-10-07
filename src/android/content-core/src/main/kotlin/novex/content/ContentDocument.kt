@@ -111,6 +111,8 @@ sealed interface ContentChange {
     data class PutResource(val resource: CardResource) : ContentChange
     data class RemoveResource(val resourceId: String) : ContentChange
     data class SetAppearance(val appearance: CardAppearance) : ContentChange
+    /** [T008] 写入卡级扩展槽（如设定总览提纯元数据）；键为空或含空白拒绝。 */
+    data class SetExtension(val key: String, val value: ContentRef) : ContentChange
 }
 
 /** 人工入口和模型入口共用同一变换，不按编辑者复制业务规则。 */
@@ -126,6 +128,10 @@ object ContentChanges {
                 return document.copy(resources = document.resources.filterNot { it.id == change.resourceId }).validate()
             }
             is ContentChange.SetAppearance -> return document.copy(appearance = change.appearance).validate()
+            is ContentChange.SetExtension -> {
+                require(change.key.isNotBlank() && change.key.none { it.isWhitespace() }) { "扩展键不能为空或含空白" }
+                return document.copy(extensions = document.extensions + (change.key to change.value)).validate()
+            }
             else -> Unit
         }
         val tree = document.modules
