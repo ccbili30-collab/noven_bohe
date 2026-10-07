@@ -233,17 +233,17 @@ import androidx.compose.ui.semantics.semantics
                         FloatingCircleAction(NovexIcons.ArrowBack,"返回"){if(!state.busy || state.page==CardPage.DETAIL)back()}
                         Spacer(Modifier.weight(1f))
                         Box {
-                        FloatingCircleAction(NovexIcons.MoreVert,"更多操作",!state.busy && !files.state.busy && state.saved!=null){more=true}
-                        DropdownMenu(expanded=more,onDismissRequest={more=false}){
-                            DropdownMenuItem(text={Text("用于已有对话")},onClick={more=false;onExisting(false)})
-                            DropdownMenuItem(text={Text("导出")},onClick={more=false;onExport()})
-                            if(state.targetId==null || state.targetId==state.saved?.id)DropdownMenuItem(text={Text("删除")},onClick={more=false;deleteCard=true})
+                            FloatingCircleAction(NovexIcons.MoreVert,"更多操作",!state.busy && !files.state.busy && state.saved!=null){more=true}
+                            DropdownMenu(expanded=more,onDismissRequest={more=false}){
+                                DropdownMenuItem(text={Text("用于已有对话")},onClick={more=false;onExisting(false)})
+                                DropdownMenuItem(text={Text("导出")},onClick={more=false;onExport()})
+                                if(state.targetId==null || state.targetId==state.saved?.id)DropdownMenuItem(text={Text("删除")},onClick={more=false;deleteCard=true})
+                            }
                         }
                         Spacer(Modifier.width(6.dp))
                         FloatingCircleAction(NovexIcons.PushPin,"注入管理",!state.busy && state.saved!=null){model.injectionPage()}
                         Spacer(Modifier.width(6.dp))
                         FloatingCircleAction(NovexIcons.Description,"设定总览",!state.busy && state.saved!=null){model.overviewPage()}
-                        }
                         Spacer(Modifier.width(6.dp))
                         FloatingCircleAction(NovexIcons.Edit,"编辑卡片",!state.busy && state.saved!=null){model.edit()}
                     }
