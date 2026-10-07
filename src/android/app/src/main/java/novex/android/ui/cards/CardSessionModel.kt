@@ -178,6 +178,21 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         state=state.copy(draft=next)
         loadModule(requireNotNull(next.position.moduleId),null)
     }
+    /** [T008] 模板建模块：命名+脚手架正文一步到位（模板=普通命名模块，无新存储形态）。 */
+    fun addModuleFromTemplate(template:ModuleTemplate,onReady:()->Unit={})=action(onReady) {
+        beginDraftFromReading()
+        val draft=requireNotNull(state.draft)
+        val target=state.targetId?:draft.content.id
+        val editor=CardEditor(store)
+        val added=withContext(Dispatchers.IO){editor.apply(draft.content.id,draft.version,target,EditorCommand.AddModule(template.name))}
+        var next=added
+        if(template.scaffold.isNotBlank()) {
+            val id=requireNotNull(added.position.moduleId)
+            next=withContext(Dispatchers.IO){editor.apply(added.content.id,added.version,target,EditorCommand.WriteMarkdownText(id,template.name,template.scaffold))}
+        }
+        state=state.copy(draft=next)
+        loadModule(requireNotNull(next.position.moduleId),null)
+    }
     // ---------- [T008] 设定总览：管理页 / AI 提纯 / 采纳 ----------
     /** 总览页读取的扩展文本（提纯元数据等）。 */
     private suspend fun readExtensionText(card:ContentDocument,key:String):String?=withContext(Dispatchers.IO) {

@@ -74,7 +74,16 @@ import androidx.compose.ui.semantics.semantics
     var newCharacter by remember {mutableStateOf(false)}
     var copyCharacter by remember {mutableStateOf(false)}
     var more by remember {mutableStateOf(false)}
-    var moduleSheet by remember {mutableStateOf(false)}
+    var addSheet by remember {mutableStateOf(false)}
+    var manageSheet by remember {mutableStateOf(false)}
+    // [T008] 模板宫格按当前卡域给组；World/Character 由展示卡决定。
+    val templateActions=remember(state.shownSaved?.id,state.targetId) {
+        val shown=state.shownSaved?.let {novex.content.ContentTargets.find(it,state.targetId?:it.id)}
+        val kind=shown?.kind?:novex.content.CardKind.WORLD
+        ModuleTemplates.forKind(kind).map {t->
+            NovexSelectionAction(t.name,description=t.description,group=t.group){model.addModuleFromTemplate(t)}
+        }
+    }
     var deleteCard by remember {mutableStateOf(false)}
     var moduleOptions by remember {mutableStateOf(false)}
     var imageOptions by remember {mutableStateOf(false)}
@@ -113,15 +122,20 @@ import androidx.compose.ui.semantics.semantics
         text={Text("从库中移除这张卡片及其内部角色。已有对话不会被删除；引用此卡的对话将无法继续读取它。历史与原始资源保留。")},
         confirmButton={TextButton(enabled=!state.busy,onClick={deleteCard=false;model.deleteCard(onExit)}){Text("删除")}},
         dismissButton={TextButton(enabled=!state.busy,onClick={deleteCard=false}){Text("取消")}})
-    if(moduleSheet)NovexSelectionSheet(
+    if(addSheet)novex.android.ui.NovexSearchableSelectionSheet(
+        title="添加模块",
+        actions=templateActions,
+        searchPlaceholder="搜索模块类型",
+        onDismissRequest={if(!state.busy)addSheet=false})
+    if(manageSheet)NovexSelectionSheet(
         title="模块",
         actions=listOf(
-            NovexSelectionAction("添加模块",description="新建模块并开始编辑",enabled=!state.busy){model.addModuleFromReading()},
+            NovexSelectionAction("添加模块",description="从类型模板新建",enabled=!state.busy){manageSheet=false;addSheet=true},
             NovexSelectionAction("管理模块",description="排序、嵌套与删除",enabled=!state.busy){model.edit()},
             NovexSelectionAction(if(ReadingViewPrefs.current()==ReadingLayout.PAGED)"切换为连续阅读" else "切换为翻页模式",
                 description=if(ReadingViewPrefs.current()==ReadingLayout.PAGED)"所有模块连成一页，上下滑动阅读" else "模块分页，左右滑动切换"){model.setReadingLayout(if(ReadingViewPrefs.current()==ReadingLayout.PAGED)ReadingLayout.CONTINUOUS else ReadingLayout.PAGED)},
         ),
-        onDismissRequest={if(!state.busy)moduleSheet=false})
+        onDismissRequest={if(!state.busy)manageSheet=false})
     BackHandler(enabled=!keyboardVisible){if(!state.busy || state.page==CardPage.DETAIL)back()}
     Scaffold(
         containerColor=NovenColors.Canvas,
@@ -204,7 +218,7 @@ import androidx.compose.ui.semantics.semantics
                     val context=LocalContext.current
                     val profileStore=remember {NovenProfileStore.get(context)}
                     val profile=profileStore.profile
-                    CardReading(card,model,onCharacter=model::showTarget,onModule={model.editPart(it)},onImage={model.edit()},onName={model.edit()},onEmpty={model.edit()},onIntroduction={model.edit()},onOverview={model.overview()},onManageModules={moduleSheet=true},bottomChrome=true,chromeOverlay=true,
+                    CardReading(card,model,onCharacter=model::showTarget,onModule={model.editPart(it)},onImage={model.edit()},onName={model.edit()},onEmpty={model.edit()},onIntroduction={model.edit()},onOverview={model.overview()},onManageModules={manageSheet=true},bottomChrome=true,chromeOverlay=true,
                         byline={
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                                 if(profile.avatarPath!=null)AsyncImage(model=java.io.File(profile.avatarPath),contentDescription="作者头像",
@@ -260,7 +274,7 @@ import androidx.compose.ui.semantics.semantics
                             }
                         } else Spacer(Modifier.height(10.dp))
                         Box(Modifier.size(54.dp).clip(CircleShape).background(NovenColors.Mint)
-                            .clickable(enabled=!state.busy && !files.state.busy){moduleSheet=true}
+                            .clickable(enabled=!state.busy && !files.state.busy){addSheet=true}
                             .semantics{contentDescription="添加模块"},contentAlignment=Alignment.Center) {
                             Text("+",color=NovenColors.OnMint,style=MaterialTheme.typography.headlineMedium)
                         }
