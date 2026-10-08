@@ -57,11 +57,16 @@ internal fun ContentDocument.overviewModule():ContentModule? =
 
 // 简介在主图下的基本信息区编辑和展示，不再重复作为横向页签。
 // 不删除或改写原模块，正文、编号、模型采用和导出保持原样。
-internal fun ContentDocument.bodyModules():List<ContentModule> {
+/** 编辑域模块全集（不含简介/总览）：编辑树、编辑器前置判断、注入聚合页用它——隐藏位不影响可达性。 */
+internal fun ContentDocument.editableBodyModules():List<ContentModule> {
     val introductionId=introductionModule()?.id
     val overviewId=overviewModule()?.id
-    // novex-hidden：阅读器页签/注入页隐藏，编辑树保留（模块管理抽屉的眼睛位）。
-    return modules.filterNot {it.id==introductionId || it.id==overviewId || it.tags.contains("novex-hidden")}
+    return modules.filterNot {it.id==introductionId || it.id==overviewId}
+}
+
+internal fun ContentDocument.bodyModules():List<ContentModule> {
+    // novex-hidden：只收起阅读器页签展示；编辑树/注入语义见 editableBodyModules。
+    return editableBodyModules().filterNot {it.tags.contains("novex-hidden")}
 }
 
 @Composable internal fun ModuleExcerpt(module:ContentModule?,model:CardSessionModel) {

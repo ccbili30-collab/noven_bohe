@@ -33,7 +33,8 @@ import novex.content.ReadingLayout
     val continuous=remember(model.readingLayoutVersion){ReadingViewPrefs.current()==ReadingLayout.CONTINUOUS}
     ModalBottomSheet(onDismissRequest={if(!state.busy)onDismiss()}) {
         Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).padding(bottom=28.dp).verticalScroll(rememberScrollState())) {
-            Text("模块管理",style=NovexType.PageTitle,color=NovenColors.Text,modifier=Modifier.padding(bottom=12.dp))
+            Text("模块管理",style=NovexType.PageTitle,color=NovenColors.Text,modifier=Modifier.padding(bottom=2.dp))
+            Text("隐藏只收起阅读页签；注入去向仍由携带设置决定。",style=NovexType.Metadata,color=NovexColors.SecondaryText,modifier=Modifier.padding(bottom=10.dp))
             // 连续阅读开关：全局偏好，即时生效
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -56,10 +57,10 @@ import novex.content.ReadingLayout
                     Text(module.name.ifBlank {"未命名模块"}+(if(hidden)"（已隐藏）" else ""),
                         style=NovexType.ItemTitle,color=if(hidden)NovexColors.TertiaryText else NovenColors.Text,
                         modifier=Modifier.weight(1f))
-                    Icon(NovexIcons.ArrowUpward,"上移",Modifier.clickable(enabled=!state.busy){onDismiss();model.moveModuleFromReading(module.id,true)}
+                    Icon(NovexIcons.ArrowUpward,"上移",Modifier.clickable(enabled=!state.busy && index>0){onDismiss();model.moveModuleFromReading(module.id,true)}
                         .padding(horizontal=10.dp,vertical=12.dp).size(18.dp)
                         .semantics{contentDescription="上移${module.name}"},tint=if(index==0)NovexColors.SurfaceMuted else NovexColors.SecondaryText)
-                    Icon(NovexIcons.ArrowDownward,"下移",Modifier.clickable(enabled=!state.busy){onDismiss();model.moveModuleFromReading(module.id,false)}
+                    Icon(NovexIcons.ArrowDownward,"下移",Modifier.clickable(enabled=!state.busy && index<rootModules.lastIndex){onDismiss();model.moveModuleFromReading(module.id,false)}
                         .padding(horizontal=10.dp,vertical=12.dp).size(18.dp),tint=if(index==rootModules.lastIndex)NovexColors.SurfaceMuted else NovexColors.SecondaryText)
                 }
             }

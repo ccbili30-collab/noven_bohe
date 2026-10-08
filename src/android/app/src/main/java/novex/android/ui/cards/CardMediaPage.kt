@@ -26,10 +26,17 @@ import novex.content.ContentDocument
  */
 @Composable internal fun CardMediaPage(card:ContentDocument,model:CardSessionModel) {
     val state=model.state
-    val hasCover=card.appearance.coverResourceId!=null
-    val hasAvatar=card.appearance.avatarResourceId!=null
+    // 换图只落草稿：显示层优先读草稿，配保存/放弃条，与「清除」即时提交并存。
+    val shown=state.shownDraft?:state.shownSaved?:card
+    val hasCover=shown.appearance.coverResourceId!=null
+    val hasAvatar=shown.appearance.avatarResourceId!=null
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=16.dp)) {
         Spacer(Modifier.height(8.dp))
+        if(state.draft!=null)Row(Modifier.fillMaxWidth().padding(vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
+            Text("有未保存的媒体更改",style=NovexType.Metadata,color=NovexColors.SecondaryText,modifier=Modifier.weight(1f))
+            TextButton(onClick={model.discardDraft()},enabled=!state.busy){Text("放弃",color=NovexColors.SecondaryText)}
+            TextButton(onClick={model.save()},enabled=!state.busy){Text("保存",color=NovenColors.Mint)}
+        }
         MediaSlotRow(
             title=if(card.kind==CardKind.WORLD)"封面 · 世界卡门面" else "全屏背景 · 卡片主页头图",
             status=if(hasCover)"已设置" else "未设置",

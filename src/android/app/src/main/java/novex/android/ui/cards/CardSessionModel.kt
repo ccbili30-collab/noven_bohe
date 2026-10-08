@@ -151,7 +151,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 阅读态发起编辑共用前置：开草稿并进入模块编辑页，目标校验与 introduction() 同源。 */
     private suspend fun beginDraftFromReading() {
         flush()
-        if(state.page==CardPage.DETAIL || state.page==CardPage.OVERVIEW) {
+        if(state.page==CardPage.DETAIL || state.page==CardPage.OVERVIEW || state.page==CardPage.MEDIA) {
             val draft=beginEditing()
             val target=state.targetId?:draft.content.id
             require(target==draft.content.id || draft.content.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
