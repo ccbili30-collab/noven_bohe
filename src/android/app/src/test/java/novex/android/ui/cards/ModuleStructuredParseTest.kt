@@ -84,4 +84,29 @@ class ModuleStructuredParseTest {
         val parsed = parseStructured(StructuredKind.TIMELINE, text) as StructuredContent.Timeline
         assertEquals(listOf("第一次见到海", "学会游泳"), parsed.nodes[0].events)
     }
+
+    @Test fun `多形态解析本体与分身`() {
+        assertEquals(StructuredKind.FORMS, structuredKindFor("多形态"))
+        val text = """
+            ## 本体
+            - **外貌差分**：默认形态
+            - **性格偏移**：无
+
+            ## 黑月形态
+            - **外貌差分**：黑发红瞳，夜色斗篷
+            - **性格偏移**：更冷淡果断
+            - **语录**：月色正好
+            - 随意一句台词
+        """.trimIndent()
+        val parsed = parseStructured(StructuredKind.FORMS, text) as StructuredContent.Forms
+        assertEquals(2, parsed.entries.size)
+        assertEquals("本体", parsed.entries[0].name)
+        assertEquals("默认形态", parsed.entries[0].appearanceDelta)
+        assertEquals("黑月形态", parsed.entries[1].name)
+        assertEquals(listOf("月色正好", "随意一句台词"), parsed.entries[1].quotes)
+    }
+
+    @Test fun `空字段多形态回退 null`() {
+        assertNull(parseStructured(StructuredKind.FORMS, "自由文本，没有形态。"))
+    }
 }

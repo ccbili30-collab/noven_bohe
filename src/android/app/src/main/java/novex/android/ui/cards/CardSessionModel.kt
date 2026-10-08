@@ -15,13 +15,15 @@ import novex.storage.*
 
 data class CardOpening(val root:String,val target:String,val error:String?=null)
 
-enum class CardPage { DETAIL, MODULES, EDIT, PREVIEW, BLOCKS, PICTURES, OVERVIEW, INJECTION }
+enum class CardPage { DETAIL, MODULES, EDIT, PREVIEW, BLOCKS, PICTURES, OVERVIEW, INJECTION, MEDIA }
 data class CardSession(val page:CardPage=CardPage.DETAIL,val previewReturn:CardPage=CardPage.EDIT,val pictureReturn:CardPage=CardPage.MODULES,val saved:ContentDocument?=null,val draft:CardDraft?=null,
     val moduleId:String?=null,val blockId:String?=null,val title:String="",val text:TextFieldValue=TextFieldValue(),
     val markdownRef:ContentRef?=null,val textStart:Long=0,val textEnd:Long=0,val textMore:Boolean=false,val loadedText:String="",
     val editorEntryTarget:String?=null,val previewTargetId:String?=null,val recoveryInput:String?=null,val dirty:Boolean=false,val busy:Boolean=false,val error:String?=null,val targetId:String?=null,
     // [T008] 设定总览提纯：进行中标记、待采纳稿（先进待审，采纳才落卡）。
-    val purifying:Boolean=false,val purifyDraft:String?=null,val overviewMeta:OverviewMeta?=null) {
+    val purifying:Boolean=false,val purifyDraft:String?=null,val overviewMeta:OverviewMeta?=null,
+    // [T008-P3] 媒体页发起的换图草稿标记：整卡草稿共享，仅此标记下才显示媒体保存条。
+    val mediaAppearanceDraft:Boolean=false) {
     val shownSaved:ContentDocument? get()=saved?.let {ContentTargets.find(it,targetId?:it.id)}
     val shownDraft:ContentDocument? get()=draft?.content?.let {ContentTargets.find(it,targetId?:it.id)}
 }
@@ -151,7 +153,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 阅读态发起编辑共用前置：开草稿并进入模块编辑页，目标校验与 introduction() 同源。 */
     private suspend fun beginDraftFromReading() {
         flush()
-        if(state.page==CardPage.DETAIL || state.page==CardPage.OVERVIEW) {
+        if(state.page==CardPage.DETAIL || state.page==CardPage.OVERVIEW || state.page==CardPage.MEDIA) {
             val draft=beginEditing()
             val target=state.targetId?:draft.content.id
             require(target==draft.content.id || draft.content.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
@@ -178,6 +180,38 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         state=state.copy(draft=next)
         loadModule(requireNotNull(next.position.moduleId),null)
     }
+    // ---------- [T008-P3] 阅读器模块管理：显隐与重排即时生效（应用后立即提交，不留草稿） ----------
+    /** 显隐=novex-hidden 标签位（沿用特殊标签先例）；阅读器页签/注入页随之增减，编辑树保留。 */
+    fun setModuleHiddenFromReading(moduleId:String,hidden:Boolean)=action {
+        beginDraftFromReading()
+        val target=state.targetId?:requireNotNull(state.draft).content.id
+        val module=requireNotNull(state.shownDraft).modules.flattenModules().singleOrNull {it.id==moduleId}
+            ?:throw IllegalArgumentException("模块不存在或已在草稿中移除")
+        val tags=module.tags.toMutableList().apply {if(hidden)add("novex-hidden") else remove("novex-hidden")}
+        var next=requireNotNull(state.draft)
+        next=withContext(Dispatchers.IO){CardEditor(store).apply(next.content.id,next.version,target,
+            EditorCommand.ModuleOptions(moduleId,tags,module.use,module.routing,module.temporality))}
+        val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
+        state=state.copy(saved=committed.content,draft=null,page=CardPage.DETAIL,dirty=false,moduleId=null,blockId=null)
+    }
+    /** 根级模块上下移一位；已在边界或非根模块则无操作。 */
+    fun moveModuleFromReading(moduleId:String,up:Boolean)=action {
+        beginDraftFromReading()
+        val card=requireNotNull(state.shownDraft)
+        val siblings=card.modules.filterNot {it.id==card.introductionModule()?.id || it.id==card.overviewModule()?.id}
+        val index=siblings.indexOfFirst {it.id==moduleId}
+        if(index<0 || (up && index==0) || (!up && index>=siblings.size-1)) {
+            if(state.draft!=null && state.page==CardPage.MODULES)state=state.copy(page=CardPage.DETAIL)
+            return@action
+        }
+        val beforeId=if(up)siblings[index-1].id else siblings.getOrNull(index+2)?.id
+        var next=requireNotNull(state.draft)
+        next=withContext(Dispatchers.IO){CardEditor(store).apply(next.content.id,next.version,state.targetId?:next.content.id,
+            EditorCommand.MoveModule(moduleId,beforeId))}
+        val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
+        state=state.copy(saved=committed.content,draft=null,page=CardPage.DETAIL,dirty=false,moduleId=null,blockId=null)
+    }
+
     /** [T008] 模板建模块：命名+脚手架正文一步到位（模板=普通命名模块，无新存储形态）。 */
     fun addModuleFromTemplate(template:ModuleTemplate,onReady:()->Unit={})=action(onReady) {
         beginDraftFromReading()
@@ -200,6 +234,23 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     }
     /** 从阅读器进入注入管理页（只读聚合视图，编辑动作进模块编辑页）。 */
     fun injectionPage()=action { state=state.copy(page=CardPage.INJECTION) }
+    // ---------- [T008-P3] 媒体槽管理页（设计稿14）：读已保存卡；换图进图片素材，清除即时提交 ----------
+    fun mediaPage()=action { state=state.copy(page=CardPage.MEDIA) }
+    /** 换头像/封面：开草稿进图片素材页选择（pictureReturn 回本页）。 */
+    fun mediaPickAppearance(cover:Boolean)=action {
+        beginDraftFromReading()
+        state=state.copy(page=CardPage.PICTURES,pictureReturn=CardPage.MEDIA,mediaAppearanceDraft=true)
+    }
+    fun clearMediaAppearanceDraft(){state=state.copy(mediaAppearanceDraft=false)}
+    /** 清除头像/封面：即时提交，不留草稿。 */
+    fun mediaClearAppearance(cover:Boolean)=action {
+        beginDraftFromReading()
+        val target=state.targetId?:requireNotNull(state.draft).content.id
+        var next=requireNotNull(state.draft)
+        next=withContext(Dispatchers.IO){CardEditor(store).apply(next.content.id,next.version,target,EditorCommand.Appearance(null,cover))}
+        val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
+        state=state.copy(saved=committed.content,draft=null,page=CardPage.MEDIA,dirty=false,moduleId=null,blockId=null)
+    }
     /** 从阅读器进入设定总览管理页（基于已保存卡，不强制开草稿）。 */
     fun overviewPage()=action {
         val card=requireNotNull(state.shownSaved)

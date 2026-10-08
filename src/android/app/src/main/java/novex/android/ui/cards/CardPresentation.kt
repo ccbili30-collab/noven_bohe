@@ -20,4 +20,4 @@ internal fun ContentDocument.usesMainSlot():Boolean = !rootModulesHorizontal() |
  * 仅编辑器（ModuleTreeEditor）使用；阅读页三处仍走全局 [usesMainSlot]。
  */
 internal fun ContentDocument.usesMainSlotByData():Boolean =
-    appearance.readingLayout==ReadingLayout.CONTINUOUS || bodyModules().isEmpty()
+    appearance.readingLayout==ReadingLayout.CONTINUOUS || editableBodyModules().isEmpty()

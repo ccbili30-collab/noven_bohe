@@ -57,10 +57,16 @@ internal fun ContentDocument.overviewModule():ContentModule? =
 
 // 简介在主图下的基本信息区编辑和展示，不再重复作为横向页签。
 // 不删除或改写原模块，正文、编号、模型采用和导出保持原样。
-internal fun ContentDocument.bodyModules():List<ContentModule> {
+/** 编辑域模块全集（不含简介/总览）：编辑树、编辑器前置判断、注入聚合页用它——隐藏位不影响可达性。 */
+internal fun ContentDocument.editableBodyModules():List<ContentModule> {
     val introductionId=introductionModule()?.id
     val overviewId=overviewModule()?.id
     return modules.filterNot {it.id==introductionId || it.id==overviewId}
+}
+
+internal fun ContentDocument.bodyModules():List<ContentModule> {
+    // novex-hidden：只收起阅读器页签展示；编辑树/注入语义见 editableBodyModules。
+    return editableBodyModules().filterNot {it.tags.contains("novex-hidden")}
 }
 
 @Composable internal fun ModuleExcerpt(module:ContentModule?,model:CardSessionModel) {
@@ -160,11 +166,11 @@ private val CardPadding=18.dp
 }
 
 /** 同一渲染树读取正式内容或草稿；横向选择仅改变展示，不改变采用规则。 */
-@Composable fun CardReading(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,onOverview:(()->Unit)?=null,onManageModules:(()->Unit)?=null,bottomChrome:Boolean=false,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
-    key(card.id,readingScope){CardReadingContent(FolderContents.organize(card),model,modifier,onCharacter,readingScope,onModule,onImage,onName,onEmpty,onIntroduction,onOverview,onManageModules,bottomChrome,byline,trailing,chromeOverlay)}
+@Composable fun CardReading(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,onOverview:(()->Unit)?=null,onManageModules:(()->Unit)?=null,onImageFullscreen:((novex.content.ContentRef)->Unit)?=null,bottomChrome:Boolean=false,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
+    key(card.id,readingScope){CardReadingContent(FolderContents.organize(card),model,modifier,onCharacter,readingScope,onModule,onImage,onName,onEmpty,onIntroduction,onOverview,onManageModules,onImageFullscreen,bottomChrome,byline,trailing,chromeOverlay)}
 }
 
-@Composable private fun CardReadingContent(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,onOverview:(()->Unit)?=null,onManageModules:(()->Unit)?=null,bottomChrome:Boolean=false,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
+@Composable private fun CardReadingContent(card:ContentDocument,model:CardSessionModel,modifier:Modifier=Modifier,onCharacter:((String)->Unit)?=null,readingScope:String="saved",onModule:((String)->Unit)?=null,onImage:(()->Unit)?=null,onName:(()->Unit)?=null,onEmpty:(()->Unit)?=null,onIntroduction:(()->Unit)?=null,onOverview:(()->Unit)?=null,onManageModules:(()->Unit)?=null,onImageFullscreen:((novex.content.ContentRef)->Unit)?=null,bottomChrome:Boolean=false,byline:(@Composable ()->Unit)?=null,trailing:(@Composable ()->Unit)?=null,chromeOverlay:Boolean=false) {
     val bodyModules=card.bodyModules()
     // 总览钉死在页签序列首位：横向=第一页签，连续=第一分节。
     val rootTabs=listOfNotNull(card.overviewModule())+bodyModules
@@ -241,8 +247,11 @@ private val CardPadding=18.dp
             else module.blocks.forEach {block->when(block) {
                 is ContentBlock.Text->pages(block.id,block.content)
                 is ContentBlock.Image->{
+                    val imageRef=card.resources.single {it.id==block.resourceId}.content
                     segment(block.id){Column(Modifier.padding(horizontal=CardPadding,vertical=8.dp).then(if(onModule!=null)Modifier.clickable {onModule(module.id)} else Modifier)){
-                        ReadingImage(card.resources.single {it.id==block.resourceId}.content,model,Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),ContentScale.Crop)}}
+                        // [T008-P3] 模块插图（地图等）点击全屏查看。
+                        ReadingImage(imageRef,model,Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .then(if(onImageFullscreen!=null)Modifier.clickable {onImageFullscreen(imageRef)} else Modifier),ContentScale.Crop)}}
                     block.caption?.let {pages("caption-${block.id}",it,muted=true)}
                 }
             }}

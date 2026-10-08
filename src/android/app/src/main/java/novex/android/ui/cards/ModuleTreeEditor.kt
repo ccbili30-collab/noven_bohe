@@ -45,7 +45,7 @@ private data class ModuleDrop(val parent:String?,val before:String?,val inside:S
 }
 
 @Composable private fun ModuleTreeEditorContent(card:ContentDocument,model:CardSessionModel,header:@Composable ()->Unit,footer:@Composable ()->Unit) {
-    val bodyModules=card.bodyModules()
+    val bodyModules=card.editableBodyModules()
     val enabled=!model.state.busy
     val memory=model.readingMemory(card.id,"editor")
     val vertical=rememberScrollState(memory.scrollOffset)
