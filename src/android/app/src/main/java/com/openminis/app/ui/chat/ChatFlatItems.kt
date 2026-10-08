@@ -206,20 +206,6 @@ private class FlatItemFold(
             add(FlatChatItem.AssistantHeader(message.id))
         }
 
-        // 分支行放在回合头部：助手消息尾巴常挂岛/工具块（文游卡的状态
-        // 栏岛可达数屏高），行放末尾等于藏起来——「分支几乎不显示」的
-        // 直接成因。无身份行的会话里它就是回复的第一行。
-        if (!ctx.isSystem && message.branchCount > 1) {
-            add(FlatChatItem.BranchSwitcher(
-                messageId = message.branchAnchorDbId ?: message.id,
-                index = message.branchIndex,
-                count = message.branchCount,
-            ))
-        }
-        // system 分隔行也可能是截断路径的叶子——子分支导航不设门槛，
-        // 否则被编辑消息挂在分隔行下时旧线无入口可回。
-        emitChildPicker(message)
-
         ctx.blocks.forEachIndexed { index, block ->
             when (block.kind) {
                 "text" -> emitTextBlock(ctx, message, index, block)
@@ -282,6 +268,20 @@ private class FlatItemFold(
         message.error?.let {
             add(FlatChatItem.AssistantError(message.id, it))
         }
+
+        // 分支行放在整条回复最下方（岛/工具块之后）：岛也是回复的一
+        // 部分，玩家读完一条回复就在底部换版本，与玩家气泡下的分支行
+        // 位置对称。
+        if (!ctx.isSystem && message.branchCount > 1) {
+            add(FlatChatItem.BranchSwitcher(
+                messageId = message.branchAnchorDbId ?: message.id,
+                index = message.branchIndex,
+                count = message.branchCount,
+            ))
+        }
+        // system 分隔行也可能是截断路径的叶子——子分支导航不设门槛，
+        // 否则被编辑消息挂在分隔行下时旧线无入口可回。
+        emitChildPicker(message)
     }
 
     private fun emitTextBlock(
