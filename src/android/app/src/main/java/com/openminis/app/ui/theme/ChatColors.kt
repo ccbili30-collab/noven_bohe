@@ -28,6 +28,7 @@ data class ChatPalette(
 
     // 输入区
     val inputBg: Color,
+    val inputText: Color,
     val inputIconBg: Color,
     val inputIconBorder: Color,
     val inputBorder: Color,
@@ -51,6 +52,9 @@ data class ChatPalette(
     val blockquoteBar: Color,
     val tableBorder: Color,
 
+    // 主题强调色（发送键/激活态控件——NovenColors.Mint 的 palette 对应位）
+    val accent: Color,
+
     // 提示与状态
     val thinking: Color,
     val warningBg: Color,
@@ -69,7 +73,8 @@ private class ChatPaletteSpec(val isDark: Boolean) {
     var toastBg = Color.Unspecified
     var primaryText = Color.Unspecified; var secondaryText = Color.Unspecified
     var tertiaryText = Color.Unspecified; var disabledText = Color.Unspecified
-    var inputBg = Color.Unspecified; var inputIconBg = Color.Unspecified
+    var inputBg = Color.Unspecified; var inputText = Color.Unspecified
+    var inputIconBg = Color.Unspecified
     var inputIconBorder = Color.Unspecified; var inputBorder = Color.Unspecified
     var inputShadow = Color.Unspecified; var sendButton = Color.Unspecified
     var sendButtonDisabled = Color.Unspecified
@@ -80,6 +85,7 @@ private class ChatPaletteSpec(val isDark: Boolean) {
     var inlineCodeBg = Color.Unspecified; var inlineCodeText = Color.Unspecified
     var link = Color.Unspecified; var blockquoteBar = Color.Unspecified
     var tableBorder = Color.Unspecified
+    var accent = Color.Unspecified
     var thinking = Color.Unspecified; var warningBg = Color.Unspecified
     var warningText = Color.Unspecified; var separator = Color.Unspecified
     var fabAccent = Color.Unspecified
@@ -91,7 +97,7 @@ private class ChatPaletteSpec(val isDark: Boolean) {
         toastBg = toastBg,
         primaryText = primaryText, secondaryText = secondaryText,
         tertiaryText = tertiaryText, disabledText = disabledText,
-        inputBg = inputBg, inputIconBg = inputIconBg,
+        inputBg = inputBg, inputText = inputText, inputIconBg = inputIconBg,
         inputIconBorder = inputIconBorder, inputBorder = inputBorder,
         inputShadow = inputShadow, sendButton = sendButton,
         sendButtonDisabled = sendButtonDisabled,
@@ -100,6 +106,7 @@ private class ChatPaletteSpec(val isDark: Boolean) {
         codeBlockBg = codeBlockBg, codeBlockText = codeBlockText,
         inlineCodeBg = inlineCodeBg, inlineCodeText = inlineCodeText,
         link = link, blockquoteBar = blockquoteBar, tableBorder = tableBorder,
+        accent = accent,
         thinking = thinking, warningBg = warningBg, warningText = warningText,
         separator = separator, fabAccent = fabAccent,
     )
@@ -118,6 +125,7 @@ val LightChatPalette: ChatPalette = ChatPaletteSpec(isDark = false).apply {
     disabledText = Color(0x2E3C3C43)
 
     inputBg = Color.White
+    inputText = Color(0xFF000000)
     inputIconBg = Color(0xFFF2F2F7)
     inputIconBorder = Color.Transparent
     inputBorder = Color(0x4D3C3C43)
@@ -139,6 +147,7 @@ val LightChatPalette: ChatPalette = ChatPaletteSpec(isDark = false).apply {
     blockquoteBar = Color(0x80FF9500)
     tableBorder = Color(0x1F000000)
 
+    accent = Color(0xFF0E9F6E)
     thinking = Color(0xFF0E9F6E)
     warningBg = Color(0x14FF9500)
     warningText = Color(0x73000000)
@@ -164,6 +173,7 @@ val DarkChatPalette: ChatPalette = ChatPaletteSpec(isDark = true).apply {
     disabledText = Color(0x2EEBEBF5)
 
     inputBg = Color(0xFF2C2C30)
+    inputText = Color(0xFFFFFFFF)
     inputIconBg = Color(0xFF1C1C1E)
     inputIconBorder = Color(0xFF595959)
     inputBorder = Color(0x40545458)
@@ -185,6 +195,7 @@ val DarkChatPalette: ChatPalette = ChatPaletteSpec(isDark = true).apply {
     blockquoteBar = Color(0x80FF9F0A)
     tableBorder = Color(0xFF38383A)
 
+    accent = Color(0xFF34D399)
     thinking = Color(0xFF34D399)
     warningBg = Color(0x14FF9F0A)
     warningText = Color(0x73FFFFFF)

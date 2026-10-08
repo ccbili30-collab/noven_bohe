@@ -595,6 +595,7 @@ class SessionListViewModel(
             personaId = origin.personaId,
             personaSnapshotJson = origin.personaSnapshotJson,
             chatBackgroundPath = origin.chatBackgroundPath,
+            chatSkinJson = origin.chatSkinJson,
         )
         history.forEach { row ->
             chatRepository.appendMessage(

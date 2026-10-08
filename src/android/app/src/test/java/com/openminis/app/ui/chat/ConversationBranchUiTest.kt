@@ -25,7 +25,9 @@ class ConversationBranchUiTest {
     }
 
     @Test
-    fun `assistant with several blocks has one switcher after the complete reply`() {
+    fun `assistant switcher sits at the head of the reply ahead of all blocks`() {
+        // 助手回复尾部常挂数屏高的岛/工具块——分支行必须在块之前，
+        // 否则文游卡里等于不可见。
         val message = ChatMessage(
             id = "a2",
             role = "assistant",
@@ -43,8 +45,71 @@ class ConversationBranchUiTest {
         assertEquals(1, items.count { it is FlatChatItem.BranchSwitcher })
         assertEquals(
             FlatChatItem.BranchSwitcher("a2", 2, 2),
-            items.last(),
+            items.first(),
         )
+    }
+
+    @Test
+    fun `assistant switcher follows the identity header in card sessions`() {
+        val message = ChatMessage(
+            id = "a2",
+            role = "assistant",
+            content = "完成",
+            branchIndex = 1,
+            branchCount = 3,
+        )
+
+        val items = buildFlatChatItems(listOf(message), showAssistantIdentity = true)
+
+        assertEquals(FlatChatItem.AssistantHeader("a2"), items[0])
+        assertEquals(FlatChatItem.BranchSwitcher("a2", 1, 3), items[1])
+    }
+
+    @Test
+    fun `leaf with stored children emits a child branch picker`() {
+        // fork 窗口/截断态：用户消息是可见叶子而库里还有子行。
+        val items = buildFlatChatItems(
+            listOf(
+                ChatMessage(
+                    id = "u1",
+                    role = "user",
+                    content = "重试点",
+                    childBranchIndex = 1,
+                    childBranchCount = 2,
+                ),
+            ),
+        )
+
+        assertEquals(FlatChatItem.ChildBranchPicker("u1", 1, 2), items.last())
+    }
+
+    @Test
+    fun `assistant leaf with stored children emits picker at reply head`() {
+        val items = buildFlatChatItems(
+            listOf(
+                ChatMessage(
+                    id = "a1",
+                    role = "assistant",
+                    content = "旧回复",
+                    childBranchIndex = 0,
+                    childBranchCount = 1,
+                ),
+            ),
+        )
+
+        assertEquals(FlatChatItem.ChildBranchPicker("a1", 0, 1), items.first())
+    }
+
+    @Test
+    fun `mid-path message never emits a child picker`() {
+        val items = buildFlatChatItems(
+            listOf(
+                ChatMessage(id = "u1", role = "user", content = "普通消息"),
+                ChatMessage(id = "a1", role = "assistant", content = "回复"),
+            ),
+        )
+
+        assertTrue(items.none { it is FlatChatItem.ChildBranchPicker })
     }
 
     @Test

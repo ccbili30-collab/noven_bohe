@@ -64,10 +64,14 @@ object NovexCardActivation {
         var defaultCount = 0
         var charCount = 0
         var verbatimCount = 0
+        val frontendDefMetas = mutableListOf<org.json.JSONObject>()
         // 前端件定义不管路由都会被会话预铺进注册表——尾注提示按全模块计数，
         // 而非只数 DEFAULT 清单里的行。
         val frontendCount = cards.sumOf { card ->
             card.modules.flatMap(::flatten).count { it.second.isFrontendModule() }
+        }
+        val skinCount = cards.sumOf { card ->
+            card.modules.flatMap(::flatten).count { it.second.isSkinModule() }
         }
         cards.forEach { card ->
             val cardDefaults = card.modules.flatMap(::flatten)
@@ -85,10 +89,12 @@ object NovexCardActivation {
                 val verbatim = module.isVerbatimSource(card, readText)
                 if (verbatim) verbatimCount++
                 val frontend = module.isFrontendModule()
+                val skin = module.isSkinModule()
                 listing.appendLine(
                     "  · ${module.name}" +
                         if (verbatim) "（原文导入 · 按需分页载入）"
                         else if (frontend) "（前端 · 内含界面模板定义）"
+                        else if (skin) "（皮肤 · 会话外观包）"
                         else "",
                 )
                 defaults.appendLine()
@@ -100,7 +106,12 @@ object NovexCardActivation {
                     val text = (block as? novex.content.ContentBlock.Text)?.let {
                         if (verbatim) null else readText(it.content)
                     }
-                    if (!text.isNullOrBlank()) {
+                    if (frontend) {
+                        // 前端 def 正文（可达数 MB 内联页）由客户端预铺进
+                        // 注册表，不进资料包——模型只需知道有哪些模板可用：
+                        // 把每个 def 的 meta 行（id/kind/marker）摘出来。
+                        text?.let { frontendDefMetas += extractDefMetas(it) }
+                    } else if (!text.isNullOrBlank()) {
                         charCount += text.length
                         defaults.appendLine(text)
                     }
@@ -132,6 +143,20 @@ object NovexCardActivation {
             // 模型——只发 novex-use 数据块，不重写模板。
             if (frontendCount > 0) {
                 appendLine("本卡含前端件模板（novex-def 定义）。更新界面只发 ```novex-use 数据块（id/slot/data），不要重写模板。")
+                if (frontendDefMetas.isNotEmpty()) {
+                    appendLine("可用模板：" + frontendDefMetas.joinToString("；") { meta ->
+                        buildString {
+                            append(meta.optString("id"))
+                            meta.optString("name").takeIf { it.isNotBlank() }?.let { append("「$it」") }
+                            meta.optString("marker").takeIf { it.isNotBlank() }
+                                ?.let { append("——或在文本中直接输出标记 $it，系统会就地渲染该模板") }
+                        }
+                    })
+                }
+                appendLine()
+            }
+            if (skinCount > 0) {
+                appendLine("本卡含皮肤包（novex-skin）。会话外观已按卡内定义就位，剧情中可用 ```novex-skin 块改版或 {\"clear\":true} 卸除。")
                 appendLine()
             }
             appendLine("──")
@@ -194,6 +219,12 @@ object NovexCardActivation {
             ?.let(NovexExternalCardImport::isVerbatimModule) == true
         return legacy
     }
+
+    /** def 围栏的 meta 首行（{id,kind,marker,…}）——供资料包尾注列出可用模板。 */
+    private fun extractDefMetas(text: String): List<org.json.JSONObject> =
+        Regex("```novex-def\\s*\\n(\\{[^\\n]*\\})").findAll(text)
+            .mapNotNull { runCatching { org.json.JSONObject(it.groupValues[1]) }.getOrNull() }
+            .toList()
 
     private fun flatten(module: novex.content.ContentModule): List<Pair<Unit, novex.content.ContentModule>> =
         listOf(Unit to module) + module.children.flatMap(::flatten)

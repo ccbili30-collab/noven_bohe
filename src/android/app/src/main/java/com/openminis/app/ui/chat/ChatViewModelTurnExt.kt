@@ -177,6 +177,9 @@ internal suspend fun ChatViewModel.installActiveConversation(
     val marker = projection.marker
     activeBranchMessageIds = projection.activeIds
     activeBranchPathIds = projection.activePathIds
+    // append 位次计算的权威底稿：发送路径在 install 之间手动塞行，
+    // 新行的兄弟位次按本图（append 前快照）推导。
+    lastInstalledBranchGraph = conversation.graph
     refreshNovexRuntimeProjection()
     // [T-run-phase] ⑤：install 重建在 historyWriteLock 内（与纪元读/用户行
     // add/清空互为 happens-before；块内纯内存操作，D4）。
@@ -313,7 +316,6 @@ internal suspend fun ChatViewModel.runRerunStreamTail(
                 // we're in the finally block of the agent loop and
                 // the stream has already flushed its last delta.
                 if (streamJob === coroutineContext[Job]) {
-                    publishOverlayReplyExcerpt(activeSessionId)
                     SessionActivityTracker.setInactive(activeSessionId)
                 } else {
                     AppLogger.info(ChatViewModel.TAG_STREAM, "$label stale stream skipped tracker finalization")
@@ -381,11 +383,11 @@ fun ChatViewModel.cancelEdit() {
 }
 
 /** Keep the original user subtree and position the next send as its sibling. */
-internal suspend fun ChatViewModel.forkBeforeEdit(messageId: String): Boolean =
+internal suspend fun ChatViewModel.forkBeforeEdit(messageId: String): ChatRepository.ActiveConversation? =
     forkConversationBeforeEditedMessage(messageId)
 
-internal suspend fun ChatViewModel.forkConversationBeforeEditedMessage(messageId: String): Boolean {
-    val message = _messages.value.firstOrNull { it.id == messageId } ?: return false
+internal suspend fun ChatViewModel.forkConversationBeforeEditedMessage(messageId: String): ChatRepository.ActiveConversation? {
+    val message = _messages.value.firstOrNull { it.id == messageId } ?: return null
     val persistedId = message.branchAnchorDbId
         ?: message.sourceDbIds.firstOrNull()
         ?: message.id
@@ -393,7 +395,7 @@ internal suspend fun ChatViewModel.forkConversationBeforeEditedMessage(messageId
     val conversation = chatRepository.forkEditedMessageFrom(sid, persistedId)
     installActiveConversation(conversation)
     _canResume.value = false
-    return true
+    return conversation
 }
 
 /** Long-press delete removes only the selected subtree. */
@@ -948,11 +950,16 @@ internal fun ChatViewModel.sendMessage(text: String, skipContextCheck: Boolean) 
         val currentAttachments = _attachments.value
         clearAttachments()
 
+        // 编辑分叉：fork 返回的会话带着 fork 后的图——append 前先用它算
+        // 出新行的兄弟位次，让分支行与气泡同帧出现而不是等回合末 install。
+        var editForkGraph: com.openminis.app.data.ConversationBranchGraph? = null
         if (editingId != null) {
-            if (!forkBeforeEdit(editingId)) {
+            val forked = forkBeforeEdit(editingId)
+            if (forked == null) {
                 _error.value = "无法定位原消息，已取消编辑发送；请重新打开对话后重试"
                 return@launch
             }
+            editForkGraph = forked.graph
         }
 
         val prepared = prepareUserAttachments(currentAttachments, activeSessionId)
@@ -982,6 +989,19 @@ internal fun ChatViewModel.sendMessage(text: String, skipContextCheck: Boolean) 
         val persistedUser = chatRepository.appendMessage(activeSessionId, "user", userPartsJson)
         recordActiveBranchMessage(persistedUser.id)
 
+        // fork 已把活跃叶子移到被编辑消息的父节点——新 append 的行就是
+        // 原消息的兄弟，位置=兄弟数+1。普通发送只在「叶子仍挂子行」的
+        // fork 窗口期（重试失败/进程中断留下的截断态）才可能真带兄弟。
+        val preAppendGraph = editForkGraph ?: lastInstalledBranchGraph
+        val appendedSibling = preAppendGraph?.let { g ->
+            val parentId = g.activeLeafId
+            val hasSiblingSet = if (parentId == null) {
+                editForkGraph != null
+            } else {
+                g.childSetPosition(parentId) != null
+            }
+            if (hasSiblingSet) g.siblingPositionForNewChild(parentId) else null
+        }
         val userMsg = ChatMessage(
             id = persistedUser.id,
             role = "user",
@@ -989,6 +1009,10 @@ internal fun ChatViewModel.sendMessage(text: String, skipContextCheck: Boolean) 
             imageUris = prepared.imageUris,
             attachmentNames = prepared.attachmentNames,
             attachmentUris = prepared.nonImageUris,
+            sourceDbIds = listOf(persistedUser.id),
+            branchAnchorDbId = persistedUser.id,
+            branchIndex = appendedSibling?.index ?: 1,
+            branchCount = appendedSibling?.count ?: 1,
         )
         _messages.value = _messages.value + userMsg
         _submittedUserMessageId.tryEmit(SubmittedUserTurn(userMsg.id, navigationRequestedAtMs))
@@ -1122,7 +1146,6 @@ internal fun ChatViewModel.sendMessage(text: String, skipContextCheck: Boolean) 
                     // we're in the finally block of the agent loop and
                     // the stream has already flushed its last delta.
                     if (streamJob === coroutineContext[Job]) {
-                        publishOverlayReplyExcerpt(activeSessionId)
                         SessionActivityTracker.setInactive(activeSessionId)
                     } else {
                         AppLogger.info(ChatViewModel.TAG_STREAM, "send stale stream skipped tracker finalization")

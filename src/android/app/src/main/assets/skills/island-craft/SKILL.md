@@ -55,7 +55,9 @@ window.addEventListener('noven:frame', () => { /* 重读 NOVEN_FRAME.state 并�
 
 ## 沙箱红线（写了也不生效，别浪费用户的屏）
 
-无网络（CDN/外链图/网络字体/fetch 全部失败）、无本地文件、无存储、无表单提交、无弹窗（alert 被吞）。图片只能 data: 内联——大图片改用内联 SVG 或 CSS 渐变画。`localStorage`/`cookie` 不可用，状态放 JS 变量或 NOVEN_FRAME。
+无网络（CDN/外链图/网络字体/fetch 全部失败）、无存储、无表单提交、无弹窗（alert 被吞）。`localStorage`/`cookie` 不可用，状态放 JS 变量或 NOVEN_FRAME。
+
+**图片例外**：本会话的图片文件可以进岛当素材——用户上传的图、生图产物、工作区文件。src 写 `/var/minis/attachments/uploads/xx.png`（上下文里见到的路径原样用）、`minis://attachments/uploads/xx.png` 或 `novex-res://attachments/uploads/xx.png` 都行，三种等价。仅限图片扩展名（png/jpg/gif/webp/svg/bmp/avif/ico），路径里的 `..` 会被拒。其余资源（CSS/JS/字体文件、其他会话的文件）进不来，大图片不想走文件也可以 data: 内联或内联 SVG。
 
 ## 持久前端件（建一次，之后每轮只喂数据）
 
@@ -65,32 +67,32 @@ window.addEventListener('noven:frame', () => { /* 重读 NOVEN_FRAME.state 并�
 
 ````markdown
 ```novex-def
-{"id":"hp","kind":"html","name":"血量条","slot":"bottom"}
+{"id":"hp","kind":"html","name":"血量条"}
 <style>…</style><div>HP：{{hp}} / {{max}}</div>
 ```
 ````
 
-- 首行 JSON 元信息：`id`（必填）、`kind`：`html`/`math`/`table`、`name`（展示名，可省）、`slot`（默认位置，可省）。
+- 首行 JSON 元信息：`id`（必填）、`kind`：`html`/`math`/`table`、`name`（展示名，可省）。
 - 余下为模板，`{{键名}}` 是占位符，渲染时被当轮数据替换。
-- `math` 的模板写 LaTeX（走数学渲染，适合极简状态条/公式牌）；`table` 的模板写 Markdown 表格（走内置表格渲染）；`html` 走界面岛。
+- `math` 的模板写 LaTeX——走 KaTeX 渲染，**当极简画布用**：`\textcolor{色}{\rule{宽}{高}}` 实心色块按比例拼血条/量表，配方见 `references/canvas.md` 数学节；`table` 的模板写 Markdown 表格（走内置表格渲染）；`html` 走界面岛。
 
 **调用**（每轮只发这个，短小便宜）：
 
 ````markdown
 ```novex-use
-{"id":"hp","slot":"bottom","data":{"hp":42,"max":100}}
+{"id":"hp","data":{"hp":42,"max":100}}
 ```
 ````
 
-`data` 也可写成散键（`{"id":"hp","slot":"bottom","hp":42}`），效果相同。
+`data` 也可写成散键（`{"id":"hp","hp":42}`），效果相同。
 
-**槽位**：`top` 钉在会话顶部、`bottom` 钉在输入框上方、`inline`（缺省）画在这条消息里。**每条 use 自己带 slot，每件以最近一次 use 的位置为准**——要挪位置就在下一轮 use 里换个 slot 写。
+**位置**：件渲染在 use 块写下的位置——像普通文字一样随叙事流排版，写到哪出现在哪；想在下一轮换个位置就在新位置写 use。没有钉位语义，老消息里残留的 `slot` 字段会被忽略。
 
 **约束**：
 
 - `{{key}}` 只替换本轮数据里存在的键，模板里别写和数据键对不上的占位符。
 - html 件的模板照样受上面的沙箱红线约束。
-- 注册/调用块之外照常写叙事正文——同一轮里"底槽血条 + 中间叙事 + inline 战报"就是三个块的事。
+- 注册/调用块之外照常写叙事正文——use 与正文同流排版，血条想出现在战报前后，就把 use 写在战报前后。
 
 ## 把前端件装进卡（做卡时）
 
@@ -101,6 +103,16 @@ window.addEventListener('noven:frame', () => { /* 重读 NOVEN_FRAME.state 并�
 - 路由建议保持"默认"（进开局资料包），模型在第一轮就能看到全部模板和 id；带 `name`/`slot` 元信息能让默认位置开箱就位。
 - 前端件随卡导出/分享：导出的卡里界面皮肤、布局、占位符约定都是作者的版本，这就是作品资产的一部分。
 - 对话中同名 id 的 `novex-def` 会覆盖卡内定义（模型可在剧情里现场改版某件界面）。
+
+## 满幅皮肤岛（overlay）
+
+皮肤 JSON 的 `overlay` 字段可以把**整页 HTML** 盖在整个消息区上——弹幕、书信、终端这类"把对话换个形态呈现"的玩法都走它。和气泡岛的三点差异：
+
+- **画布是整屏**：`position:fixed`/`100vh`/`100vw` 解禁（它就是一屏），底部给「消息」浮钮留 ~40px 空当。
+- **多一个数据源**：`NOVEN_FRAME.messages` = 最近 30 条 `[{role,name,text,streaming}]`，随 `noven:frame` 推送。用它渲染消息投影——overlay 只做呈现，不改消息本体，用户随时能切回原生层。
+- **入场方式**：不写 ```html 块，写进 ` ```novex-skin ` 的 `overlay` 字段（见说明书第 4 章）。
+
+其余沙箱红线不变（无网络、本地图可引）。皮肤图槽位（气泡九宫格/头像框/顶底横幅）的规格同样在说明书第 4 章。
 
 ## 按任务读取
 

@@ -25,7 +25,8 @@ class RequestMaterials(private val store: CardStore) {
     fun prepare(selections: List<SourceSelection>, managedIds: Set<String>, messages: List<TriggerMessage>,
                 window: TriggerWindow, overrides: Map<String,UseOverride> = emptyMap(),
                 historyCarriedModuleIds: Set<String> = emptySet(),
-                manualForThisRequest: Set<String> = emptySet()): RequestMaterialDraft {
+                manualForThisRequest: Set<String> = emptySet(),
+                excludedModuleTags: Set<String> = emptySet()): RequestMaterialDraft {
         val snapshots=selections.map { it.rootId }.distinct().associateWith { id ->
             requireNotNull(store.open(id)) { "采用作品不存在：$id" }
         }
@@ -34,7 +35,13 @@ class RequestMaterials(private val store: CardStore) {
             val saved=snapshots.getValue(selection.rootId)
             val target=ContentTargets.find(saved.content,selection.targetId)
             names[target.id]=target
-            AdoptedSource(target.id,saved.revision,target.modules)
+            // 标签排除（如 novex-frontend 前端资产）：是客户端运行时素材，
+            // 不是模型资料——一个内联大 HTML 的 def 就能撑爆上下文。
+            fun stripExcluded(list: List<ContentModule>): List<ContentModule> =
+                list.filter { it.tags.none(excludedModuleTags::contains) }
+                    .map { it.copy(children = stripExcluded(it.children)) }
+            val modules=if(excludedModuleTags.isEmpty())target.modules else stripExcluded(target.modules)
+            AdoptedSource(target.id,saved.revision,modules)
         }
         val plan=ModuleAdoption.plan(MaterialScope(sources,managedIds),messages,window,overrides,manualForThisRequest,historyCarriedModuleIds)
         val texts=mutableListOf<MaterialText>();val images=mutableListOf<ImagePlacement>()

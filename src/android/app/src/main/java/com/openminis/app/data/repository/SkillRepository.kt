@@ -408,16 +408,41 @@ class SkillRepository(context: Context) {
         }
     }
 
+    /** URL 导入的定性结果：成功给出技能，失败给出用户可懂的分类原因。 */
+    sealed class ImportResult {
+        class Success(val skill: Skill) : ImportResult()
+        sealed class Failure : ImportResult() {
+            /** 地址不是认识的 GitHub raw/repo/tree/blob 形态。 */
+            object UnrecognizedUrl : Failure()
+
+            /** 连接层失败（DNS / 超时 / 无网），[detail] 是异常摘要。 */
+            class Network(val detail: String) : Failure()
+
+            /** 服务器应答了但不是 2xx（404 多半是路径/分支写错）。 */
+            class Http(val code: Int) : Failure()
+
+            /** 下载成功了，但内容不是合法的 SKILL.md。 */
+            object InvalidSkillMd : Failure()
+        }
+    }
+
     /**
      * 从 GitHub 地址导入：先取 SKILL.md 落库（同步，导入方需要结果），
      * 兄弟文件在后台镜像（异步，不随导入屏销毁而中断）。
      */
-    suspend fun importFromGitHub(urlString: String): Skill? = withContext(Dispatchers.IO) {
-        val text = GitHubLocator.rawSkillMdUrl(urlString)?.let { sync.fetchText(it) }
-            ?: return@withContext null
+    suspend fun importFromGitHub(urlString: String): ImportResult = withContext(Dispatchers.IO) {
+        val rawUrl = GitHubLocator.rawSkillMdUrl(urlString)
+            ?: return@withContext ImportResult.Failure.UnrecognizedUrl
+        val text = when (val outcome = sync.fetchTextOutcome(rawUrl)) {
+            is SkillSyncClient.FetchOutcome.Ok -> outcome.body
+            is SkillSyncClient.FetchOutcome.Http ->
+                return@withContext ImportResult.Failure.Http(outcome.code)
+            is SkillSyncClient.FetchOutcome.Net ->
+                return@withContext ImportResult.Failure.Network(outcome.detail)
+        }
         val skill = importFromContent(text, ImportSource.URL, sourceURL = urlString)
-            ?: return@withContext null
-        val target = GitHubLocator.parse(urlString) ?: return@withContext skill
+            ?: return@withContext ImportResult.Failure.InvalidSkillMd
+        val target = GitHubLocator.parse(urlString) ?: return@withContext ImportResult.Success(skill)
         detachedScope.launch {
             val outcome = sync.mirrorDirectory(target, files.dirOf(skill.id), skipRootSkillMd = true)
             stampRefreshed(skill.id)
@@ -429,7 +454,7 @@ class SkillRepository(context: Context) {
                 )
             }
         }
-        skill
+        ImportResult.Success(skill)
     }
 
     /**

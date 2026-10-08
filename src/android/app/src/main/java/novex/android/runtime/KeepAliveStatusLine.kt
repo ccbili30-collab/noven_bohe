@@ -44,18 +44,11 @@ internal class KeepAliveStatusLine(private val context: Context) {
             description = context.getString(R.string.bg_service_channel_description)
             setShowBadge(false)
         }
-        // 提醒渠道走 DEFAULT：要的是弹出来让用户看见"还差一步授权"。
-        val nudge = NotificationChannel(
-            CHANNEL_NUDGE,
-            context.getString(R.string.bg_overlay_nudge_channel_name),
-            NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply {
-            description = context.getString(R.string.bg_overlay_nudge_channel_description)
-            setShowBadge(true)
-        }
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(ongoing)
-        manager.createNotificationChannel(nudge)
+        // 悬浮窗权限提醒渠道随胶囊一并退役；已装机设备的存量渠道清掉，
+        // 免得系统通知设置页里挂一条永不再用的入口。
+        runCatching { manager.deleteNotificationChannel(CHANNEL_NUDGE) }
     }
 
     /** onCreate 里的占位通知：先把前台身份占上，再慢慢装内容。 */
@@ -251,39 +244,6 @@ internal class KeepAliveStatusLine(private val context: Context) {
             Log.d(TAG, "promoted row OK — hasPromotableCharacteristics=true")
         }
         return notification
-    }
-
-    // ── 悬浮窗权限提醒 ───────────────────────────────────────────────
-
-    /** 一次性高优先级提醒：开关开了但 SYSTEM_ALERT_WINDOW 没授予。 */
-    fun postOverlayPermissionNudge() {
-        val toSettings = PendingIntent.getActivity(
-            context,
-            2,
-            Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:${context.packageName}"),
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val body = context.getString(R.string.bg_overlay_nudge_body)
-        val nudge = NotificationCompat.Builder(context, CHANNEL_NUDGE)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(context.getString(R.string.bg_overlay_nudge_title))
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setContentIntent(toSettings)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
-            .build()
-        try {
-            ContextCompat.getSystemService(context, NotificationManager::class.java)
-                ?.notify(NOTIFICATION_NUDGE, nudge)
-            Log.d(TAG, "overlay permission nudge posted (SAW missing while toggle is ON)")
-        } catch (e: Throwable) {
-            Log.w(TAG, "overlay permission nudge failed: ${e.message}", e)
-        }
     }
 
     // ── 图标与文案映射（措辞与站内浮条对齐，冻结） ─────────────────────

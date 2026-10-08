@@ -1,5 +1,6 @@
 package novex.core
 
+import com.openminis.app.data.character.CharacterVersionProfile
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,10 +25,11 @@ object NovexTavernWorldbook {
         val original = NovexTavernExchange.originalSource(profileJson) ?: return null
         val root = JSONObject(original); val data = root.optJSONObject("data") ?: root
         if(!data.has("character_book") || data.isNull("character_book")) return null
-        // Keep the exact field, including malformed types, so unsupported data fails closed.
-        return JSONObject().put("runtimeVersion", 1).put("book", data.get("character_book"))
-            .put("defaultScanDepth", 2).put("defaultCaseSensitive", false).put("defaultPosition", "after_char")
-            .put("localTokenBudget", 2048).toString()
+        // 采用即转译：快照里放规范化 v2 协议（方言止步于 tavern 包），
+        // 运行时只求值自己的 schema。{{char}} 此刻展开为卡显示名。
+        val charName = runCatching { CharacterVersionProfile.fromJson(profileJson).name }
+            .getOrDefault(data.optString("name"))
+        return novex.core.tavern.TavernBookTranslator.translate(data.getJSONObject("character_book"), charName).snapshotJson
     }
     fun evaluate(versionId: String, snapshot: String, visibleMessages: List<String>, tokenBudget: Int,
         countTokens: (String) -> Int): Result {
@@ -39,6 +41,9 @@ object NovexTavernWorldbook {
         }
         val envelope = runCatching { JSONObject(snapshot) }.getOrElse {
             omit(prefix, "采用快照", "格式无效，未执行"); return Result(emptyList(), omissions)
+        }
+        if (envelope.optInt("runtimeVersion") == 2) {
+            return evaluateV2(envelope, prefix, visibleMessages, tokenBudget, countTokens, omissions)
         }
         val book = envelope.optJSONObject("book")
         if(envelope.optInt("runtimeVersion") != 1 || book == null) {
@@ -118,6 +123,93 @@ object NovexTavernWorldbook {
             val reason = if(entry.constant) "常驻" else "主关键词命中，最近 ${entry.depth} 条消息"
             NovexContextFragment(ContextSourceKind.BACKGROUND_MODULE, "${entry.id}:${entry.position}", "世界书 · ${entry.title} · $reason", entry.content, tokens)
         }, omissions)
+    }
+
+    /**
+     * v2 规范化快照求值：键面是 tavern 转译器的产物（正则关键词、次
+     * 关键词、时间令牌），字段语义即本协议。{{time}}/{{date}} 等时间
+     * 令牌在注入时展开为当下时间。
+     */
+    private fun evaluateV2(envelope: JSONObject, prefix: String, visibleMessages: List<String>,
+        tokenBudget: Int, countTokens: (String) -> Int, omissions: MutableList<ContextSourceOmission>): Result {
+        fun omit(id: String, label: String, reason: String) {
+            omissions += ContextSourceOmission(ContextSourceKind.BACKGROUND_MODULE, id, "世界书 · $label", reason)
+        }
+        envelope.optJSONArray("omitted")?.let { arr ->
+            for (i in 0 until arr.length()) omit(prefix, "转译略过", arr.optString(i))
+        }
+        val entries = envelope.optJSONArray("entries") ?: return Result(emptyList(), omissions)
+        data class V2(val index: Int, val title: String, val content: String, val constant: Boolean,
+            val keys: List<String>, val keysRegex: Boolean, val secondaryKeys: List<String>,
+            val depth: Int, val caseSensitive: Boolean, val order: Int, val position: String)
+        val candidates = mutableListOf<V2>()
+        var remaining = minOf(tokenBudget.coerceAtLeast(0), envelope.optInt("localTokenBudget", 2048))
+        val compiled = HashMap<Int, List<Regex>>()
+        fun regexesFor(index: Int, keys: List<String>, sensitive: Boolean): List<Regex> =
+            compiled.getOrPut(index) {
+                keys.map { Regex(it, if (sensitive) emptySet() else setOf(RegexOption.IGNORE_CASE)) }
+            }
+        for (index in 0 until entries.length()) {
+            val row = entries.optJSONObject(index) ?: continue
+            val title = row.optString("title").ifBlank { "条目 ${index + 1}" }
+            row.optJSONArray("approximations")?.let { arr ->
+                for (i in 0 until arr.length()) omit("$prefix:$index", title, "转译近似：${arr.optString(i)}")
+            }
+            val depth = row.optInt("scanDepth", envelope.optInt("defaultScanDepth", 2))
+            val sensitive = row.optBoolean("caseSensitive", false)
+            val keysRegex = row.optBoolean("keysRegex", false)
+            val keysParsed = if (!row.has("keys")) emptyList() else runCatching { strings(row, "keys") }.getOrElse {
+                omit("$prefix:$index", title, "关键词列表格式无效"); null
+            } ?: continue
+            val secondaryKeys = runCatching { strings(row, "secondaryKeys") }.getOrElse { emptyList() }
+            val hit = runCatching {
+                if (row.optBoolean("constant", false)) true
+                else {
+                    val scan = visibleMessages.takeLast(depth)
+                    val keyHit = if (keysRegex) {
+                        val regexes = regexesFor(index, keysParsed, sensitive)
+                        scan.any { msg -> regexes.any { it.containsMatchIn(msg) } }
+                    } else keysParsed.any { key -> scan.any { it.contains(key, ignoreCase = !sensitive) } }
+                    val secHit = secondaryKeys.isEmpty() || secondaryKeys.any { key ->
+                        scan.any { msg -> msg.contains(key, ignoreCase = !sensitive) }
+                    }
+                    keyHit && secHit
+                }
+            }.getOrElse {
+                omit("$prefix:$index", title, "触发求值失败：${it.message}")
+                false
+            }
+            if (!hit) {
+                if (!row.optBoolean("constant", false)) {
+                    omit("$prefix:$index", title, if (depth == 0) "扫描范围为零" else "最近 $depth 条消息未命中关键词")
+                }
+                continue
+            }
+            candidates += V2(index, title, expandTimeTokens(row.optString("content")), row.optBoolean("constant", false),
+                keysParsed, keysRegex, secondaryKeys, depth, sensitive,
+                row.optInt("order", 100), row.optString("position").ifBlank { "after_char" })
+        }
+        val chosen = mutableListOf<Pair<V2, Int>>()
+        candidates.sortedWith(compareByDescending<V2> { it.constant }.thenBy { it.order }.thenBy { it.index }).forEach { entry ->
+            val tokens = countTokens(entry.content).coerceAtLeast(0)
+            if (entry.content.isBlank()) omit("$prefix:${entry.index}", entry.title, "正文为空")
+            else if (tokens > remaining) omit("$prefix:${entry.index}", entry.title, "本轮或全书预算不足，整条未注入")
+            else { remaining -= tokens; chosen += entry to tokens }
+        }
+        return Result(chosen.sortedWith(compareBy<Pair<V2, Int>> { it.first.order }.thenBy { it.first.index }).map { (entry, tokens) ->
+            val reason = if (entry.constant) "常驻" else "主关键词命中，最近 ${entry.depth} 条消息"
+            NovexContextFragment(ContextSourceKind.BACKGROUND_MODULE, "$prefix:${entry.index}:${entry.position}",
+                "世界书 · ${entry.title} · $reason", entry.content, tokens)
+        }, omissions)
+    }
+
+    /** {{time}}/{{date}}/{{datetime}} 令牌 → 当下时间。 */
+    private fun expandTimeTokens(content: String): String {
+        val now = java.time.LocalDateTime.now()
+        return content
+            .replace("{{datetime}}", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")))
+            .replace("{{time}}", now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")))
+            .replace("{{date}}", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd")))
     }
     private fun bool(json: JSONObject, key: String, default: Boolean?): Boolean {
         if(!json.has(key)) return default ?: error("缺少明确的 $key（启用）设置")

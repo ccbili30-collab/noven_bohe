@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.openminis.app.cards.isFrontendModule
+import com.openminis.app.cards.isSkinModule
 import novex.content.flattenModules
 import novex.core.ConversationControlBehavior
 import novex.core.NovexLearningControl
@@ -228,6 +229,7 @@ import novex.android.data.model.RoutingStrategy
 import novex.android.data.model.ThinkingLevel
 import com.openminis.app.data.character.effectiveAssistantAvatarPath
 import com.openminis.app.data.character.effectiveAssistantName
+import com.openminis.app.data.character.effectivePlayerName
 import com.openminis.app.data.character.usesRolePresentation
 import com.openminis.app.data.repository.ChatRepository
 import com.openminis.app.data.repository.ProviderRepository
@@ -833,11 +835,6 @@ fun ChatScreen(
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        // [T-android-overlay-hide-camera] Release the overlay-suppress
-        // gate as soon as we hear back from the camera Activity (success,
-        // cancel, or system kill). Without this the floating overlay
-        // would stay suppressed indefinitely after a single capture.
-        com.openminis.app.service.SessionActivityTracker.setCameraSuppressActive(false)
         val uri = pendingCameraUri
         val file = pendingCameraFilePath?.let { java.io.File(it) }
         pendingCameraUri = null
@@ -874,18 +871,9 @@ fun ChatScreen(
             addFlags(android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        // [T-android-overlay-hide-camera] Suppress the floating bg-overlay
-        // BEFORE handing off to the system camera. The camera Activity
-        // takes foreground, which by #451's rule would otherwise satisfy
-        // "Minis backgrounded → show overlay" and the capsule would draw
-        // on top of the viewfinder. Cleared in the ActivityResult callback.
-        com.openminis.app.service.SessionActivityTracker.setCameraSuppressActive(true)
         runCatching { cameraLauncher.launch(intent) }
             .onFailure {
                 AppLogger.warning("Camera", "launch failed: ${it.message}")
-                // Launch never reached the camera Activity — release the
-                // suppress flag here since the result callback won't fire.
-                com.openminis.app.service.SessionActivityTracker.setCameraSuppressActive(false)
                 pendingCameraUri = null
                 pendingCameraFilePath = null
                 file.delete()
@@ -1598,43 +1586,70 @@ fun ChatScreen(
     // 卡级前端件预铺：绑定卡（主卡+背景卡）里带 novex-frontend 标签的模块，
     // 其正文中的 ```novex-def 定义在会话开始即注册——玩家开局就能被
     // novex-use 调用，模型不必现场重写模板。
-    val cardArtifactDefs by produceState<Map<String, NovexArtifactDef>>(emptyMap(), sessionId) {
+    val cardArtifacts by produceState<Pair<Map<String, NovexArtifactDef>, String?>>(
+        emptyMap<String, NovexArtifactDef>() to null, sessionId,
+    ) {
         viewModel.novexConfigurationJson.collect { raw ->
             value = withContext(Dispatchers.IO) {
                 runCatching {
                     val binding = novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
                         ?.cardBindingJson
                         ?.let(com.openminis.app.cards.CardBinding::decode)
-                        ?: return@withContext emptyMap()
+                        ?: return@withContext (emptyMap<String, NovexArtifactDef>() to null)
                     val pages = novex.storage.TextPages(viewModel.integratedCards.store.contents)
                     val defs = LinkedHashMap<String, NovexArtifactDef>()
+                    var skinJson: String? = null
                     (listOfNotNull(binding.primary) + binding.backgrounds).forEach { sel ->
                         val doc = runCatching { viewModel.integratedCards.store.open(sel.rootId) }
                             .getOrNull()
                             ?.content
                             ?.let { novex.content.ContentTargets.find(it, sel.targetId) }
                             ?: return@forEach
-                        doc.modules.flattenModules()
-                            .filter { it.isFrontendModule() }
-                            .forEach { module ->
-                                module.blocks
-                                    .filterIsInstance<novex.content.ContentBlock.Text>()
-                                    .forEach { block ->
-                                        collectDefsFromText(
-                                            pages.read(block.content, 0, Int.MAX_VALUE).text,
-                                        ).forEach { defs[it.id] = it }
-                                    }
+                        doc.modules.flattenModules().forEach { module ->
+                            val texts = module.blocks
+                                .filterIsInstance<novex.content.ContentBlock.Text>()
+                                .map { pages.read(it.content, 0, Int.MAX_VALUE).text }
+                            if (module.isFrontendModule()) {
+                                texts.forEach { text ->
+                                    collectDefsFromText(text).forEach { defs[it.id] = it }
+                                }
                             }
+                            if (module.isSkinModule()) {
+                                // 卡皮肤模块：正文首个 ```novex-skin 围栏即皮肤 JSON；
+                                // 没带围栏时整段当 JSON 容错。
+                                texts.forEach { text ->
+                                    skinJson = skinJson
+                                        ?: latestNovexSkinFence(text)?.trim()
+                                        ?: text.trim().takeIf { it.startsWith("{") }
+                                }
+                            }
+                        }
                     }
-                    defs.toMap()
-                }.getOrDefault(emptyMap())
+                    defs.toMap() to skinJson
+                }.getOrDefault(emptyMap<String, NovexArtifactDef>() to null)
             }
         }
     }
+    val cardArtifactDefs = cardArtifacts.first
 
-    // 前端件场景：从转录消息里扫 ```novex-def/```novex-use 围栏（解析在
-    // 后台线程，注册表经 CompositionLocal 供消息流内 use 块解析，顶/底
-    // 槽位由下方 Column 里的钉位渲染）。卡预铺 defs 在前，消息内同名 def
+    // 皮肤由卡片模块播种或电脑端管理；消息里的 ```novex-skin 围栏不再
+    // 驱动换装（只渲染一枚低调提示 chip，见 RenderNovexSkinChip）。
+    // 卡皮肤播种：会话尚无皮肤时应用绑定卡的 novex-skin 模块。
+    // 每会话只播一次（seeded 标记）——用户手动卸肤后不重新压上。
+    var cardSkinSeeded by remember(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(cardArtifacts.second) {
+        val skinJson = cardArtifacts.second
+        if (!cardSkinSeeded && skinJson != null && immersiveProfile.skin == null) {
+            cardSkinSeeded = true
+            viewModel.applyChatSkin(skinJson)
+        } else if (skinJson != null) {
+            cardSkinSeeded = true
+        }
+    }
+
+    // 前端件场景：从转录消息里扫 ```novex-def 围栏建注册表（解析在后台
+    // 线程，经 CompositionLocal 供消息流内 use 块就地投影——件总在它写
+    // 的位置渲染，不再有顶/底钉位）。卡预铺 defs 在前，消息内同名 def
     // 可覆盖（运行中重新注册即生效）。
     val novexArtifactScene by produceState(NovexArtifactScene.EMPTY, transcriptMessages, cardArtifactDefs) {
         value = withContext(Dispatchers.Default) {
@@ -1643,7 +1658,7 @@ fun ChatScreen(
     }
 
     // HTML 岛数据桥：卡名/卡类 + 本局状态 → window.NOVEN_FRAME。
-    // playthroughState 也喂给下方状态半圆，故提升到 provider 之前收集。
+    // playthroughState 喂给 HtmlIslandBridge 状态注入，故提升到 provider 之前收集。
     val playthroughState by viewModel.activePlaythroughState.collectAsState()
     val islandCard by produceState<Pair<String, String>?>(null, sessionId) {
         viewModel.novexConfigurationJson.collect { raw ->
@@ -1661,7 +1676,31 @@ fun ChatScreen(
         }
     }
 
+    // 皮肤 accent/输入区色：覆盖 palette 的强调语义位（链接/发送键/思考态）
+    // 与输入框底色/描边/文字色——会话级换色，不动主题本身。底图皮肤在场且
+    // 未声明 inputBg 时输入框半透，让横幅透上来。
+    val skinAccent = parseSkinColor(immersiveProfile.skin?.accent)
+    val skinInputBg = parseSkinColor(immersiveProfile.skin?.inputBg)
+    val skinInputBorder = parseSkinColor(immersiveProfile.skin?.inputBorder)
+    val skinInputText = parseSkinColor(immersiveProfile.skin?.inputText)
+    val skinHasComposer = immersiveProfile.skin?.composer != null
+    val chatPalette = com.openminis.app.ui.theme.LocalChatPalette.current
+    val skinnedPalette = remember(
+        chatPalette, skinAccent, skinInputBg, skinInputBorder, skinInputText, skinHasComposer,
+    ) {
+        chatPalette.copy(
+            accent = skinAccent ?: chatPalette.accent,
+            link = skinAccent ?: chatPalette.link,
+            thinking = skinAccent ?: chatPalette.thinking,
+            inputBg = skinInputBg
+                ?: if (skinHasComposer) chatPalette.inputBg.copy(alpha = 0.78f)
+                else chatPalette.inputBg,
+            inputText = skinInputText ?: chatPalette.inputText,
+            inputBorder = skinInputBorder ?: chatPalette.inputBorder,
+        )
+    }
     CompositionLocalProvider(
+        com.openminis.app.ui.theme.LocalChatPalette provides skinnedPalette,
         LocalMarkdownFontScale provides markdownFontScale,
         LocalToolPreviewEnabled provides toolPreviewEnabled,
         LocalMarkdownUrlClickHandler provides urlClickHandler,
@@ -1675,6 +1714,24 @@ fun ChatScreen(
             cardName = islandCard?.first,
             cardKind = islandCard?.second,
             state = playthroughState,
+            sessionId = sessionId,
+            messagesJson = remember(transcriptMessages, immersiveProfile.effectiveAssistantName, immersiveProfile.effectivePlayerName) {
+                // 覆盖层/岛用的最近消息投影：最近 30 条 {role,name,text}，
+                // 超长正文截断——皮肤层是呈现层不是历史档案。
+                val arr = org.json.JSONArray()
+                transcriptMessages.takeLast(30).forEach { m ->
+                    arr.put(org.json.JSONObject()
+                        .put("role", m.role)
+                        .put("name", when (m.role) {
+                            "user" -> immersiveProfile.effectivePlayerName ?: "我"
+                            "assistant" -> immersiveProfile.effectiveAssistantName ?: "AI"
+                            else -> m.role
+                        })
+                        .put("text", stripNovexProtocolFences(m.content).take(4000))
+                        .put("streaming", m.isStreaming))
+                }
+                arr.toString()
+            },
         ),
         LocalNovexArtifactDefs provides novexArtifactScene.defs,
     ) {
@@ -1686,8 +1743,14 @@ fun ChatScreen(
         modifier = if (immersiveBackground != null) {
             Modifier.paint(immersiveBackgroundPainter, contentScale = ContentScale.Crop)
         } else Modifier,
+        // 皮肤声明的背景走暗化罩层（保留氛围纹样的可读性），用户自选
+        // 壁纸仍走 80% 主题色罩——两条可读性策略分开。
         containerColor = if (immersiveBackground != null) {
-            ChatColors.background.copy(alpha = 0.80f)
+            // 皮肤声明的 scrim 罩层色（缺省黑 38%）；用户自选壁纸仍走 80% 主题罩。
+            immersiveProfile.skin?.background?.let {
+                parseSkinColor(it.scrim)
+                    ?: androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.38f)
+            } ?: ChatColors.background.copy(alpha = 0.80f)
         } else ChatColors.background,
         contentWindowInsets = WindowInsets(0),
         // [feat/ui-rikkahub] 非对称三段式顶栏 → ChatScreenTopBar.kt（ChatTopBar）。
@@ -1755,10 +1818,6 @@ fun ChatScreen(
                     }
                 },
         ) {
-            var latestDataUpdate by remember(sessionId) { mutableStateOf<NovexDataUpdateEvent?>(null) }
-            LaunchedEffect(viewModel, sessionId) {
-                viewModel.novexDataUpdates.collect { event -> latestDataUpdate = event }
-            }
         Column(
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -1766,16 +1825,6 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("正在压缩对话，原消息保留", Modifier.weight(1f))
                 novex.android.ui.TextButton(onClick = viewModel::cancelCompaction) { Text("停止") }
-            }
-
-            // 前端件顶槽：最近一次 use 指定 slot:"top" 的件钉在转录区上方，
-            // 不随消息滚动。每轮只是拿注册表模板就地新画一份投影。
-            if (novexArtifactScene.topPins.isNotEmpty()) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
-                    novexArtifactScene.topPins.forEach { (def, use) ->
-                        RenderNovexArtifact(def, use.data)
-                    }
-                }
             }
 
             // Dismiss keyboard when the USER scrolls the messages. Gated on
@@ -1906,6 +1955,29 @@ fun ChatScreen(
                 // with a 3-button popup (Copy / Copy Markdown / Copy Rich
                 // Text); the latter two read from the bounds registry which
                 // each AssistantMessageView updates via onGloballyPositioned.
+                // 皮肤覆盖层：skin.overlay 声明了整页 HTML 时，转录区整盖成
+                // 一张满幅界面岛——消息流经 NOVEN_FRAME.messages 推给岛自绘
+                // （弹幕/书信/终端等形态）。原生转录只是被盖住不是被替换，
+                // 右下角「消息」浮钮随时切回。
+                val skinOverlayHtml = immersiveProfile.skin?.overlay
+                var peekNativeTranscript by remember(sessionId) { mutableStateOf(false) }
+                if (skinOverlayHtml != null && !peekNativeTranscript) {
+                    Box(Modifier.fillMaxSize()) {
+                        HtmlIsland(html = skinOverlayHtml, fillParent = true)
+                        Text(
+                            text = "消息",
+                            fontSize = 11.sp,
+                            color = ChatColors.primaryText.copy(alpha = 0.8f),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(ChatColors.secondaryBg.copy(alpha = 0.85f))
+                                .clickable { peekNativeTranscript = true }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                        )
+                    }
+                } else {
                 // 转录区（SelectionContainer + LazyColumn + 选区手柄）→
                 // ChatTranscript.kt；跟随/滚动策略状态仍由本函数持有。
                 ChatTranscript(
@@ -1955,16 +2027,23 @@ fun ChatScreen(
                     scrollToPreviousUserTurn = scrollToPreviousUserTurn,
                     scrollToLatestOnce = scrollToLatestOnce,
                 )
-                // above the LazyColumn (top-center), animates in once the
-            }
-
-            // 前端件底槽：slot:"bottom" 的件钉在转录区与输入区之间。
-            if (novexArtifactScene.bottomPins.isNotEmpty()) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
-                    novexArtifactScene.bottomPins.forEach { (def, use) ->
-                        RenderNovexArtifact(def, use.data)
-                    }
+                // 覆盖层皮肤在场但用户正在看原生消息：给一个回皮肤层的浮钮。
+                if (skinOverlayHtml != null && peekNativeTranscript) {
+                    Text(
+                        text = "皮肤层",
+                        fontSize = 11.sp,
+                        color = ChatColors.primaryText.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ChatColors.secondaryBg.copy(alpha = 0.85f))
+                            .clickable { peekNativeTranscript = false }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
                 }
+                }
+                // above the LazyColumn (top-center), animates in once the
             }
 
             // T-chat-title-pill-edit: reuse SessionEditSheet from the session
@@ -1985,6 +2064,19 @@ fun ChatScreen(
             // ─── Input area → ChatComposerSection.kt（@/斜杠菜单、附件条、
             // ContextMeter、发送键与上滑手势、Move-to 胶囊角标）。交互状态经
             // composerEnv 与本函数共享。
+            // 皮肤底栏：fill/texture/hairline 令牌画在输入区底下，
+            // 输入框/按钮悬浮其上（触摸区不变）。
+            val skinComposerBar = immersiveProfile.skin?.composer
+            val skinComposerTexture = rememberSkinBitmap(
+                skinComposerBar?.texture?.img?.let {
+                    immersiveProfile.skin?.resolveAssetPath(it)
+                },
+                sessionId,
+            )
+            Box(Modifier.fillMaxWidth().then(
+                skinComposerBar?.let { Modifier.skinBar(it, skinComposerTexture) }
+                    ?: Modifier
+            )) {
             ChatComposerSection(
                 viewModel = viewModel,
                 env = composerEnv,
@@ -2011,6 +2103,7 @@ fun ChatScreen(
                 filePickerLauncher = filePickerLauncher,
                 onPreviewAttachment = onPreviewAttachment,
             )
+            }
 
             // 就地对话框群（移动/全屏编写/删会话/发送门槛等）→
             // ChatScreenInlineDialogs.kt，开关位仍由本函数持有。
@@ -2072,14 +2165,6 @@ fun ChatScreen(
             requestSidePanel = requestSidePanel,
             onSidePanelConsumed = { requestSidePanel = false },
             onOpenSide = onOpenSideSession,
-            handle = if (sideParentId == null) {
-                val railState = playthroughState
-                if (railState != null) NovexEdgeHandleSpec(
-                    state = railState,
-                    update = latestDataUpdate,
-                    onDismissUpdate = { latestDataUpdate = null },
-                ) else null
-            } else null,
             chromeCollapsed = chromeCollapsed,
         )
         }

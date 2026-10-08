@@ -609,20 +609,3 @@ internal data class TitleGenResult(
     val folder: String?,
 )
 
-/**
- * [T-android-overlay-reply-status-34599] Pull the most recent
- * assistant text out of `_messages` and hand it to
- * [SessionActivityTracker.publishLastReply]. The tracker truncates
- * to a fixed-width excerpt and pairs it with [sessionId] so the
- * floating overlay can render a "tap to open this chat" capsule
- * after the stream completes. No-op when no assistant message has
- * content yet (e.g. fail during the very first turn).
- */
-internal fun ChatViewModel.publishOverlayReplyExcerpt(sessionId: String) {
-    val snapshot = _messages.value
-    val text = snapshot.asReversed().firstOrNull { msg ->
-        msg.role == "assistant" && msg.content.isNotBlank()
-    }?.content
-    SessionActivityTracker.publishLastReply(sessionId, text)
-}
-

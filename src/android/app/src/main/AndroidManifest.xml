@@ -33,7 +33,6 @@
          "Display over other apps" the first time they toggle the feature
          on; the app silently falls back to the Phase 1 notification when
          the permission is missing. -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- T50: deep-link the user to the system battery-optimisation
          exemption dialog when they tap the Background settings row. The
          permission only governs whether ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS

@@ -40,21 +40,20 @@ class NovexArtifactsTest {
     fun `def tolerates unknown kind and missing meta`() {
         assertNull(parseNovexDef("no json here"))
         assertNull(parseNovexDef("""{"kind":"html"}"""))
-        // kind 缺省/非法 → 回落 html；slot 非法 → null。
+        // kind 缺省/非法 → 回落 html；slot 已退役，原样保留不影响落点。
         val def = parseNovexDef("""{"id":"x","kind":"bogus","slot":"sideways"}
 <div/>""")!!
         assertEquals("html", def.kind)
-        assertNull(def.defaultSlot)
+        assertEquals("sideways", def.defaultSlot)
     }
 
     @Test
     fun `use reads data object and loose keys`() {
         val a = parseNovexUse("""{"id":"hp","slot":"bottom","data":{"hp":42,"max":100}}""")!!
-        assertEquals("bottom", a.slot)
+        // slot 是历史字段：仍被解析剔除（不进 data），但不再影响落点。
         assertEquals(mapOf("hp" to "42", "max" to "100"), a.data)
 
         val b = parseNovexUse("""{"id":"hp","hp":42,"note":"灼烧"}""")!!
-        assertNull(b.slot)
         assertEquals(mapOf("hp" to "42", "note" to "灼烧"), b.data)
         assertNull(parseNovexUse("""{"slot":"top"}"""))
     }
@@ -70,7 +69,7 @@ class NovexArtifactsTest {
     }
 
     @Test
-    fun `scene collects defs and resolves pin by latest use per id`() {
+    fun `scene collects defs and uses render in place contributing nothing`() {
         val scene = collectNovexArtifactScene(
             listOf(
                 msg(
@@ -90,71 +89,25 @@ class NovexArtifactsTest {
                     ```novex-use
                     {"id":"hp","slot":"bottom","hp":42}
                     ```
-                    ```novex-use
-                    {"id":"hp","slot":"inline","hp":40}
-                    ```
                     """.trimIndent(),
                 ),
             ),
         )
         assertEquals(setOf("hp"), scene.defs.keys)
-        // 最后一次 use 是 inline → 不占任何钉槽。
-        assertTrue(scene.topPins.isEmpty())
-        assertTrue(scene.bottomPins.isEmpty())
     }
 
     @Test
-    fun `latest use claims its slot for the pin`() {
+    fun `unclosed def fence during streaming does not register`() {
         val scene = collectNovexArtifactScene(
             listOf(
-                msg(
-                    """
-                    ```novex-def
-                    {"id":"a","kind":"html"}
-                    <div>{{v}}</div>
-                    ```
-                    ```novex-use
-                    {"id":"a","slot":"top","v":1}
-                    ```
-                    """.trimIndent(),
-                ),
-                msg("""```novex-use
-{"id":"a","slot":"bottom","v":2}
-```"""),
+                msg("```novex-def\n{\"id\":\"x\",\"kind\":\"math\"}\nHP {{hp}}\n"),
             ),
         )
-        assertTrue(scene.topPins.isEmpty())
-        assertEquals(1, scene.bottomPins.size)
-        assertEquals(mapOf("v" to "2"), scene.bottomPins.single().second.data)
+        assertTrue(scene.defs.isEmpty())
     }
 
     @Test
-    fun `unclosed fence during streaming does not register`() {
-        val scene = collectNovexArtifactScene(
-            listOf(
-                msg(
-                    "```novex-def\n{\"id\":\"x\",\"kind\":\"math\"}\nHP {{hp}}\n```\n" +
-                        "```novex-use\n{\"id\":\"x\",\"slot\":\"top\"",
-                ),
-            ),
-        )
-        assertEquals(setOf("x"), scene.defs.keys)
-        assertTrue(scene.topPins.isEmpty()) // 未闭合的 use 不生效
-    }
-
-    @Test
-    fun `use without def contributes nothing to pins`() {
-        val scene = collectNovexArtifactScene(
-            listOf(msg("""```novex-use
-{"id":"ghost","slot":"top","v":1}
-```""")),
-        )
-        assertTrue(scene.topPins.isEmpty())
-        assertTrue(scene.bottomPins.isEmpty())
-    }
-
-    @Test
-    fun `card-seeded defs resolve uses without in-message def`() {
+    fun `card-seeded defs stay in the registry`() {
         val seed = collectDefsFromText(
             """
             ```novex-def
@@ -170,9 +123,7 @@ class NovexArtifactsTest {
 ```""")),
             seedDefs = seed,
         )
-        // 卡内 def 预铺 + use 无 slot → 用 def 的默认槽位 bottom。
-        assertEquals(1, scene.bottomPins.size)
-        assertEquals(mapOf("hp" to "88"), scene.bottomPins.single().second.data)
+        assertEquals(setOf("hp"), scene.defs.keys)
     }
 
     @Test
@@ -192,5 +143,161 @@ OLD {{hp}}
         )
         assertEquals("html", scene.defs.getValue("hp").kind)
         assertEquals("<div>{{hp}}</div>", scene.defs.getValue("hp").template)
+    }
+
+    @Test
+    fun `skin language gate is independent of def and use`() {
+        assertTrue(isNovexSkinLanguage("novex-skin"))
+        assertTrue(isNovexSkinLanguage(" NOVEX-SKIN "))
+        assertTrue(!isNovexSkinLanguage("novex-def"))
+        assertTrue(!isNovexDefLanguage("novex-skin"))
+        assertTrue(!isNovexUseLanguage("novex-skin"))
+    }
+
+    @Test
+    fun `skin fence returns latest block body`() {
+        val text = """
+            ```novex-skin
+            {"name":"旧皮"}
+            ```
+            中间有正文
+            ```novex-skin
+            {"name":"新皮"}
+            ```
+        """.trimIndent()
+        assertEquals("""{"name":"新皮"}""", latestNovexSkinFence(text)?.trim())
+        assertNull(latestNovexSkinFence("没有围栏的文本"))
+    }
+
+    @Test
+    fun `ChatSkin v1 token parse, legacy slot migration, base resolution`() {
+        // v1 令牌格式：fill/texture/border/shadow/padding/maxWidth/
+        // contentScheme/corners/input/background(scrim)。
+        val skin = com.openminis.app.data.character.ChatSkin.fromJsonString(
+            """
+            {
+              "spec": 1,
+              "name": "墨玉羊皮",
+              "base": "minis://shared/skins/demo/",
+              "bubbleAssistant": {
+                "fill": "#E9DDBB",
+                "texture": {"img": "./paper.png", "tile": true, "alpha": 0.4},
+                "border": {"color": "#A9853F", "width": 1, "radius": 12},
+                "padding": [15, 11, 15, 11],
+                "maxWidth": 330,
+                "contentScheme": "light",
+                "corners": {"img": "./corner.png", "size": 16, "inset": 3}
+              },
+              "bubbleUser": {
+                "fill": "#402E20",
+                "border": {"color": "#9C7B45", "width": 1, "radius": 16},
+                "contentScheme": "dark",
+                "variants": {"queued": {"fill": "#00000000"}}
+              },
+              "avatarFrame": {"color": "#C9A96A", "width": 1.5},
+              "topBar": {"fill": "#1A1408", "hairline": {"color": "#8A6F3F", "edge": "bottom"}},
+              "input": {"bg": "#241B12", "border": "#7A6036", "text": "#EFE3C8"},
+              "background": {"img": "./bg.png", "scrim": "#5C000000"},
+              "accent": "#C9A96A",
+              "overlay": "<html>danmaku</html>"
+            }
+            """.trimIndent(),
+        )!!
+        assertEquals("墨玉羊皮", skin.name)
+        val a = skin.bubbleAssistant!!
+        assertEquals("#E9DDBB", a.fill)
+        assertEquals("./paper.png", a.texture?.img)
+        assertEquals("#A9853F", a.border?.color)
+        assertEquals(listOf(15, 11, 15, 11), a.padding)
+        assertEquals("light", a.contentScheme)
+        assertEquals("./corner.png", a.corners?.img)
+        assertEquals("dark", skin.bubbleUser?.contentScheme)
+        assertEquals("#00000000", skin.bubbleUser?.variants?.get("queued")?.fill)
+        assertEquals("#241B12", skin.inputBg)
+        assertEquals("#5C000000", skin.background?.scrim)
+        assertEquals("#C9A96A", skin.accent)
+        assertEquals("<html>danmaku</html>", skin.overlay)
+
+        // 相对路径挂到 base；绝对路径原样；无 base 的相对路径解析不出。
+        assertEquals("minis://shared/skins/demo/paper.png",
+            skin.resolveAssetPath("./paper.png"))
+        assertEquals("minis://x/y.png", skin.resolveAssetPath("minis://x/y.png"))
+        assertNull(skin.copy(base = null).resolveAssetPath("./paper.png"))
+
+        // 旧格式 {"img","insets","text"} → slice 令牌等价迁移。
+        val legacy = com.openminis.app.data.character.ChatSkin.fromJsonString(
+            """{"bubbleUser": {"img": "minis://a.png", "insets": [24, 20, 24, 20], "text": "#F5E9D0"}}"""
+        )!!
+        assertEquals("minis://a.png", legacy.bubbleUser?.slice?.img)
+        assertEquals(listOf(24, 20, 24, 20), legacy.bubbleUser?.slice?.content)
+        assertEquals("#F5E9D0", legacy.bubbleUser?.text)
+
+        // 空壳与非法值 → null（卸肤语义由调用方处理）。
+        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString("{}"))
+        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString("""{"name":"只有名字"}"""))
+        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString(
+            """{"bubbleUser": {}}"""))
+        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString("不是 json"))
+        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString(null))
+    }
+
+    @Test
+    fun `def parses marker and tavern compat meta`() {
+        val def = parseNovexDef(
+            """
+            {"id":"status","kind":"html","name":"状态栏","marker":"<StatusPlaceHolderImpl/>","compat":"tavern"}
+            <div>page</div>
+            """.trimIndent(),
+        )!!
+        assertEquals("<StatusPlaceHolderImpl/>", def.marker)
+        assertTrue(def.tavernCompat)
+        // 未声明 → 无标记、无适配（模型自写岛保持纯净）。
+        val plain = parseNovexDef("""{"id":"x","kind":"html"}
+<div/>""")!!
+        assertNull(plain.marker)
+        assertTrue(!plain.tavernCompat)
+    }
+
+    @Test
+    fun `marker expansion rewrites literal to use fence at its position`() {
+        val defs = mapOf("status" to NovexArtifactDef(
+            id = "status", kind = "html", name = null, defaultSlot = null,
+            template = "<div/>", marker = "<StatusPlaceHolderImpl/>"))
+        val out = expandNovexMarkers("前文。<StatusPlaceHolderImpl/> 后文。", defs)
+        assertTrue("```novex-use" in out)
+        assertTrue("\"id\":\"status\"" in out.replace("\\",""))
+        assertTrue(out.indexOf("前文") < out.indexOf("novex-use") && out.indexOf("novex-use") < out.indexOf("后文"))
+        // 原文不被修改：无标记消息原样返回同一实例。
+        val plain = "没有标记的消息"
+        assertTrue(expandNovexMarkers(plain, defs) === plain)
+        assertTrue(expandNovexMarkers("<StatusPlaceHolderImpl/>", emptyMap()) == "<StatusPlaceHolderImpl/>")
+    }
+
+    @Test
+    fun `autoMarker appends absent marker at whole-text level only`() {
+        val defs = mapOf("status" to NovexArtifactDef(
+            id = "status", kind = "html", name = null, defaultSlot = null,
+            template = "<div/>", marker = "<StatusPlaceHolderImpl/>", autoMarker = true))
+        // 整条级调用：标记缺席时补到文末并展开成 use 围栏。
+        val out = expandNovexMarkers("正文。", defs, appendAutoMarkers = true)
+        assertTrue(out.indexOf("正文") < out.indexOf("novex-use"))
+        // 已含标记不重复补；片段级调用（默认 false）不补。
+        val has = expandNovexMarkers("带 <StatusPlaceHolderImpl/> 标记。", defs, appendAutoMarkers = true)
+        assertEquals(1, Regex("novex-use").findAll(has).count())
+        assertTrue(expandNovexMarkers("片段。", defs) === "片段。")
+    }
+
+    @Test
+    fun `marker wrapped in a code fence is unwrapped then expanded`() {
+        val defs = mapOf("status" to NovexArtifactDef(
+            id = "status", kind = "html", name = null, defaultSlot = null,
+            template = "<div/>", marker = "<StatusPlaceHolderImpl/>"))
+        // 模型把标记包进裸代码围栏——展开后的 novex-use 必须出围栏，
+        // 否则嵌套围栏按代码渲染。
+        val out = expandNovexMarkers("前文。\n\n```\n<StatusPlaceHolderImpl/>\n```\n\n后文。", defs)
+        assertTrue("```novex-use" in out)
+        // 包裹围栏被拆掉：use 围栏之外只剩一个语言串，没有嵌套反引号。
+        assertEquals(1, Regex("```").findAll(out).count() / 2)
+        assertTrue(out.indexOf("前文") < out.indexOf("novex-use") && out.indexOf("novex-use") < out.indexOf("后文"))
     }
 }

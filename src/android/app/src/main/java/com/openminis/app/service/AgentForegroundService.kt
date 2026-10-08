@@ -3,7 +3,6 @@ package com.openminis.app.service
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.os.IBinder
 import novex.android.runtime.AgentKeepAlive
 
@@ -33,11 +32,6 @@ class AgentForegroundService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         brain.onTaskRemoved()
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        brain.onScreenGeometryChanged(newConfig)
     }
 
     override fun onDestroy() {

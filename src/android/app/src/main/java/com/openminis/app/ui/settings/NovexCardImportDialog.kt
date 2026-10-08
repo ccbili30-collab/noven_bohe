@@ -76,6 +76,9 @@ internal fun NovexCardImportPreviewDialog(
                     novex.core.NovexTavernExchange.sourceSummary(version.profileJson)?.let { message ->
                         Text(message, modifier = Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
                     }
+                    novex.core.NovexTavernExchange.translationReport(version.profileJson)?.let { report ->
+                        Text(report.render(), modifier = Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall)
+                    }
                 }
                 if (bundle != null) {
                     Text("同时导入 ${dependencyNames.size} 张依赖卡片、${bundle.optJSONArray("references")?.length() ?: 0} 条带用途引用。",

@@ -5,7 +5,6 @@ import android.os.SystemClock
 import android.util.Log
 import com.openminis.app.R
 import com.openminis.app.service.AgentForegroundService
-import com.openminis.app.service.ToolOutcome
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +31,6 @@ object LiveSessionHub {
     private const val TAG = "LiveSessionHub"
     private const val DRAFT_PREFIX = "__new__"
     private const val IDLE_LABEL = "Idle"
-    private const val REPLY_EXCERPT_CAP = 72
 
     // ── 对外状态面（门面按原名转发；.value 均为同步读） ──────────────
 
@@ -60,26 +58,6 @@ object LiveSessionHub {
     private val toolExecuting = MutableStateFlow(false)
     val toolBusy: StateFlow<Boolean> = toolExecuting.asStateFlow()
 
-    private val finishedOutcome = MutableStateFlow(ToolOutcome.Unknown)
-    val lastOutcome: StateFlow<ToolOutcome> = finishedOutcome.asStateFlow()
-
-    private val finishedToolKind = MutableStateFlow<String?>(null)
-    val lastToolKind: StateFlow<String?> = finishedToolKind.asStateFlow()
-
-    private val finishedToolHeadline = MutableStateFlow<String?>(null)
-    val lastToolHeadline: StateFlow<String?> = finishedToolHeadline.asStateFlow()
-
-    private val finishedToolStatus = MutableStateFlow<String?>(null)
-    val lastToolStatus: StateFlow<String?> = finishedToolStatus.asStateFlow()
-
-    private val replyDigest = MutableStateFlow<String?>(null)
-    val replyExcerpt: StateFlow<String?> = replyDigest.asStateFlow()
-
-    private val replyForSession = MutableStateFlow<String?>(null)
-    val currentSessionId: StateFlow<String?> = replyForSession.asStateFlow()
-
-    private val cameraHold = MutableStateFlow(false)
-    val cameraHoldActive: StateFlow<Boolean> = cameraHold.asStateFlow()
 
     // ── 私有账本 ─────────────────────────────────────────────────────
 
@@ -108,10 +86,6 @@ object LiveSessionHub {
         onStreamEnded = listener
     }
 
-    fun setCameraHold(active: Boolean) {
-        cameraHold.value = active
-    }
-
     // ── 占据状态流转 ─────────────────────────────────────────────────
 
     /**
@@ -124,13 +98,6 @@ object LiveSessionHub {
         if (onStop != null) {
             synchronized(streamStoppers) { streamStoppers[sessionId] = onStop }
         }
-        // 本轮驱动的会话换了人：回复摘要与上一轮工具快照全部清空，
-        // 免得新会话头上顶着旧会话的尾巴开场。
-        replyForSession.value = sessionId
-        replyDigest.value = null
-        finishedToolKind.value = null
-        finishedToolHeadline.value = null
-        finishedToolStatus.value = null
         if (firstRun) {
             // 新一轮作废上一轮的「已完成」静止态：计时器从零走起。
             runFinishedAt.value = null
@@ -160,9 +127,6 @@ object LiveSessionHub {
             // 只有真在流式的会话才允许制造"完成"事实——对从未启动过的
             // 会话补刀 setInactive 不得伪造完成时间戳。
             if (wasLive) runFinishedAt.value = SystemClock.elapsedRealtime()
-            // 回复摘要与工具收尾快照刻意保留：悬浮胶囊要靠它们渲染
-            // "刚跑完"的终态（对勾/叉 + 回复节选），直到用户点开或划掉。
-            if (failed) finishedOutcome.value = ToolOutcome.Error
         }
         syncService()
         if (wasLive) onStreamEnded?.invoke(sessionId, failed)
@@ -231,57 +195,16 @@ object LiveSessionHub {
         liveToolKind.value = kind
         liveToolHeadline.value = headline?.takeIf { it.isNotBlank() }
         toolExecuting.value = executing
-        // 新工具开跑：上一轮的收尾定性作废，别把旧结果画进新一轮。
-        if (executing) finishedOutcome.value = ToolOutcome.Unknown
         if (streaming.value.isNotEmpty()) syncService()
     }
 
-    /**
-     * 工具收尾：保留身份与状态快照（供胶囊渲染"刚做完什么"），撤下
-     * 运行位。对空转调用（本来就没在跑也没工具名）直接忽略。
-     */
-    fun closeToolRun(outcome: ToolOutcome = ToolOutcome.Unknown) {
+    /** 工具收尾：撤下运行位。对空转调用（本来就没在跑也没工具名）忽略。 */
+    fun closeToolRun() {
         if (!toolExecuting.value && liveToolKind.value == null) return
-        finishedToolKind.value = liveToolKind.value
-        finishedToolHeadline.value = liveToolHeadline.value
-        finishedToolStatus.value = toolStatusText.value
-            ?.takeIf { it.isNotBlank() && !it.equals(IDLE_LABEL, ignoreCase = true) }
         liveToolKind.value = null
         liveToolHeadline.value = null
         toolExecuting.value = false
-        finishedOutcome.value = outcome
         if (streaming.value.isNotEmpty()) syncService()
-    }
-
-    // ── 回复摘要（悬浮胶囊用） ───────────────────────────────────────
-
-    /**
-     * 发布该会话最近一条助手回复的节选：折行合并、截到
-     * [REPLY_EXCERPT_CAP] 字加省略号；空文本不动任何状态。
-     */
-    fun publishReply(sessionId: String, fullText: String?) {
-        val collapsed = fullText
-            ?.lineSequence()
-            ?.map { it.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?.joinToString(" ")
-            ?.takeIf { it.isNotBlank() } ?: return
-        val digest = if (collapsed.length > REPLY_EXCERPT_CAP) {
-            collapsed.substring(0, REPLY_EXCERPT_CAP).trimEnd() + "…"
-        } else {
-            collapsed
-        }
-        replyForSession.value = sessionId
-        replyDigest.value = digest
-    }
-
-    /** 用户划掉悬浮胶囊：摘要与收尾快照清零（流式本身不受影响）。 */
-    fun forgetOverlayDigest() {
-        replyDigest.value = null
-        finishedOutcome.value = ToolOutcome.Unknown
-        finishedToolKind.value = null
-        finishedToolHeadline.value = null
-        finishedToolStatus.value = null
     }
 
     // ── 服务裁决 ─────────────────────────────────────────────────────

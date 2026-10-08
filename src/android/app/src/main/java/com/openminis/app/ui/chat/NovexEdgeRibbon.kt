@@ -42,7 +42,6 @@ import novex.android.ui.NovexColors
 /**
  * 侧边组件家族（2026-09-15 第三轮重排）：外形各异、手势同源——
  * - 书签 = 左缘细长条（真书签），跨主线↔侧边页常驻，按下即拖动仅用于排序；
- * - 状态把手 = 右缘淡半圆，固定停靠，按下即拖沿边上下；
  * 共用的手感规则在本文件：按下立刻放大 + 轻触感（"点没点中一目了然"），
  * 系统手势排除（贴边触摸不被返回手势抢走），拖动零等待（一移动就跟手，
  * 按住不动抬起 = 点按）。
@@ -148,25 +147,14 @@ internal fun bookmarkEarShape(corner: Dp = 10.dp): Shape =
         topStart = 0.dp, topEnd = corner, bottomEnd = corner, bottomStart = 0.dp,
     )
 
-/** 状态条凸耳形状：右缘探出的圆角小卡（与书签耳镜像）。 */
-internal fun statusEarShape(corner: Dp = 10.dp): Shape =
+/** 侧边面板卡片形状：贴左缘直角、右缘上下圆角（与书签耳镜像）。 */
+internal fun edgePanelShape(corner: Dp = 10.dp): Shape =
     androidx.compose.foundation.shape.RoundedCornerShape(
         topStart = corner, topEnd = 0.dp, bottomEnd = 0.dp, bottomStart = corner,
     )
 
 /** 沿边位置 / 顺序 / 面板尺寸持久化。兼容旧"RIGHT:0.35"格式（取冒号后比例）。 */
 internal object NovexEdgePrefs {
-    fun readFraction(context: Context, prefsName: String, key: String, default: Float = 0.35f): Float {
-        val raw = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE).getString(key, null) ?: return default
-        val value = raw.substringAfter(':').toFloatOrNull() ?: return default
-        return value.coerceIn(0f, 1f)
-    }
-
-    fun writeFraction(context: Context, prefsName: String, key: String, fraction: Float) {
-        context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-            .edit().putString(key, "RIGHT:${fraction.coerceIn(0f, 1f)}").apply()
-    }
-
     fun readOrder(context: Context, prefsName: String, key: String): List<String>? {
         val raw = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE).getString(key, null) ?: return null
         return raw.split(',').filter { it.isNotBlank() }.ifEmpty { null }
@@ -177,22 +165,9 @@ internal object NovexEdgePrefs {
             .edit().putString(key, ids.joinToString(",")).apply()
     }
 
-    fun readSize(context: Context, prefsName: String, key: String): Pair<Int, Int>? {
-        val raw = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE).getString(key, null) ?: return null
-        val parts = raw.split('x')
-        val w = parts.getOrNull(0)?.toIntOrNull() ?: return null
-        val h = parts.getOrNull(1)?.toIntOrNull() ?: return null
-        return w to h
-    }
-
-    fun writeSize(context: Context, prefsName: String, key: String, widthDp: Int, heightDp: Int) {
-        context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-            .edit().putString(key, "${widthDp}x${heightDp}").apply()
-    }
 }
 
 /** 家族统一 prefs 名与键。 */
-internal const val EDGE_PREFS_HUD = "novex_playthrough_hud"
 internal const val EDGE_PREFS_SIDES = "novex_side_conversations"
 
 /** 书签凸耳尺寸（edge-v1/01）：半出屏白卡，屏内只露右半段与编号。 */
@@ -201,11 +176,6 @@ internal val BookmarkEarHeight = 34.dp
 internal val BookmarkEarCurrentLength = 58.dp
 internal val BookmarkEarCurrentHeight = 40.dp
 internal val BookmarkEarGap = 6.dp
-
-/** 状态条凸耳：宽度固定、高度随格数（每格 30dp），最多 4 格 + 溢出指示。 */
-internal val StatusEarWidth = 54.dp
-internal val StatusEarCellHeight = 30.dp
-internal const val StatusEarMaxCells = 4
 
 /** 设计令牌的取值入口——必须从组合环境调用（getter 是 @Composable）。 */
 @Composable

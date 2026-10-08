@@ -50,6 +50,7 @@ internal sealed interface ChatTranscriptAction {
     data object RevertCompact : ChatTranscriptAction
     data object ToggleCompactedHistory : ChatTranscriptAction
     data class SwitchBranch(val messageId: String, val delta: Int) : ChatTranscriptAction
+    data class SwitchChildBranch(val parentId: String, val delta: Int) : ChatTranscriptAction
 }
 
 /** A single transcript row. List keys, scroll ownership and mutation ordering stay with the host. */
@@ -61,6 +62,7 @@ internal fun ChatTranscriptRow(
     selectionController: SelectionController,
     panelExpansionState: PanelExpansionState,
     perTurnPrompt: String = "",
+    bubbleGroupPos: SkinGroupPos = SkinGroupPos.SOLO,
     onAction: (ChatTranscriptAction) -> Unit,
 ) {
     val context = LocalContext.current
@@ -140,7 +142,7 @@ internal fun ChatTranscriptRow(
             slotKey = "text:${item.block.id}",
             markdown = item.messageMarkdown,
         ) {
-            CharacterAssistantBubble {
+            CharacterAssistantBubble(item.isStreaming, bubbleGroupPos) {
             // T-android-gc-storm-issue17: collapse oversized frozen
             // assistant text before feeding the markdown parser, which
             // is the GC-storm hotspot for legacy sessions.
@@ -168,7 +170,7 @@ internal fun ChatTranscriptRow(
             slotKey = "mdblock:${item.parentBlockId}:${item.blockIndex}",
             markdown = item.messageMarkdown,
         ) {
-            CharacterAssistantBubble {
+            CharacterAssistantBubble(item.messageIsStreaming, bubbleGroupPos) {
             LargeContentGuard(
                 content = item.rawText,
                 isStreaming = item.isStreaming,
@@ -184,6 +186,7 @@ internal fun ChatTranscriptRow(
                         messageId = item.messageId,
                         shardId = "mdblock:${item.parentBlockId}:${item.blockIndex}",
                     ),
+                    isLastBlockOfMessage = item.isLastBlockOfMessage,
                 )
             }
             }
@@ -319,6 +322,23 @@ internal fun ChatTranscriptRow(
                 onAction(ChatTranscriptAction.SwitchBranch(item.messageId, 1))
             },
         )
+        is FlatChatItem.ChildBranchPicker -> if (item.count > 1) {
+            ConversationBranchSwitcher(
+                index = item.index,
+                count = item.count,
+                onPrevious = {
+                    onAction(ChatTranscriptAction.SwitchChildBranch(item.parentId, -1))
+                },
+                onNext = {
+                    onAction(ChatTranscriptAction.SwitchChildBranch(item.parentId, 1))
+                },
+            )
+        } else {
+            // 唯一一条后续分支不需要左右翻页——单行直达。
+            ChildBranchContinueRow {
+                onAction(ChatTranscriptAction.SwitchChildBranch(item.parentId, 1))
+            }
+        }
         is FlatChatItem.AssistantLegacyContent -> BoundsTrackedBlock(
             messageId = item.messageId,
             slotKey = "legacy",
@@ -387,6 +407,35 @@ private fun ConversationBranchSwitcher(
                 modifier = Modifier.size(18.dp),
             )
         }
+    }
+}
+
+/**
+ * 「后续分支」单条直达行：活跃路径的叶子下还挂着一条已存子行时
+ * （fork 窗口/中断截断态），给一条走回去的入口。
+ */
+@Composable
+private fun ChildBranchContinueRow(onContinue: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onContinue)
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "查看后续分支",
+            color = ChatColors.secondaryText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Icon(
+            imageVector = novex.android.ui.NovexIcons.ChevronRight,
+            contentDescription = "查看后续分支",
+            tint = ChatColors.secondaryText,
+            modifier = Modifier.size(14.dp),
+        )
     }
 }
 

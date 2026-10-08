@@ -90,6 +90,7 @@ object Routes {
     fun addProvider(preset: String? = null): String =
         if (preset.isNullOrBlank()) "add_provider" else "add_provider?preset=$preset"
     const val IMAGE_GENERATION_SETTINGS = "image_generation_settings"
+    const val WEB_ACCESS_SETTINGS = "web_access_settings"
     const val IMAGE_GENERATION_SOURCE = "image_generation_source/{sourceId}"
     fun imageGenerationSource(sourceId: String) = "image_generation_source/$sourceId"
     const val PROVIDER_DETAIL = "provider/{instanceId}"

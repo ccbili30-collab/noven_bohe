@@ -44,6 +44,21 @@ interface SessionReads {
     )
     suspend fun searchSessions(pattern: String): List<SessionRow>
 
+    /**
+     * 卡入口续聊：找最近一条以此卡为**主绑定**的会话。
+     * pattern 由调用方拼成 %"primary":[{"root":"<root>","target":"<target>"%
+     * 形状（cardBinding 编码顺序固定），只命中 primary 位——背景卡/管理
+     * 挂载不算"这张卡的对话"。character_id/world_id 兼容旧制卡会话。
+     * 侧叉（side_of_session）不算独立会话，排除。
+     */
+    @Query(
+        "SELECT id FROM sessions WHERE side_of_session IS NULL AND (" +
+            "novex_configuration_json LIKE :pattern ESCAPE '\\' " +
+            "OR character_id = :key OR world_id = :key) " +
+            "ORDER BY updated_at DESC LIMIT 1",
+    )
+    suspend fun latestSessionForCard(key: String, pattern: String): String?
+
     /** Pinned block first, newest pin on top, then everything else by recency. */
     @Query(
         """
@@ -123,6 +138,9 @@ interface SessionWrites {
 
     @Query("UPDATE sessions SET chat_background_path = :backgroundPath WHERE id = :sessionId")
     suspend fun setChatWallpaper(sessionId: String, backgroundPath: String?)
+
+    @Query("UPDATE sessions SET chat_skin_json = :skinJson WHERE id = :sessionId")
+    suspend fun setChatSkin(sessionId: String, skinJson: String?)
 
     @Query(
         """

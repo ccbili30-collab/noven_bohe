@@ -269,6 +269,7 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 onProvidersClick = { navController.safeNavigate(Routes.PROVIDER_LIST) },
                 onModelGroupsClick = { navController.safeNavigate(Routes.MODEL_GROUPS) },
                 onImageGenerationClick = { navController.safeNavigate(Routes.IMAGE_GENERATION_SETTINGS) },
+                onWebAccessClick = { navController.safeNavigate(Routes.WEB_ACCESS_SETTINGS) },
                 onSkillsClick = { navController.safeNavigate(Routes.SKILLS) },
                 onSoulClick = { navController.safeNavigate(Routes.SOUL) },
                 onUsageClick = { navController.safeNavigate(Routes.USAGE_STATS) },

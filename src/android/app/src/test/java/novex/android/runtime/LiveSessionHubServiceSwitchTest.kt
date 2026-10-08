@@ -1,9 +1,7 @@
 package novex.android.runtime
 
 import android.app.Application
-import com.openminis.app.service.ToolOutcome
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -18,8 +16,8 @@ import org.robolectric.annotation.Config
 /**
  * P3.5b 重写后的保活中枢关键行为守护：
  *  - 流式边沿起服务、全空停服务、纯草稿在场不起服务；
- *  - 工具信号三入口的差别（旧式只改文案 / 完整信号 / 收尾快照）；
- *  - 回复摘要截断、划掉后的清零、运行计时锚点的起落；
+ *  - 工具信号两入口的差别（旧式只改文案 / 完整信号）与收尾归零；
+ *  - 运行计时锚点的起落；
  *  - 通知栏停止按键扇出到各会话的取消回调。
  */
 @RunWith(RobolectricTestRunner::class)
@@ -68,51 +66,14 @@ class LiveSessionHubServiceSwitchTest {
         assertEquals("装环境", LiveSessionHub.toolHeadline.value)
     }
 
-    @Test fun startingAToolClearsPreviousOutcomeAndCloseSnapshotsIt() {
-        LiveSessionHub.pushToolSignal("done", "shell_execute", false, null)
-        LiveSessionHub.pushToolSignal("Running: browser", "browser_use", true, null)
-        assertEquals(ToolOutcome.Unknown, LiveSessionHub.lastOutcome.value)
-
-        LiveSessionHub.closeToolRun(ToolOutcome.Success)
-        assertFalse(LiveSessionHub.toolBusy.value)
+    @Test fun closeToolRunDropsKindBusyAndHeadline() {
+        LiveSessionHub.pushToolSignal("Running: browser", "browser_use", true, "查资料")
+        LiveSessionHub.closeToolRun()
         assertNull(LiveSessionHub.toolKind.value)
-        assertEquals(ToolOutcome.Success, LiveSessionHub.lastOutcome.value)
-        assertEquals("browser_use", LiveSessionHub.lastToolKind.value)
-        assertEquals("Running: browser", LiveSessionHub.lastToolStatus.value)
+        assertNull(LiveSessionHub.toolHeadline.value)
+        assertEquals(false, LiveSessionHub.toolBusy.value)
     }
 
-    @Test fun idleStatusIsNotKeptAsCompletionSnapshot() {
-        LiveSessionHub.pushToolSignal("Idle", "shell_execute", true, null)
-        LiveSessionHub.closeToolRun(ToolOutcome.Error)
-        assertNull("Idle 占位文案不得进收尾快照", LiveSessionHub.lastToolStatus.value)
-    }
-
-    @Test fun replyDigestIsSingleLinedAndCapped() {
-        LiveSessionHub.publishReply("s1", "第一行\n\n第二行  \n第三行")
-        assertEquals("第一行 第二行 第三行", LiveSessionHub.replyExcerpt.value)
-        assertEquals("s1", LiveSessionHub.currentSessionId.value)
-
-        val long = "x".repeat(100)
-        LiveSessionHub.publishReply("s1", long)
-        val digest = LiveSessionHub.replyExcerpt.value!!
-        assertEquals(73, digest.length) // 72 字 + 省略号
-        assertTrue(digest.endsWith("…"))
-
-        LiveSessionHub.publishReply("s1", "   ") // 空白不得覆盖已有摘要
-        assertEquals(digest, LiveSessionHub.replyExcerpt.value)
-    }
-
-    @Test fun forgettingTheDigestClearsCompletionStateButNotStreams() {
-        LiveSessionHub.markStreaming("s9")
-        LiveSessionHub.pushToolSignal("done", "shell_execute", false, null)
-        LiveSessionHub.closeToolRun(ToolOutcome.Timeout)
-        LiveSessionHub.forgetOverlayDigest()
-        assertEquals(ToolOutcome.Unknown, LiveSessionHub.lastOutcome.value)
-        assertNull(LiveSessionHub.lastToolKind.value)
-        assertNull(LiveSessionHub.replyExcerpt.value)
-        assertTrue("划掉胶囊不得影响流式本身", LiveSessionHub.isStreaming("s9"))
-        LiveSessionHub.markStreamEnded("s9")
-    }
 
     @Test fun runClockAnchorsRiseAndFallWithTheStreamingSet() {
         LiveSessionHub.markStreaming("r1")

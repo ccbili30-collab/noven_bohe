@@ -132,6 +132,8 @@ internal fun RenderBlock(block: MdBlock) {
                 RenderNovexDefChip(block.code)
             } else if (isNovexUseLanguage(block.language) && !liveIncremental) {
                 RenderNovexUse(block.code)
+            } else if (isNovexSkinLanguage(block.language) && !liveIncremental) {
+                RenderNovexSkinChip(block.code)
             } else {
             val clipboardManager = LocalClipboardManager.current
             var copied by remember { mutableStateOf(false) }

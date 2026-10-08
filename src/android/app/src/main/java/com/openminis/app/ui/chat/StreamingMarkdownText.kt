@@ -175,17 +175,28 @@ private fun StreamingMarkdownTextBody(
     isStreaming: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    // 整条文本级显示变换在节流/解析之前做一次：剥除酒馆 MVU 协议块
+    // （<UpdateVariable> 多段文本，不能在片段级做），并把注册表里带
+    // marker 的 def 字面量就地展开成 novex-use 围栏。持久化原文不动。
+    val artifactDefs = LocalNovexArtifactDefs.current
+    val preparedContent = remember(content, artifactDefs) {
+        expandNovexMarkers(
+            novex.core.tavern.MvuStateProtocol.stripBlocks(content),
+            artifactDefs,
+            appendAutoMarkers = true,
+        )
+    }
     // While streaming, sample `content` at the adaptive throttle interval.
     // produceState + snapshotFlow.conflate() makes the upstream value collection
     // suspend-safe and frees the runtime to drop intermediate values when the
     // collector falls behind. When streaming ends, emit the final value
     // unconditionally so we don't render a stale half-block.
-    val displayContent by produceState(initialValue = content, content, isStreaming) {
+    val displayContent by produceState(initialValue = preparedContent, preparedContent, isStreaming) {
         if (!isStreaming) {
-            value = content
+            value = preparedContent
             return@produceState
         }
-        snapshotFlow { content }
+        snapshotFlow { preparedContent }
             .conflate()
             .collect { latest ->
                 value = latest
@@ -456,6 +467,8 @@ fun MarkdownBlock(
      * in no selection (legacy behavior).
      */
     shardId: TextShardId? = null,
+    /** 该片段是整条消息的末尾：autoMarker def 的补插只在末尾发生。 */
+    isLastBlockOfMessage: Boolean = false,
 ) {
     if (shardId != null) {
         androidx.compose.runtime.CompositionLocalProvider(LocalShardId provides shardId) {
@@ -463,12 +476,12 @@ fun MarkdownBlock(
             // several MdTexts a multi-block fragment renders under this one
             // shardId so each registers its own shard.
             ShardSubIndexScope {
-                MarkdownBlockBody(rawText, isStreaming, modifier)
+                MarkdownBlockBody(rawText, isStreaming, modifier, isLastBlockOfMessage)
             }
         }
         return
     }
-    MarkdownBlockBody(rawText, isStreaming, modifier)
+    MarkdownBlockBody(rawText, isStreaming, modifier, isLastBlockOfMessage)
 }
 
 @Composable
@@ -476,7 +489,22 @@ private fun MarkdownBlockBody(
     rawText: String,
     isStreaming: Boolean,
     modifier: Modifier = Modifier,
+    isLastBlockOfMessage: Boolean = false,
 ) {
+    // 显示期标记展开：注册表里带 marker 的 def（导入资产的前端件）把消息
+    // 里的字面量标记就地展开成 novex-use 围栏——复用块解析/投影管线，原文
+    // 不改。无 marker 定义时原样返回同一实例，remember/缓存键语义不变。
+    val artifactDefs = LocalNovexArtifactDefs.current
+    val displayText = remember(rawText, artifactDefs, isLastBlockOfMessage) {
+        // 酒馆 MVU 协议块（<UpdateVariable><JSONPatch>…）显示期剥除——
+        // 状态已在持久化时被 MvuStateProtocol 提取落库，块本身是协议噪音。
+        expandNovexMarkers(
+            novex.core.tavern.MvuStateProtocol.stripBlocks(rawText),
+            artifactDefs,
+            appendAutoMarkers = isLastBlockOfMessage,
+        )
+    }
+
     // For frozen blocks, parse once per distinct fragment text PROCESS-WIDE
     // ([MarkdownParseCaches.blocks]) — scroll-away/return and session re-entry
     // are cache hits instead of fresh main-thread parses. remember() keeps the
@@ -493,9 +521,9 @@ private fun MarkdownBlockBody(
     // with a bounded plain-text preview in the meantime — same structure as
     // the live branch below.
     if (!isStreaming) {
-        val cached = remember(rawText) { MarkdownParseCaches.cachedBlocks(rawText) }
+        val cached = remember(displayText) { MarkdownParseCaches.cachedBlocks(displayText) }
         // [T-android-longtext-anr] Synchronous render ONLY on a real cache HIT.
-        // The old `|| rawText.length <= COLD_PARSE_OFFMAIN_THRESHOLD_CHARS` clause
+        // The old `|| displayText.length <= COLD_PARSE_OFFMAIN_THRESHOLD_CHARS` clause
         // let a small fragment parse (block-split + per-block inline regex) on the
         // main thread during composition. Individually sub-ms, but on session open
         // the first screen holds ~20 messages split into dozens of small fragments;
@@ -514,11 +542,11 @@ private fun MarkdownBlockBody(
             return
         }
         val mdColors = currentMdColors()
-        var parsed by remember(rawText) { mutableStateOf<List<MdBlock>?>(null) }
-        LaunchedEffect(rawText) {
+        var parsed by remember(displayText) { mutableStateOf<List<MdBlock>?>(null) }
+        LaunchedEffect(displayText) {
             val tStartNs = System.nanoTime()
             val computed = withContext(Dispatchers.Default) {
-                MarkdownParseCaches.blocks(rawText).also {
+                MarkdownParseCaches.blocks(displayText).also {
                     MarkdownParseCaches.prewarm(it, mdColors)
                 }
             }
@@ -526,7 +554,7 @@ private fun MarkdownBlockBody(
             parsed = computed
             com.openminis.app.logging.AppLogger.info(
                 "Perf",
-                "[Perf][ColdParse] step=coldParse.offmain chars=${rawText.length} " +
+                "[Perf][ColdParse] step=coldParse.offmain chars=${displayText.length} " +
                     "blocks=${computed.size} parseMs=${(System.nanoTime() - tStartNs) / 1_000_000}",
             )
         }
@@ -536,7 +564,7 @@ private fun MarkdownBlockBody(
                 // Bounded plain-text preview while the off-main parse runs —
                 // one cheap Text layout, no markdown/regex/AnnotatedString.
                 Text(
-                    text = rawText.take(COLD_PARSE_PREVIEW_CHARS),
+                    text = displayText.take(COLD_PARSE_PREVIEW_CHARS),
                     fontSize = BaseFontSize,
                     lineHeight = BaseLineHeight,
                     color = currentMdColors().text,
@@ -553,7 +581,7 @@ private fun MarkdownBlockBody(
     // it in full on every publish is O(fragment) with no upper bound, so over
     // the threshold render a bounded plain-text tail instead and do the full
     // parse ONCE when the fragment freezes (isStreaming flips false above).
-    if (rawText.length > LIVE_FRAGMENT_DEGRADE_CHARS) {
+    if (displayText.length > LIVE_FRAGMENT_DEGRADE_CHARS) {
         Column(modifier = modifier) {
             Text(
                 text = stringResource(R.string.chat_stream_degraded_notice),
@@ -561,7 +589,7 @@ private fun MarkdownBlockBody(
                 color = currentMdColors().blockquote,
             )
             Text(
-                text = "…" + rawText.takeLast(LIVE_FRAGMENT_TAIL_CHARS),
+                text = "…" + displayText.takeLast(LIVE_FRAGMENT_TAIL_CHARS),
                 fontSize = BaseFontSize,
                 lineHeight = BaseLineHeight,
                 color = currentMdColors().text,
@@ -578,11 +606,11 @@ private fun MarkdownBlockBody(
     // structurally broken: streaming text is split into many short-lived
     // fragment items, so this produceState (and its lastFlushMs accumulator)
     // reset on every fragment rebuild and never throttled at all — diagnostics
-    // showed every tick flushing. `rawText` arriving here is already paced by
+    // showed every tick flushing. `displayText` arriving here is already paced by
     // the VM, so the fragment just renders it directly; parse stays off-main
     // below.
-    val displayContent by produceState(initialValue = rawText, rawText) {
-        snapshotFlow { rawText }.conflate().collect { value = it }
+    val displayContent by produceState(initialValue = displayText, displayText) {
+        snapshotFlow { displayText }.conflate().collect { value = it }
     }
     // [T-android-inline-parse-offmain] Snapshot the theme colors in
     // composition so the Default-thread parse below can PREWARM the inline

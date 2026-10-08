@@ -5,6 +5,7 @@ import novex.android.data.MIGRATION_35_36
 import novex.android.data.MIGRATION_36_37
 import novex.android.data.MIGRATION_37_38
 import novex.android.data.MIGRATION_38_39
+import novex.android.data.MIGRATION_39_40
 
 import android.app.Application
 import androidx.room.Room
@@ -29,7 +30,7 @@ class NovexComposerDraftPersistenceTest {
     @Test fun upgradeAndReopenKeepUnsentTextSeparateFromMessagesAndOtherConversations() = runBlocking {
         val path = File(files.root, "draft.db").absolutePath
         fun open() = Room.databaseBuilder(RuntimeEnvironment.getApplication(), NovexMainDatabase::class.java, path)
-            .addMigrations(MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39).allowMainThreadQueries().build()
+            .addMigrations(MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_39_40).allowMainThreadQueries().build()
         var db = open()
         var repository = ChatRepository(db.chatDao())
         val first = repository.createSession("unknown", title = "尚未连接模型")

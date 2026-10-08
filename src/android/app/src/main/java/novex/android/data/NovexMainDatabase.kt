@@ -94,7 +94,7 @@ import com.openminis.app.data.interactivefiction.InteractiveFictionProjectEntity
         GameRevisionRow::class,
         CardDirectoryRow::class,
     ],
-    version = 39,
+    version = 40,
     exportSchema = false,
 )
 @TypeConverters(

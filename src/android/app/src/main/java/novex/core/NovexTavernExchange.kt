@@ -36,6 +36,14 @@ object NovexTavernExchange {
             .put("content", JSONObject().put("text", data.optString(field)))
             .put("extensions", JSONObject().put("novex_tavern", JSONObject().put("field", field)))
         }
+        // depth_prompt（定深注入）没有对应语义：并入回复后置要求，保内容不丢。
+        val depthPrompt = data.optJSONObject("extensions")?.optJSONObject("depth_prompt")
+            ?.optString("prompt")?.takeIf { it.isNotBlank() }
+        if (depthPrompt != null) {
+            modules.firstOrNull { it.getString("id") == "field-post_history_instructions" }
+                ?.getJSONObject("content")?.put("text",
+                    data.optString("post_history_instructions") + "\n\n" + depthPrompt)
+        }
         val archive = JSONObject().put("rawJson", source).put("format", format)
             .put("formatVersion", raw.optString("spec_version"))
             .put("sha256", digest(source)).put("mappedFields", JSONArray(fields.keys.toList()))
@@ -62,6 +70,12 @@ object NovexTavernExchange {
     }
 
     fun originalSource(profileJson: String): String? = sourceRecord(profileJson)?.optString("rawJson")
+
+    /** 归档原始 JSON → 酒馆资产盘点报告（导入预览展示用）。 */
+    fun translationReport(profileJson: String): novex.core.tavern.TavernCardAnalyzer.Report? =
+        originalSource(profileJson)
+            ?.let(novex.core.tavern.TavernCardAnalyzer::analyze)
+            ?.let(novex.core.tavern.TavernCardAnalyzer::report)
 
     fun readSource(profileJson: String, versionId: String, offset: Int, limit: Int, revision: String?): JSONObject {
         val text = requireNotNull(originalSource(profileJson)) { "当前角色版本没有保存酒馆原始数据" }

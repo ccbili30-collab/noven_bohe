@@ -274,7 +274,7 @@ class IntegratedCards(context:Context,
         val currentActivationKey = com.openminis.app.cards.CardBinding(
             primary = binding.primary, backgrounds = binding.backgrounds).encode()
         val historyCarried = if (binding.activatedKey == currentActivationKey) binding.activatedModules.toSet() else emptySet()
-        var draft=materialCache?.takeIf {materialKey==key}?.third?:materials.prepare(selections,binding.managed.map {it.targetId}.toSet(),messages.distinctBy {it.id},TriggerWindow(6,setOf(MessageRole.USER,MessageRole.ASSISTANT)),binding.overrides.mapValues {if(it.value)UseOverride.Rule(ModuleUse.Always) else UseOverride.Disabled},historyCarried)
+        var draft=materialCache?.takeIf {materialKey==key}?.third?:materials.prepare(selections,binding.managed.map {it.targetId}.toSet(),messages.distinctBy {it.id},TriggerWindow(6,setOf(MessageRole.USER,MessageRole.ASSISTANT)),binding.overrides.mapValues {if(it.value)UseOverride.Rule(ModuleUse.Always) else UseOverride.Disabled},historyCarried,excludedModuleTags=setOf(NOVEX_FRONTEND_MODULE_TAG))
         val automatic=draft.plan.decisions.filter {it.reason==AdoptionReason.UNCONFIGURED && it.module.blocks.isNotEmpty()}
         if(automatic.isNotEmpty()) {
             val directory=JSONArray(automatic.map {d->JSONObject().put("id",d.module.id).put("name",d.module.name).put("parent_name",draft.plan.decisions.firstOrNull {parent->parent.module.children.any {it.id==d.module.id}}?.module?.name?:JSONObject.NULL).put("tags",JSONArray(d.module.tags)).put("source",draft.sourceNames[d.cardId]).put("excerpt",materials.selectionExcerpt(draft,d.module.id))})

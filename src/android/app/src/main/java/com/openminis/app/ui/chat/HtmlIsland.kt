@@ -1,6 +1,7 @@
 package com.openminis.app.ui.chat
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -12,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import java.net.URLDecoder
 import novex.android.ui.NovexIcons
 import novex.core.PlaythroughState
 import novex.core.PlaythroughValue
@@ -60,25 +63,57 @@ internal class HtmlIslandBridge(
     val cardName: String?,
     val cardKind: String?,
     val state: PlaythroughState?,
+    val sessionId: String? = null,
+    /** 最近消息 JSON 数组 [{role,name,text}]——皮肤覆盖层（弹幕等）吃这个。 */
+    val messagesJson: String = "[]",
 )
 
 internal val LocalHtmlIslandBridge = compositionLocalOf<HtmlIslandBridge?> { null }
 
 private const val IslandBaseUrl = "https://novex.island/"
+// 模型在岛 HTML 里直接写 src="/var/minis/..." 时，WebView 按 base URL
+// 展开成这个前缀的 https 请求——拦截后按 minis 资源路径解析。
+private const val IslandResourcePrefix = "https://novex.island/var/minis/"
 private const val IslandMaxHeightDp = 520
 private const val IslandDefaultHeightDp = 160
 private const val IslandHeightSignal = "__novex_h__"
+
+/**
+ * tavern-compat 适配资产（assets/island-compat/）：vendor 的 jQuery/lodash
+ * 只注入显式声明 compat:tavern 的 def——模型自己写的 ```html 岛保持纯净。
+ * 读取一次进程内缓存；资产缺失时降级为不注入（岛仍渲，脚本可能报缺库）。
+ */
+private object IslandCompatAssets {
+    private val files = listOf(
+        "island-compat/jquery-3.7.1.min.js",
+        "island-compat/lodash-4.17.21.min.js",
+        "island-compat/tavern-shim.js",
+    )
+    @Volatile private var cached: List<String>? = null
+    fun load(context: Context): List<String> = cached ?: synchronized(this) {
+        cached ?: files.mapNotNull { path ->
+            runCatching { context.assets.open(path).bufferedReader().use { it.readText() } }.getOrNull()
+        }.also { cached = it }
+    }
+}
 
 /** 语言标记判定：`html`/`xhtml` 代码块都走岛渲染。 */
 internal fun isHtmlIslandLanguage(language: String): Boolean =
     language.trim().lowercase() in setOf("html", "xhtml")
 
+/**
+ * @param fillParent 覆盖层模式：填满父容器（皮肤 overlay 整盖转录区用），
+ *   不再按内容自量高度、无边框无内边距。
+ */
 @Composable
-internal fun HtmlIsland(html: String) {
+internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat: Boolean = false) {
     val colors = currentMdColors()
     val bridge = LocalHtmlIslandBridge.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val compatScripts = if (tavernCompat) remember { IslandCompatAssets.load(context) } else emptyList()
     val dark = colors.text.luminance() > 0.5f
     val frameJson = remember(bridge, dark, colors) { buildIslandFrameJson(bridge, dark, colors) }
+    val islandSessionId = bridge?.sessionId
 
     var showSource by remember(html) { mutableStateOf(false) }
     var measuredCssHeight by remember(html) { mutableIntStateOf(0) }
@@ -91,14 +126,19 @@ internal fun HtmlIsland(html: String) {
     renderer.onHeight = { measuredCssHeight = it }
     renderer.onCrash = { reloadTick++ }
     renderer.onError = { islandError = it }
+    renderer.sessionId = islandSessionId
 
     val shape = RoundedCornerShape(10.dp)
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .clip(shape)
-            .border(1.dp, colors.divider, shape),
+            .then(if (fillParent) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
+            .then(
+                if (fillParent) Modifier
+                else Modifier
+                    .padding(bottom = 8.dp)
+                    .clip(shape)
+                    .border(1.dp, colors.divider, shape)
+            ),
     ) {
         if (showSource) {
             Box(
@@ -132,11 +172,15 @@ internal fun HtmlIsland(html: String) {
                     ?: IslandDefaultHeightDp).coerceAtMost(IslandMaxHeightDp)
                 androidx.compose.runtime.key(reloadTick) {
                     AndroidView(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(islandHeight.dp),
+                        modifier = if (fillParent) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            Modifier
+                                .fillMaxWidth()
+                                .height(islandHeight.dp)
+                        },
                         factory = { ctx -> renderer.create(ctx) },
-                        update = { wv -> renderer.sync(wv, html, frameJson) },
+                        update = { wv -> renderer.sync(wv, html, frameJson, compatScripts) },
                         onRelease = { wv -> runCatching { wv.destroy() } },
                     )
                 }
@@ -162,10 +206,12 @@ internal fun HtmlIsland(html: String) {
 /** 单个岛的 WebView 生命周期 + 文档/帧同步。 */
 private class IslandRenderer {
     private var loadedHtml: String? = null
+    private var loadedCompat: List<String> = emptyList()
     private var pageReady = false
     private var frameJson = "{}"
     private var boundView: WebView? = null
     private var pushedFrame: String? = null
+    var sessionId: String? = null
     var onHeight: ((Int) -> Unit)? = null
     var onCrash: (() -> Unit)? = null
     var onError: ((String?) -> Unit)? = null
@@ -211,9 +257,18 @@ private class IslandRenderer {
                 view: WebView,
                 request: WebResourceRequest,
             ): WebResourceResponse? {
+                val url = request.url.toString()
                 val scheme = request.url.scheme?.lowercase()
                 if (scheme == "data" || scheme == "blob") return null
-                if (request.url.toString() == IslandBaseUrl) return null
+                if (url == IslandBaseUrl) return null
+                // 岛资源口子：本会话的图片文件可进岛当素材（上传的花纹/
+                // 生图/工作区产物）。三种写法同路——模型上下文里见到的
+                // /var/minis/... 路径原样写进 src 也能解析。
+                if (scheme == "minis" || scheme == "novex-res" ||
+                    url.startsWith(IslandResourcePrefix)
+                ) {
+                    return islandResourceResponse(view.context, url, sessionId)
+                }
                 // 空响应掐断一切网络子资源（blockNetworkLoads 之上的双保险）。
                 return WebResourceResponse("text/plain", "utf-8", "".byteInputStream())
             }
@@ -223,6 +278,7 @@ private class IslandRenderer {
                 // 还得让 Compose 重建一个 WebView 并把整页重新装上。
                 runCatching { view.destroy() }
                 loadedHtml = null
+                loadedCompat = emptyList()
                 pageReady = false
                 boundView = null
                 pushedFrame = null
@@ -247,14 +303,15 @@ private class IslandRenderer {
 
     /** html 变了重载整页；只是帧数据变了走热更新。新 view 必重载——
      *  loadedHtml 不随 view 重建转移（切源码往返、渲染进程重建的 blank 根因）。 */
-    fun sync(wv: WebView, html: String, frame: String) {
+    fun sync(wv: WebView, html: String, frame: String, compat: List<String> = emptyList()) {
         frameJson = frame
-        if (boundView !== wv || loadedHtml != html) {
+        if (boundView !== wv || loadedHtml != html || loadedCompat != compat) {
             boundView = wv
             loadedHtml = html
+            loadedCompat = compat
             pageReady = false
             onError?.invoke(null)
-            wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frame), "text/html", "utf-8", null)
+            wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frame, compat), "text/html", "utf-8", null)
         } else if (pageReady && pushedFrame != frame) {
             // 帧去重：宿主每次重组都会走到这（bridge 是逐重组新建的值），
             // 帧内容没变就不派发——否则岛页会被 noven:frame 事件流反复
@@ -294,15 +351,24 @@ private fun configure(wv: WebView) {
  * 提前截断内嵌脚本。
  */
 /** internal 供包装页契约测试。 */
-internal fun wrapIslandDocument(html: String, frameJson: String): String = buildString {
+internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: List<String> = emptyList()): String = buildString {
     append("<!DOCTYPE html><html><head>")
     append("<meta charset=\"utf-8\">")
     append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
-    append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">")
+    append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob: minis: novex-res:; font-src data:; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">")
     append("<style>html,body{margin:0;padding:0;background:transparent}*{box-sizing:border-box}</style>")
     append("<script>window.NOVEN_FRAME=")
     append(frameJson.replace("</", "<\\/"))
     append(";</script>")
+    // 导入资产的适配层（vendor 库+shim）：只注入 compat:tavern 的 def，
+    // 在 NOVEN_FRAME 之后、页内脚本之前——脚本启动时桥和库都已就位。
+    // 内嵌 JS 里的 "</script" 必须转义防提前截断标签（</ 全局转义会
+    // 误伤 a</b 这类比较，故只转义 </script）。
+    compatScripts.forEach { js ->
+        append("<script>")
+        append(js.replace(Regex("</script", RegexOption.IGNORE_CASE), "<\\/script"))
+        append("</script>")
+    }
     // 本脚本在 <head> 执行、document.body 尚不存在——观察器挂接必须等
     // DOMContentLoaded；load 报一次高，定时回报兜底 JS 异步建 DOM。
     // 量高量"真实内容底"（最后一个子元素的 rect.bottom+scrollY），
@@ -318,6 +384,45 @@ internal fun wrapIslandDocument(html: String, frameJson: String): String = build
 
 private fun frameUpdateJs(frameJson: String): String =
     "window.NOVEN_FRAME=$frameJson;window.dispatchEvent(new Event('noven:frame'));void 0;"
+
+// ─── 岛资源（本地图片进岛）──────────────────────────────────────────────────
+//
+// 岛断网，但本会话的图片文件是合法素材源：用户上传的花纹/头像、生图产物、
+// 工作区文件。只放行图片扩展名 + 拒绝 `..` 段——脚本样式经 CSP 天然进不来，
+// 这里再把非图文件挡死，岛永远读不到会话里的任意文件。
+private val IslandImageMimes = mapOf(
+    "png" to "image/png",
+    "jpg" to "image/jpeg",
+    "jpeg" to "image/jpeg",
+    "gif" to "image/gif",
+    "webp" to "image/webp",
+    "svg" to "image/svg+xml",
+    "bmp" to "image/bmp",
+    "avif" to "image/avif",
+    "ico" to "image/x-icon",
+)
+
+private fun emptyIslandResponse() =
+    WebResourceResponse("text/plain", "utf-8", "".byteInputStream())
+
+private fun islandResourceResponse(context: Context, url: String, sessionId: String?): WebResourceResponse {
+    val minisUrl = when {
+        url.startsWith("novex-res://") -> "minis://" + url.removePrefix("novex-res://")
+        url.startsWith("minis://") -> url
+        // https://novex.island/var/minis/<桶>/<路径> —— src="/var/minis/..."
+        // 的 base-URL 展开形态。
+        else -> "minis://" + url.removePrefix(IslandResourcePrefix)
+    }
+    val decoded = runCatching {
+        URLDecoder.decode(minisUrl.substringBefore('?'), "UTF-8")
+    }.getOrNull() ?: return emptyIslandResponse()
+    if (decoded.split('/').any { it == ".." }) return emptyIslandResponse()
+    val file = resolveMdMediaFile(context, minisUrl, sessionId) ?: return emptyIslandResponse()
+    val mime = IslandImageMimes[file.extension.lowercase()] ?: return emptyIslandResponse()
+    return runCatching {
+        WebResourceResponse(mime, null, file.inputStream().buffered())
+    }.getOrElse { emptyIslandResponse() }
+}
 
 /** 桥载荷：卡信息 + 剧情变量扁平表（Number 另带 max 表）+ 主题色。 */
 private fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colors: MdColors): String {
@@ -341,6 +446,7 @@ private fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, color
     }
     root.put("state", state)
     root.put("max", maxes)
+    runCatching { root.put("messages", org.json.JSONArray(bridge?.messagesJson ?: "[]")) }
     root.put("theme", JSONObject()
         .put("dark", dark)
         .put("accent", colors.link.toHexString())

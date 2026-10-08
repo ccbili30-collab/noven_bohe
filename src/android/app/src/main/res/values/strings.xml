@@ -661,6 +661,9 @@
     <string name="skill_import_error_no_url">Enter a URL</string>
     <string name="skill_import_error_invalid">Invalid SKILL.md or skill already exists</string>
     <string name="skill_import_error_format">Invalid SKILL.md. Ensure YAML frontmatter with \'name:\' field.</string>
+    <string name="skill_import_error_unrecognized_url">Unrecognized URL — use a github.com repository or file link.</string>
+    <string name="skill_import_error_network">Network error: %1$s. Check your connection — github.com may be unreachable.</string>
+    <string name="skill_import_error_http">Download failed (HTTP %1$d). Check that the repository path and branch exist.</string>
     <string name="skill_import_in_progress">Importing...</string>
     <string name="skill_import_submit">Import</string>
     <string name="skill_detail_label_name">Name</string>

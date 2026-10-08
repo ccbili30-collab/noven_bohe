@@ -18,7 +18,15 @@ class LegacyArchiveImport(private val store:CardStore,private val directory:java
         try {
             input.use {source->Files.newOutputStream(pending).use {source.copyTo(it,65536)}}
             val signature=Files.newInputStream(pending).use {it.read()==0x50 && it.read()==0x4b}
-            if(!signature)return CardFiles(store).prepare(Files.newInputStream(pending),name,kind)
+            if(!signature) {
+                // 酒馆角色卡 JSON：走方言区整卡转译（世界书→触发模块、前端
+                // 正则→novex-frontend 模块），不再是原文字卡——转译报告与
+                // 原件归档进 extensions，运行时不接触酒馆 schema。
+                val text=runCatching {Files.newInputStream(pending).bufferedReader().use {it.readText()}}.getOrNull()
+                if(text!=null && novex.core.tavern.TavernModuleTranslator.isTavernCardJson(text))
+                    return prepareTavern(text,name,kind)
+                return CardFiles(store).prepare(Files.newInputStream(pending),name,kind)
+            }
             ZipFile(pending.toFile()).use {zip->
                 if(zip.getEntry("structure.json")!=null)return CardFiles(store).prepare(Files.newInputStream(pending),name,kind)
                 val paths=zip.entries().asSequence().map {it.name}.toList()
@@ -81,4 +89,40 @@ class LegacyArchiveImport(private val store:CardStore,private val directory:java
             }
         } finally {Files.deleteIfExists(pending)}
     }
+
+    /** 酒馆 JSON → ContentDocument：字段模块 + 世界书触发模块 + 前端件模块。
+     *  远程引导页/素材在导入期联网内联（IO 线程，超时封顶），抓不到记报告。 */
+    private fun prepareTavern(sourceJson:String,name:String,kind:CardKind):CardDraft {
+        val outcome=novex.core.tavern.TavernModuleTranslator.translate(sourceJson,::fetchRemote)
+        fun text(value:String):ContentRef {
+            val ref=store.contents.allocator()();store.contents.receive(listOf(ContentTransfer(ContentRef("text"),ref))){value.byteInputStream()};return ref
+        }
+        fun block(value:String)=ContentBlock.Text(UUID.randomUUID().toString(),text(value))
+        fun useOf(spec:novex.core.tavern.TavernModuleTranslator.UseSpec?):ModuleUse?=when(spec){
+            novex.core.tavern.TavernModuleTranslator.UseSpec.Always->ModuleUse.Always
+            novex.core.tavern.TavernModuleTranslator.UseSpec.Manual->ModuleUse.Manual
+            is novex.core.tavern.TavernModuleTranslator.UseSpec.Keywords->ModuleUse.Keywords(spec.words,spec.caseSensitive,spec.requireAll)
+            null->null
+        }
+        val modules=mutableListOf<ContentModule>()
+        outcome.fieldModules.forEach {f->if(f.text.isNotBlank())modules+=ContentModule(UUID.randomUUID().toString(),f.title,listOf(block(f.text)))}
+        outcome.bookModules.forEach {m->modules+=ContentModule(UUID.randomUUID().toString(),m.title,listOf(block(m.text)),use=useOf(m.use))}
+        outcome.frontendModules.forEach {m->modules+=ContentModule(UUID.randomUUID().toString(),m.title,listOf(block(m.text)),tags=m.tags)}
+        // 原件归档键复用 novex.import.original——「按原文导入」既有语义
+        // （isVerbatimSource 等既有判定一致生效）；转译报告单独留档。
+        val preserved=linkedMapOf(RawTextImport.ORIGINAL to text(sourceJson),
+            "legacy/tavern-report" to text(outcome.report.joinToString("\n")))
+        val content=ContentDocument(UUID.randomUUID().toString(),kind,
+            outcome.cardName.ifBlank{name},modules,emptyList(),extensions=preserved).validate()
+        return CardDrafts(store).create(content,ChangeSource.IMPORT)
+    }
+
+    /** 导入期远程抓取：短超时、一次性，失败返回 null（转译器记报告）。 */
+    private fun fetchRemote(url:String):ByteArray?=runCatching {
+        val conn=java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout=8000;conn.readTimeout=8000;conn.instanceFollowRedirects=true
+        try {
+            if(conn.responseCode in 200..299)conn.inputStream.use {it.readBytes().takeIf{b->b.size<=8*1024*1024}}else null
+        } finally {conn.disconnect()}
+    }.getOrNull()
 }

@@ -468,21 +468,23 @@ fun NovexProviderSetupScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    label = { Text("接口地址") },
-                    value = apiBase,
-                    onValueChange = {
-                        apiBase = it
-                        // 智谱 host（含 Coding Plan 通道）全是终态路径——
-                        // 填进去即收起 /v1 追加，与落库强制关同则。
-                        if (novex.android.data.model.NovexProviderPresets.isZhipuBase(it)) appendV1Suffix = false
-                        invalidateVerification()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                )
+                if (presetSpec == null) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        label = { Text("接口地址") },
+                        value = apiBase,
+                        onValueChange = {
+                            apiBase = it
+                            // 智谱 host（含 Coding Plan 通道）全是终态路径——
+                            // 填进去即收起 /v1 追加，与落库强制关同则。
+                            if (novex.android.data.model.NovexProviderPresets.isZhipuBase(it)) appendV1Suffix = false
+                            invalidateVerification()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     label = { Text("API（应用程序接口）密钥") },

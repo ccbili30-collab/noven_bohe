@@ -34,10 +34,10 @@ class KeepAliveStatusLineTest {
         statusLine.ensureChannels()
     }
 
-    @Test fun bothChannelsExistWithFrozenIds() {
+    @Test fun ongoingChannelExistsAndNudgeChannelIsRetired() {
         val manager = app.getSystemService(NotificationManager::class.java)
         assertNotNull(manager.getNotificationChannel("agent_status"))
-        assertNotNull(manager.getNotificationChannel("overlay_permission_nudge"))
+        assertNull("悬浮窗提醒渠道随胶囊退役", manager.getNotificationChannel("overlay_permission_nudge"))
     }
 
     @Test fun runningToolGivesToolTitleStopActionAndIndefiniteProgress() {
@@ -76,7 +76,7 @@ class KeepAliveStatusLineTest {
     @Test fun settledRunSwapsToCompletedCopyAndDropsStopAction() {
         LiveSessionHub.markStreaming("k3")
         LiveSessionHub.pushToolSignal("done", "web_search", false, null)
-        LiveSessionHub.closeToolRun(com.openminis.app.service.ToolOutcome.Success)
+        LiveSessionHub.closeToolRun()
         LiveSessionHub.markStreamEnded("k3")
 
         val notification = statusLine.build(0, "Idle")

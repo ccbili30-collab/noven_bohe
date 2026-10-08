@@ -375,6 +375,11 @@ internal fun List<MessageRow>.toChatMessages(
         // render as a phantom blank assistant bubble.
         if (entity.role == "assistant" && text.isBlank() && blocks.isEmpty()) return@mapNotNull null
         val sibling = branchGraph?.siblingPosition(entity.id)
+        // 子分支导航只在活跃叶子上有意义：叶子之下若还挂着子行（fork
+        // 窗口期/发送中断留下的截断态），需要给一条走回去的入口。
+        val childSet = branchGraph
+            ?.takeIf { it.activeLeafId == entity.id }
+            ?.childSetPosition(entity.id)
         ChatMessage(
             id = entity.id,
             role = entity.role,
@@ -388,6 +393,8 @@ internal fun List<MessageRow>.toChatMessages(
             branchAnchorDbId = entity.id,
             branchIndex = sibling?.index ?: 1,
             branchCount = sibling?.count ?: 1,
+            childBranchIndex = childSet?.index ?: 0,
+            childBranchCount = childSet?.count ?: 0,
             // [T-error-persist-android] Restore the persisted terminal error
             // so the inline error banner + Retry button survive a reload.
             // Coalesce a blank value to null: the UI gate is `error?.let`, so
@@ -437,6 +444,10 @@ internal fun List<MessageRow>.toChatMessages(
                     branchAnchorDbId = branchSource.branchAnchorDbId,
                     branchIndex = branchSource.branchIndex,
                     branchCount = branchSource.branchCount,
+                    // 活跃叶子只可能是合并序列的最后一行，子分支导航一律
+                    // 取 msg（较后行）的投影。
+                    childBranchIndex = msg.childBranchIndex,
+                    childBranchCount = msg.childBranchCount,
                     // [T-error-persist-android] The error sticker is written
                     // to the LAST assistant row of the turn, so the later row
                     // (`msg`) wins; fall back to `prev` if only it carried one.
