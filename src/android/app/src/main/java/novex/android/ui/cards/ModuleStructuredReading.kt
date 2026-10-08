@@ -48,6 +48,7 @@ private const val STRUCTURED_CHAR_CAP = 24000
         is StructuredContent.Timeline -> TimelineReading(content)
         is StructuredContent.Panel -> PanelReading(content)
         is StructuredContent.Relations -> RelationsReading(content)
+        is StructuredContent.Forms -> FormsReading(content)
         // 解析不出结构：超长或自由文本，回退 Markdown 分页（沿用阅读器既有加载器）。
         null -> com.openminis.app.ui.chat.MarkdownBlock(rawText = state.second, isStreaming = false)
     }
@@ -94,6 +95,31 @@ private const val STRUCTURED_CHAR_CAP = 24000
                 if (panel.columns.size > 2)
                     Text(row.getOrElse(2) { "" }, style = NovexType.Metadata, color = NovexColors.TertiaryText,
                         modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable private fun FormsReading(forms: StructuredContent.Forms) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        forms.entries.forEachIndexed { index, entry ->
+            val isOriginal = index == 0 && entry.name == "本体"
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(NovexColors.Surface)
+                .padding(horizontal = 14.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(entry.name, style = NovexType.ItemTitle, color = NovenColors.Text,
+                        fontWeight = FontWeight.SemiBold)
+                    if (isOriginal) Box(Modifier.clip(RoundedCornerShape(6.dp)).background(NovenColors.Mint.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                        Text("本体", style = NovexType.Metadata, color = NovenColors.Mint)
+                    }
+                }
+                entry.appearanceDelta?.let { Spacer(Modifier.height(3.dp)); Text("外貌：$it", style = NovexType.Metadata, color = NovexColors.SecondaryText) }
+                entry.personalityShift?.let { Text("性格：$it", style = NovexType.Metadata, color = NovexColors.SecondaryText) }
+                if (entry.quotes.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    entry.quotes.take(3).forEach { Text("「$it」", style = NovexType.Metadata, color = NovexColors.TertiaryText, maxLines = 1) }
+                    if (entry.quotes.size > 3) Text("等 ${entry.quotes.size} 条语录", style = NovexType.Metadata, color = NovexColors.TertiaryText)
+                }
             }
         }
     }

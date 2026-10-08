@@ -96,6 +96,11 @@ internal object ModuleTemplates {
             G_CHARACTER,
         ),
         ModuleTemplate(
+            "多形态", "分身与形态切换设定",
+            "## 本体\n- **外貌差分**：默认形态\n- **性格偏移**：无\n- **语录**：\n\n## 形态名\n- **外貌差分**：\n- **性格偏移**：\n- **语录**：",
+            G_CHARACTER,
+        ),
+        ModuleTemplate(
             "轨迹", "成长事件时间线",
             "## 时间或年龄\n- **事件**：\n- **参与人**：\n- **后果**：\n",
             G_CHARACTER,

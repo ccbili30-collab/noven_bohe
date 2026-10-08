@@ -21,6 +21,7 @@ import com.openminis.app.ui.noven.NovenProfileStore
 import novex.content.flattenModules
 import novex.content.ReadingLayout
 import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -116,6 +117,7 @@ import androidx.compose.ui.semantics.semantics
             CardPage.PREVIEW -> model.previewBack()
             CardPage.OVERVIEW -> model.detail()
             CardPage.INJECTION -> model.detail()
+            CardPage.MEDIA -> model.detail()
         }
     }
     if(deleteCard)AlertDialog(onDismissRequest={if(!state.busy)deleteCard=false},title={Text("删除这张卡片？")},
@@ -127,15 +129,11 @@ import androidx.compose.ui.semantics.semantics
         actions=templateActions,
         searchPlaceholder="搜索模块类型",
         onDismissRequest={if(!state.busy)addSheet=false})
-    if(manageSheet)NovexSelectionSheet(
-        title="模块",
-        actions=listOf(
-            NovexSelectionAction("添加模块",description="从类型模板新建",enabled=!state.busy){manageSheet=false;addSheet=true},
-            NovexSelectionAction("管理模块",description="排序、嵌套与删除",enabled=!state.busy){model.edit()},
-            NovexSelectionAction(if(ReadingViewPrefs.current()==ReadingLayout.PAGED)"切换为连续阅读" else "切换为翻页模式",
-                description=if(ReadingViewPrefs.current()==ReadingLayout.PAGED)"所有模块连成一页，上下滑动阅读" else "模块分页，左右滑动切换"){model.setReadingLayout(if(ReadingViewPrefs.current()==ReadingLayout.PAGED)ReadingLayout.CONTINUOUS else ReadingLayout.PAGED)},
-        ),
-        onDismissRequest={if(!state.busy)manageSheet=false})
+    if(manageSheet)state.shownSaved?.let {saved->
+        ModuleManagerSheet(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model,
+            onAddModule={addSheet=true},onOpenEditor=model::edit,
+            onDismiss={if(!state.busy)manageSheet=false})
+    }
     BackHandler(enabled=!keyboardVisible){if(!state.busy || state.page==CardPage.DETAIL)back()}
     Scaffold(
         containerColor=NovenColors.Canvas,
@@ -148,9 +146,11 @@ import androidx.compose.ui.semantics.semantics
             CardPage.PREVIEW->"预览"
             CardPage.OVERVIEW->"设定总览"
             CardPage.INJECTION->"注入管理"
+            CardPage.MEDIA->"形象与媒体"
         },onBack={if(!state.busy || state.page==CardPage.DETAIL)back()},actions={when(state.page) {
                 CardPage.DETAIL->{}
                 CardPage.INJECTION->{}
+                CardPage.MEDIA->{}
                 CardPage.OVERVIEW->{
                     TextButton(enabled=!state.busy && !state.purifying,onClick=model::purifyOverview){Text(if(state.overviewMeta==null)"AI 提纯" else "重新提纯",color=NovenColors.Mint)}
                 }
@@ -218,7 +218,12 @@ import androidx.compose.ui.semantics.semantics
                     val context=LocalContext.current
                     val profileStore=remember {NovenProfileStore.get(context)}
                     val profile=profileStore.profile
-                    CardReading(card,model,onCharacter=model::showTarget,onModule={model.editPart(it)},onImage={model.edit()},onName={model.edit()},onEmpty={model.edit()},onIntroduction={model.edit()},onOverview={model.overview()},onManageModules={manageSheet=true},bottomChrome=true,chromeOverlay=true,
+                    val galleryScope=rememberCoroutineScope()
+                    var fullscreenImage by remember {mutableStateOf<android.graphics.Bitmap?>(null)}
+                    if(fullscreenImage!=null)com.openminis.app.ui.components.ImageGalleryViewer(
+                        items=listOf(com.openminis.app.ui.components.ImageGalleryItem(fullscreenImage!!)),
+                        onDismiss={fullscreenImage=null})
+                    CardReading(card,model,onCharacter=model::showTarget,onModule={model.editPart(it)},onImage={model.edit()},onName={model.edit()},onEmpty={model.edit()},onIntroduction={model.edit()},onOverview={model.overview()},onManageModules={manageSheet=true},onImageFullscreen={ref->galleryScope.launch{fullscreenImage=model.image(ref)}},bottomChrome=true,chromeOverlay=true,
                         byline={
                             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                                 if(profile.avatarPath!=null)AsyncImage(model=java.io.File(profile.avatarPath),contentDescription="作者头像",
@@ -250,7 +255,8 @@ import androidx.compose.ui.semantics.semantics
                             FloatingCircleAction(NovexIcons.MoreVert,"更多操作",!state.busy && !files.state.busy && state.saved!=null){more=true}
                             DropdownMenu(expanded=more,onDismissRequest={more=false}){
                                 DropdownMenuItem(text={Text("用于已有对话")},onClick={more=false;onExisting(false)})
-                                DropdownMenuItem(text={Text("导出")},onClick={more=false;onExport()})
+                                DropdownMenuItem(text={Text("形象与媒体")},onClick={more=false;model.mediaPage()})
+                            DropdownMenuItem(text={Text("导出")},onClick={more=false;onExport()})
                                 if(state.targetId==null || state.targetId==state.saved?.id)DropdownMenuItem(text={Text("删除")},onClick={more=false;deleteCard=true})
                             }
                         }
@@ -284,6 +290,7 @@ import androidx.compose.ui.semantics.semantics
             CardPage.PREVIEW->state.draft?.let {CardReading(novex.content.ContentTargets.find(it.content,state.previewTargetId?:it.content.id),model,onCharacter=model::previewCharacter,readingScope="draft")}
             CardPage.OVERVIEW->state.shownSaved?.let {saved->CardOverviewPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
             CardPage.INJECTION->state.shownSaved?.let {saved->CardInjectionPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
+            CardPage.MEDIA->state.shownSaved?.let {saved->CardMediaPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
             CardPage.MODULES->state.shownDraft?.let {card->ModuleTreeEditor(card,model,header={
                 CardHero(card,model,editing=true,onImage=model::pictures,onName={cardName=card.name;renameCard=true},onIntroduction=openIntroduction)
             },footer={

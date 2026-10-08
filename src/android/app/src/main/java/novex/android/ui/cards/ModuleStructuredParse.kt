@@ -5,12 +5,13 @@ package novex.android.ui.cards
  * 输入=模块 Markdown 正文（模板脚手架的天然形态），输出=结构化模型；
  * 解析不出结构（用户改成了自由文本）返回 null，阅读层回退 Markdown 直渲。
  */
-internal enum class StructuredKind { TIMELINE, ATTRIBUTE_PANEL, RELATIONS }
+internal enum class StructuredKind { TIMELINE, ATTRIBUTE_PANEL, RELATIONS, FORMS }
 
 internal sealed interface StructuredContent {
     data class Timeline(val nodes: List<TimelineNode>) : StructuredContent
     data class Panel(val columns: List<String>, val rows: List<List<String>>) : StructuredContent
     data class Relations(val entries: List<RelationEntry>) : StructuredContent
+    data class Forms(val entries: List<FormEntry>) : StructuredContent
 }
 
 internal data class TimelineNode(
@@ -28,11 +29,19 @@ internal data class RelationEntry(
     val knot: String?,
 )
 
+internal data class FormEntry(
+    val name: String,
+    val appearanceDelta: String?,
+    val personalityShift: String?,
+    val quotes: List<String>,
+)
+
 /** 模块名→结构化形态；只认模板命名，用户自建同名模块同样受益。 */
 internal fun structuredKindFor(moduleName: String): StructuredKind? = when (moduleName.trim()) {
     "时间线", "轨迹" -> StructuredKind.TIMELINE
     "属性面板" -> StructuredKind.ATTRIBUTE_PANEL
     "关系" -> StructuredKind.RELATIONS
+    "多形态" -> StructuredKind.FORMS
     else -> null
 }
 
@@ -40,6 +49,7 @@ internal fun parseStructured(kind: StructuredKind, text: String): StructuredCont
     StructuredKind.TIMELINE -> parseTimeline(text)
     StructuredKind.ATTRIBUTE_PANEL -> parsePanel(text)
     StructuredKind.RELATIONS -> parseRelations(text)
+    StructuredKind.FORMS -> parseForms(text)
 }
 
 private val bullet = Regex("""^\s*[-*]\s+(.*)$""")
@@ -116,4 +126,32 @@ private fun parseRelations(text: String): StructuredContent.Relations? {
     }
     flush()
     return if (entries.isEmpty()) null else StructuredContent.Relations(entries)
+}
+
+private fun parseForms(text: String): StructuredContent.Forms? {
+    val entries = mutableListOf<FormEntry>()
+    var name: String? = null
+    var appearance: String? = null
+    var personality: String? = null
+    var quotes = mutableListOf<String>()
+    fun flush() {
+        val n = name ?: return
+        if (appearance == null && personality == null && quotes.isEmpty()) return
+        entries += FormEntry(n, appearance, personality, quotes.toList())
+        appearance = null; personality = null; quotes = mutableListOf()
+    }
+    for (line in text.lineSequence()) {
+        val h = heading.find(line)?.groupValues?.get(1)?.trim()
+        if (h != null) { flush(); name = h; continue }
+        val v = bulletValue(line) ?: continue
+        val f = field.find(v)
+        when (f?.groupValues?.get(1)) {
+            "外貌差分" -> appearance = f.groupValues[2].ifBlank { null } ?: appearance
+            "性格偏移" -> personality = f.groupValues[2].ifBlank { null } ?: personality
+            "语录" -> f.groupValues[2].ifBlank { null }?.let { quotes += it }
+            else -> quotes += v
+        }
+    }
+    flush()
+    return if (entries.isEmpty()) null else StructuredContent.Forms(entries)
 }
