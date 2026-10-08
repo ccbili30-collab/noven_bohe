@@ -71,6 +71,7 @@ internal fun foldNovexExecutionProcesses(input: List<FlatChatItem>): List<FlatCh
             while (idx < kept.size &&
                 (kept[idx] is FlatChatItem.UserBubble ||
                     kept[idx] is FlatChatItem.BranchSwitcher ||
+                    kept[idx] is FlatChatItem.ChildBranchPicker ||
                     kept[idx] is FlatChatItem.AssistantHeader)
             ) {
                 output += kept[idx]
@@ -85,7 +86,10 @@ internal fun foldNovexExecutionProcesses(input: List<FlatChatItem>): List<FlatCh
         start = end
     }
     rows.forEachIndexed { index, row ->
-        if (row is FlatChatItem.UserBubble || row is FlatChatItem.BranchSwitcher) flush(index)
+        if (row is FlatChatItem.UserBubble ||
+            row is FlatChatItem.BranchSwitcher ||
+            row is FlatChatItem.ChildBranchPicker
+        ) flush(index)
     }
     flush(rows.size)
     return output

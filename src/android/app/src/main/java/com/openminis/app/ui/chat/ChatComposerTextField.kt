@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openminis.app.R
+import com.openminis.app.ui.theme.ChatColors
 import kotlinx.coroutines.delay
 
 /** Owns the input field's presentation and keyboard connection, never conversation state or storage. */
@@ -63,7 +64,7 @@ internal fun ChatComposerTextField(
             .onKeyEvent(onKeyEvent),
         textStyle = MaterialTheme.typography.bodyMedium.copy(
             fontSize = 16.5.sp * fontScale,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = ChatColors.inputText,
         ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         maxLines = 6,
@@ -74,7 +75,7 @@ internal fun ChatComposerTextField(
             Box(Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
                 if (value.text.isEmpty()) Text(
                     hints.getOrElse(hintIndex) { "" },
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+                    color = ChatColors.inputText.copy(alpha = 0.25f),
                     fontSize = 16.5.sp * fontScale,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

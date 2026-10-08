@@ -113,6 +113,12 @@ internal fun NavGraphBuilder.registerModelDestinations(deps: NavDeps) {
             )
         }
 
+        composable(Routes.WEB_ACCESS_SETTINGS) {
+            com.openminis.app.ui.settings.WebAccessSettingsScreen(
+                onBack = { navController.safePopBackStack() },
+            )
+        }
+
         composable(Routes.IMAGE_GENERATION_SETTINGS) {
             ImageGenerationSettingsScreen(
                 providerRepository = providerRepository,

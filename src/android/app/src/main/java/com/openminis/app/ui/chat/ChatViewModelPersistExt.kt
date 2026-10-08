@@ -393,7 +393,40 @@ internal suspend fun ChatViewModel.persistAssistantTurn(
         messageId = messageId,
     )
     recordActiveBranchMessage(entity.id)
+    applyMvuStateFromParts(parts, messageId)
     return entity.id
+}
+
+/**
+ * 酒馆 MVU 协议拦截：导入卡的世界书仍指示模型输出
+ * `<UpdateVariable><JSONPatch>…`——提取补丁、经同一条
+ * update_playthrough_state 落库路径写进本消息分支的本局状态。
+ * 原文持久化不动（模型下一轮能看到自己的更新输出）；显示层
+ * 负责剥除协议块。格式不符/非法条目安静跳过，不打断持久化。
+ */
+private suspend fun ChatViewModel.applyMvuStateFromParts(parts: List<AgentContentPart>, messageId: String) {
+    val patches = parts.filterIsInstance<AgentContentPart.Text>()
+        .flatMap { novex.core.tavern.MvuStateProtocol.extract(it.text).patches }
+    if (patches.isEmpty()) return
+    runCatching {
+        val updated = novexSettingsStore.update { configuration ->
+            // 工作值表从继承快照开始，补丁按序套用——delta/insert/move 依赖前值
+            val working = novex.core.InteractiveFictionRuntime
+                .resolveState(configuration, activeBranchPathIds + messageId)
+                .values.toMutableMap()
+            val updates = org.json.JSONArray()
+            patches.forEach { patch ->
+                val items = novex.core.tavern.MvuStateProtocol.applyPatch(patch, working)
+                for (i in 0 until items.length()) updates.put(items.get(i))
+            }
+            if (updates.length() == 0) configuration
+            else novex.core.PlaythroughStateRegistration.applyUpdates(
+                configuration = configuration, branchId = messageId,
+                updatesJson = updates.toString(), activePathIds = activeBranchPathIds)
+        }
+        val after = novex.core.InteractiveFictionRuntime.resolveState(updated, activeBranchPathIds + messageId)
+        _activePlaythroughState.value = after
+    }
 }
 
 @Deprecated("Use persistAssistantTurn(parts, ...) for per-turn delta persistence")
@@ -695,7 +728,6 @@ fun ChatViewModel.resume() {
                     // we're in the finally block of the agent loop and
                     // the stream has already flushed its last delta.
                     if (streamJob === coroutineContext[Job]) {
-                        publishOverlayReplyExcerpt(activeSessionId)
                         SessionActivityTracker.setInactive(activeSessionId)
                     } else {
                         AppLogger.info(ChatViewModel.TAG_STREAM, "resume stale stream skipped tracker finalization")

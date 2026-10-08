@@ -14,6 +14,7 @@ import novex.android.data.MIGRATION_35_36
 import novex.android.data.MIGRATION_36_37
 import novex.android.data.MIGRATION_37_38
 import novex.android.data.MIGRATION_38_39
+import novex.android.data.MIGRATION_39_40
 
 import android.app.Application
 import androidx.room.Room
@@ -279,7 +280,7 @@ class NovexConversationDraftPersistenceTest {
         val context = RuntimeEnvironment.getApplication()
         val path = File(files.root, "migration.db").absolutePath
         fun openDatabase() = Room.databaseBuilder(context, NovexMainDatabase::class.java, path)
-            .addMigrations(MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39).allowMainThreadQueries().build()
+            .addMigrations(MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_39_40).allowMainThreadQueries().build()
         var database = openDatabase()
         val media = File(files.root, "media")
         try {

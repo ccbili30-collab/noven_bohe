@@ -21,6 +21,9 @@ object AgentTools {
         documentsAvailable: Boolean = false,
         sourceCollectionsAvailable: Boolean = false,
         workspaceAvailable: Boolean = false,
+        // web_fetch 总是声明；web_search 只在任一搜索后端有 key 时入场，
+        // 免得模型对着没配置的工具空转。
+        webSearchConfigured: Boolean = false,
     ): List<AgentToolDefinition> = buildList {
         add(presentChoicesDefinition())
         add(renderPanelDefinition())
@@ -34,6 +37,10 @@ object AgentTools {
         // skill_read：技能按需加载的唯一读取面。设备路径 file_read 已退役
         // （NovexRawToolRetirementTest 契约），技能挂载以窄面工具单独开放。
         add(SkillReadTool.definition())
+        add(WebFetchTool.definition())
+        if (webSearchConfigured) {
+            add(WebSearchTool.definition())
+        }
         if (documentsAvailable) {
             addAll(NovexDocumentAgentTools.providerDefinitions())
         }

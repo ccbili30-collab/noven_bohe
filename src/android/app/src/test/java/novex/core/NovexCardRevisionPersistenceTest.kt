@@ -9,6 +9,7 @@ import novex.android.data.MIGRATION_35_36
 import novex.android.data.MIGRATION_36_37
 import novex.android.data.MIGRATION_37_38
 import novex.android.data.MIGRATION_38_39
+import novex.android.data.MIGRATION_39_40
 
 import android.app.Application
 import androidx.room.Room
@@ -74,7 +75,7 @@ class NovexCardRevisionPersistenceTest {
     }
     @Test fun `migration does not invent old revisions and failed edit rolls baseline back`() = runBlocking {
         fun open() = Room.databaseBuilder(RuntimeEnvironment.getApplication(), NovexMainDatabase::class.java,
-            File(files.root, "migration.db").absolutePath).addMigrations(MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39).allowMainThreadQueries().build()
+            File(files.root, "migration.db").absolutePath).addMigrations(MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_39_40).allowMainThreadQueries().build()
         var db = open()
         try {
             var workspace = NovexWorkspaceFactory.create(db, File(files.root, "media"))

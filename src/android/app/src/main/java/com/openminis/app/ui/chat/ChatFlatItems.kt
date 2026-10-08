@@ -176,6 +176,20 @@ private class FlatItemFold(
                 count = message.branchCount,
             ))
         }
+        emitChildPicker(message)
+    }
+
+    /**
+     * 「后续分支」导航：本消息是活跃路径叶子、而库里还挂着子行时给一条
+     * 回旧线的入口（编辑/重试的 fork 窗口期、发送中断的截断态）。
+     */
+    private fun emitChildPicker(message: ChatMessage) {
+        if (message.childBranchCount <= 0) return
+        add(FlatChatItem.ChildBranchPicker(
+            parentId = message.branchAnchorDbId ?: message.id,
+            index = message.childBranchIndex,
+            count = message.childBranchCount,
+        ))
     }
 
     private fun emitAssistant(idx: Int, message: ChatMessage) {
@@ -191,6 +205,20 @@ private class FlatItemFold(
         if (showAssistantIdentity && !ctx.isSystem && !ctx.isResumeContinuation) {
             add(FlatChatItem.AssistantHeader(message.id))
         }
+
+        // 分支行放在回合头部：助手消息尾巴常挂岛/工具块（文游卡的状态
+        // 栏岛可达数屏高），行放末尾等于藏起来——「分支几乎不显示」的
+        // 直接成因。无身份行的会话里它就是回复的第一行。
+        if (!ctx.isSystem && message.branchCount > 1) {
+            add(FlatChatItem.BranchSwitcher(
+                messageId = message.branchAnchorDbId ?: message.id,
+                index = message.branchIndex,
+                count = message.branchCount,
+            ))
+        }
+        // system 分隔行也可能是截断路径的叶子——子分支导航不设门槛，
+        // 否则被编辑消息挂在分隔行下时旧线无入口可回。
+        emitChildPicker(message)
 
         ctx.blocks.forEachIndexed { index, block ->
             when (block.kind) {
@@ -254,13 +282,6 @@ private class FlatItemFold(
         message.error?.let {
             add(FlatChatItem.AssistantError(message.id, it))
         }
-        if (!ctx.isSystem && message.branchCount > 1) {
-            add(FlatChatItem.BranchSwitcher(
-                messageId = message.branchAnchorDbId ?: message.id,
-                index = message.branchIndex,
-                count = message.branchCount,
-            ))
-        }
     }
 
     private fun emitTextBlock(
@@ -288,11 +309,16 @@ private class FlatItemFold(
         // 冻结消息把 text 块拆成独立 markdown 片段行。冻结前缀的片段由
         // LazyList 各自锚定；流式中会变高的只有尾部活片段。
         //
+        // 酒馆 MVU 协议块在切分前剥除：<UpdateVariable> 是多段文本，必然
+        // 跨片段边界，片段级剥除匹配不到。剥除是幂等纯函数，片段内复跑无害。
+        //
         // [T-android-defensive-fragment-merge] 冻结历史消息合并相邻纯文本
         // 片段，让长回复只产几行而不是几十行——冷开全量行数降 ~8x，低内存
         // 设备 GC 压力缓解。刚完成的尾消息在新回合到来前保持细粒度片段；
         // 代码围栏两种路径都独立成行。
-        val rawFragments = splitMarkdownIntoBlockTexts(block.content)
+        val displayContent = novex.core.tavern.MvuStateProtocol.stripBlocks(block.content)
+        if (displayContent.isBlank()) return
+        val rawFragments = splitMarkdownIntoBlockTexts(displayContent)
         val fragments = if (isLastText && ctx.isLastAssistantTurn) {
             rawFragments
         } else {
@@ -305,7 +331,7 @@ private class FlatItemFold(
                 messageId = message.id,
                 parentBlockId = block.id,
                 executionText = block.executionText,
-                rawText = block.content,
+                rawText = displayContent,
                 blockIndex = 0,
                 isLastBlockOfMessage = isLastText && message.isStreaming,
                 messageIsStreaming = message.isStreaming && isLastText,

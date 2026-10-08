@@ -760,9 +760,6 @@ class ChatViewModel(
     val novexControls: StateFlow<List<ConversationControlDefinition>> = _novexControls.asStateFlow()
     internal val _activePlaythroughState = MutableStateFlow<PlaythroughState?>(null)
     val activePlaythroughState: StateFlow<PlaythroughState?> = _activePlaythroughState.asStateFlow()
-    internal val _novexDataUpdates = MutableSharedFlow<NovexDataUpdateEvent>(extraBufferCapacity = 8)
-    /** Software-generated state changes; model prose never writes this stream. */
-    internal val novexDataUpdates: SharedFlow<NovexDataUpdateEvent> = _novexDataUpdates.asSharedFlow()
     private val _novexControlView = MutableStateFlow<ConversationControlOutcome.View?>(null)
     val novexControlView: StateFlow<ConversationControlOutcome.View?> = _novexControlView.asStateFlow()
 
@@ -1538,6 +1535,8 @@ class ChatViewModel(
             documentsAvailable = activeNovexDocumentRefs.isNotEmpty(),
             sourceCollectionsAvailable = activeNovexSourceCollectionRefs.isNotEmpty(),
             workspaceAvailable = true,
+            webSearchConfigured = com.openminis.app.data.repository
+                .WebAccessSettingsRepository(context).activeBackend() != null,
         )
 
     /** Changing answer persona cannot bypass or remove the actual model/configuration tool gates. */
@@ -1564,6 +1563,13 @@ class ChatViewModel(
     private val conversationBranchMutex = kotlinx.coroutines.sync.Mutex()
     internal var activeBranchMessageIds: Set<String> = emptySet()
     internal var activeBranchPathIds: List<String> = emptyList()
+
+    /**
+     * 最近一次 [installActiveConversation] 安装的权威分支图。发送路径在
+     * 两次 install 之间手动塞行时，用它推导新 append 行的兄弟位次，让
+     * 分支切换行与气泡同帧出现——不等回合末的权威重建。
+     */
+    internal var lastInstalledBranchGraph: com.openminis.app.data.ConversationBranchGraph? = null
 
     /**
      * 正在生成的这条 AI 消息 id（2026-09-15）。回合内的状态工具写入都挂在这个
@@ -4203,6 +4209,44 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * 应用/清除会话皮肤包。skinJson 为 null 或 {"clear":true}/空 → 卸肤。
+     * 草稿会话只更新内存档案，落库由 ensureSession 的 createSession 承担。
+     * @return true 应用成功（含合法的清除）；false = JSON 无法解析。
+     */
+    /** 当前皮肤包的原始 JSON——持久化逐字保留，不靠模型层再序列化。 */
+    internal var appliedSkinJson: String? = null
+
+    fun applyChatSkin(skinJson: String?): Boolean {
+        val effective: com.openminis.app.data.character.ChatSkin?
+        if (skinJson.isNullOrBlank()) {
+            effective = null
+        } else {
+            val obj = runCatching { org.json.JSONObject(skinJson.trim()) }.getOrNull()
+                ?: return false
+            // {"clear":true} 与空对象 {} 都卸肤。
+            effective = if (obj.optBoolean("clear")) null
+                else com.openminis.app.data.character.ChatSkin.fromJson(obj)
+        }
+        _immersiveProfile.value = _immersiveProfile.value.copy(skin = effective)
+        appliedSkinJson = if (effective != null) skinJson else null
+        // 皮肤带背景图 → 一并换壁纸（base 归一后再走 minis:// 解析为宿主路径）。
+        // 卸肤不回滚壁纸——背景本身是独立设置项，由会话设置继续管理。
+        effective?.let { skin ->
+            skin.resolveAssetPath(skin.background?.img)?.let { ref ->
+                resolveMdMediaFile(context.applicationContext, ref, realSessionId.ifEmpty { null })
+                    ?.let { setImmersiveBackground(it.absolutePath) }
+            }
+        }
+        val sid = realSessionId
+        if (sid.isNotEmpty()) {
+            viewModelScope.launch {
+                chatRepository.setChatSkin(sid, appliedSkinJson)
+            }
+        }
+        return true
+    }
+
     /** The real session ID (same as sessionId for existing sessions, generated on first message for drafts). */
     internal var realSessionId: String = if (isDraft) "" else sessionId
 
@@ -4423,6 +4467,7 @@ class ChatViewModel(
             worldId = _immersiveProfile.value.worldId,
             characterVersionId = _immersiveProfile.value.characterVersionId,
             chatBackgroundPath = _conversationBackgroundPathOverride.value,
+            chatSkinJson = appliedSkinJson,
             conversationPrompt = _conversationPrompt.value ?: inheritedEditablePrompt(),
             imageStylePrompt = _imageStylePrompt.value.ifBlank { null },
             rolePresentationEnabled = _immersiveProfile.value.rolePresentationEnabled ||
@@ -4434,6 +4479,10 @@ class ChatViewModel(
             novexConfigurationJson = _novexConfigurationJson.value,
         )
         realSessionId = session.id
+        // 卡绑会话的问候落库：卡的「开场白」模块作为第一条 assistant 消息
+        // （酒馆 first_mes 语义）——消息进历史模型可见，显示层把其中
+        // 的标记（如【开场白】）展开成前端件。失败不阻断会话。
+        seedCardGreeting(session.id)
         // "New Chat in Group": file the just-promoted draft into its folder.
         // Unconditional (vs iOS setFolderIfUnfiled) — the session is seconds
         // old and nothing else can have filed it yet.
@@ -4479,6 +4528,54 @@ class ChatViewModel(
             chatRepository.rebindSessionModel(realSessionId, binding, modelId)
         }
         realSessionId
+    }
+
+    /**
+     * 卡绑会话开局问候：主绑定卡的「开场白」模块正文落成首条 assistant
+     * 消息。只对新建会话生效一次（ensureSession 幂等）；管理会话/续聊/
+     * 无开场白模块的卡安静跳过。模块正文经存储层引用读取，失败不抛。
+     */
+    private suspend fun seedCardGreeting(sessionId: String) {
+        val selection = (initialCardEntry?.second ?: integratedCardBinding())?.primary ?: return
+        val text = runCatching {
+            withContext(Dispatchers.IO) {
+                val cards = com.openminis.app.cards.IntegratedCards(context)
+                val saved = cards.store.open(selection.rootId) ?: return@withContext null
+                val target = novex.content.ContentTargets.find(saved.content, selection.targetId)
+                target.modules.firstOrNull { it.name == "开场白" }
+                    ?.blocks?.filterIsInstance<novex.content.ContentBlock.Text>()
+                    ?.joinToString("\n") { block ->
+                        cards.store.contents.open(block.content).use { it.reader().readText() }
+                    }?.takeIf { it.isNotBlank() }
+            }
+        }.getOrElse {
+            android.util.Log.w("NovexSeed", "greeting read failed: $it")
+            null
+        } ?: return
+        val entity = chatRepository.appendMessage(
+            sessionId, "assistant",
+            "[{\"type\":\"text\",\"value\":${org.json.JSONObject.quote(text)}}]",
+        )
+        recordActiveBranchMessage(entity.id)
+        // [净眼 P1-1 同款纪律] 落库后必须同步双补内存——否则 I1 历史守恒
+        // 在出口拒死本会话所有发送（DB 有行而 agentHistory/_messages 缺行）。
+        withContext(Dispatchers.Main) {
+            synchronized(historyWriteLock) {
+                agentHistory.add(LLMMessage(
+                    role = LLMMessage.Role.ASSISTANT,
+                    content = text,
+                    contentParts = listOf(novex.android.data.model.AgentContentPart.Text(text)),
+                    dbMessageId = entity.id,
+                ))
+            }
+            _messages.value = _messages.value + ChatMessage(
+                id = entity.id,
+                role = "assistant",
+                content = text,
+                sourceDbIds = listOf(entity.id),
+                branchAnchorDbId = entity.id,
+            )
+        }
     }
 
     internal suspend fun prepareNovexConversationForEntry() {
@@ -4614,6 +4711,9 @@ class ChatViewModel(
                     }
                     _messages.value = emptyList()
                     _cachedLatestMarker = null
+                    activeBranchMessageIds = emptySet()
+                    activeBranchPathIds = emptyList()
+                    lastInstalledBranchGraph = null
                 }
                 Log.i(TAG, "clearChat: session=$sid wiped (files preserved)")
             } finally {
@@ -4920,6 +5020,16 @@ class ChatViewModel(
                 if (!streamLaunched) {
                     AppLogger.info(TAG_STREAM, "retry _isStreaming=false (setup aborted)")
                     _isStreaming.value = false
+                    // fork 已把叶子截到重试点；流没起来时把叶子归回原
+                    // 尾巴——旧线直接回来，不留只能手动「后续分支」归位
+                    // 的截断态。sid 在 try 内不可见，重新解析。
+                    val abortSid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
+                    runCatching {
+                        val restored = chatRepository.switchChildBranch(abortSid, persistedUserId, +1)
+                        installActiveConversation(restored)
+                    }.onFailure {
+                        AppLogger.error(TAG_STREAM, "retry abort leaf restore failed: ${it.message}")
+                    }
                 }
             }
         }
@@ -4946,6 +5056,37 @@ class ChatViewModel(
                 AppLogger.error(
                     TAG_STREAM,
                     "branch switch failed ${error::class.java.simpleName}: ${error.message}",
+                )
+                _error.value = "切换分支失败：${error.message ?: error::class.java.simpleName}"
+            } finally {
+                conversationBranchMutex.unlock()
+            }
+        }
+    }
+
+    /**
+     * Step through a node's children — the parent-side counterpart of
+     * [switchMessageBranch]. Used by the「后续分支」navigator shown when the
+     * visible path ends at a node that still has stored children (forked
+     * edit/retry window or a truncated state left by an interrupted send).
+     */
+    fun switchChildBranch(parentId: String, delta: Int) {
+        if (_isStreaming.value || delta == 0) return
+        val sid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
+        if (sid.isEmpty()) return
+        viewModelScope.launch {
+            conversationBranchMutex.lock()
+            try {
+                withContext(Dispatchers.IO) { novexLearningSession.pauseActive() }
+                val conversation = withContext(Dispatchers.IO) {
+                    chatRepository.switchChildBranch(sid, parentId, delta)
+                }
+                installActiveConversation(conversation)
+                _canResume.value = false
+            } catch (error: Exception) {
+                AppLogger.error(
+                    TAG_STREAM,
+                    "child branch switch failed ${error::class.java.simpleName}: ${error.message}",
                 )
                 _error.value = "切换分支失败：${error.message ?: error::class.java.simpleName}"
             } finally {
@@ -5180,12 +5321,9 @@ class ChatViewModel(
         // doesn't run until then — meanwhile RPC chat.session.status would
         // still report isRunning=true and the user thinks the stop button
         // did nothing.
-        // [T-android-overlay-reply-status-34599] User-initiated cancel:
-        // surface any reply we already streamed + tag outcome as
-        // Cancelled so the overlay's glyph reflects the actual end
-        // state (⊘) instead of carrying over the prior tool's outcome.
-        publishOverlayReplyExcerpt(activeSessionId)
-        SessionActivityTracker.clearToolRunning(com.openminis.app.service.ToolOutcome.Cancelled)
+        // User-initiated cancel: drop the tool-running bit so the
+        // notification stops showing an in-flight tool.
+        SessionActivityTracker.clearToolRunning()
         SessionActivityTracker.setInactive(activeSessionId)
         if (isDraft && realSessionId.isNotEmpty() && activeSessionId != sessionId) {
             SessionActivityTracker.setInactive(sessionId)
@@ -5326,7 +5464,6 @@ class ChatViewModel(
                         // we're in the finally block of the agent loop and
                         // the stream has already flushed its last delta.
                         if (streamJob === coroutineContext[Job]) {
-                            publishOverlayReplyExcerpt(activeSessionId)
                             SessionActivityTracker.setInactive(activeSessionId)
                         } else {
                             AppLogger.info(TAG_STREAM, "resumeQueueAfterCancel stale stream skipped tracker finalization")

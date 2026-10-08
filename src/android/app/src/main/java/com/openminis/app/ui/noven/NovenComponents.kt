@@ -52,6 +52,8 @@ import novex.android.CardSessionModel
 import novex.android.CardThumbnail
 import novex.content.CardKind
 import novex.content.ContentRef
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.io.File
 
 // ── 底栏 ─────────────────────────────────────────────────────────────────
@@ -570,14 +572,22 @@ internal fun NovenWorkCard(
 
 // ── 导入文件选择 ──────────────────────────────────────────────────────────
 
-/** 返回一个「先选类型，再打开文件选择器」的入口函数。 */
+/** 返回一个「先选类型，再打开文件选择器」的入口函数。
+ *  OpenDocument 的回调早于 onResume 到达——此时 NavBackStackEntry 还在
+ *  STARTED，safeNavigate 会把导航静默丢弃（导入点了没反应的 bug）。
+ *  这里先等宿主回到 RESUMED 再回调。 */
 @Composable
 internal fun rememberNovenImportPicker(onPicked: (Uri, Boolean) -> Unit): (Boolean) -> Unit {
     var pendingWorld = androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf(false)
     }
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) onPicked(uri, pendingWorld.value)
+        if (uri != null) scope.launch {
+            owner.lifecycle.currentStateFlow.first { it == androidx.lifecycle.Lifecycle.State.RESUMED }
+            onPicked(uri, pendingWorld.value)
+        }
     }
     return { world ->
         pendingWorld.value = world

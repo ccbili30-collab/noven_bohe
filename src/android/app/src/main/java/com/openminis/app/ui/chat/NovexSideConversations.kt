@@ -11,14 +11,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,8 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import novex.android.data.chat.SessionRow
 import com.openminis.app.data.repository.ChatRepository
-import novex.core.PlaythroughState
-import novex.core.PlaythroughValue
 import novex.android.ui.NovexColors
 import novex.android.ui.NovexType
 import kotlinx.coroutines.launch
@@ -51,9 +47,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
-
-/** Rail id of the playthrough status ear (UUIDs can never contain NUL). */
-private const val HUD_ID = "\u0000hud"
 
 /**
  * [T-side-naming] 书签凸耳短标签：显示侧边编号——新命名「侧边 N」与旧命名
@@ -67,22 +60,11 @@ internal fun bookmarkTabLabel(title: String?): String {
     return t.trim().take(1).ifEmpty { "侧" }
 }
 
-/** State-ear participation: null = no playthrough state → no ear. */
-internal data class NovexEdgeHandleSpec(
-    val state: PlaythroughState,
-    val update: NovexDataUpdateEvent?,
-    val onDismissUpdate: () -> Unit,
-)
-
 /**
  * 侧边组件轨（edge-v1 定稿）：
  * - 书签凸耳 = 左缘半出屏白色小卡（屏内只露编号），跨主线↔侧边页常驻；
  *   当前所在侧边薄荷填充；新书签排最下；拖动仅排序。点「侧边对话」菜单
  *   打开左侧管理面板（名称 + 最近消息 + 时间 + 新建）。
- * - 状态凸耳 = 右缘迷你状态条（仅主线页）：数值状态竖排堆叠成格，越多
- *   越长；该格数值变化时闪薄荷底，有未读更新时顶部亮绿点；按下即拖、
- *   只沿边上下，位置按会话记住；点按展开右缘全量面板（固定尺寸、内容
- *   内部滚动——手机上不给抽屉做窗口管理）。
  * - 淡化（仅主线页）：整列/凸耳原地透明度归零，布局零跳动；淡化后不
  *   拦截点击，任何触摸由 ChatScreen 统一唤回。侧边页常驻不淡化。
  */
@@ -97,7 +79,6 @@ internal fun NovexSideConversations(
     requestSidePanel: Boolean = false,
     onSidePanelConsumed: () -> Unit = {},
     onOpenSide: (String) -> Unit,
-    handle: NovexEdgeHandleSpec?,
     chromeCollapsed: Boolean,
 ) {
     val scope = rememberCoroutineScope()
@@ -105,11 +86,6 @@ internal fun NovexSideConversations(
     var sides by remember(railSessionId) { mutableStateOf(listOf<SessionRow>()) }
     var sidesLoaded by remember(railSessionId) { mutableStateOf(false) }
     var order by remember(railSessionId) { mutableStateOf<List<String>>(emptyList()) }
-    val savedHandleFraction = remember(railSessionId) {
-        NovexEdgePrefs.readFraction(context, EDGE_PREFS_HUD, railSessionId)
-    }
-    var handleFraction by remember(railSessionId) { mutableFloatStateOf(savedHandleFraction) }
-    var expandedPanel by rememberSaveable(railSessionId) { mutableStateOf(false) }
     var showSidePanel by rememberSaveable(railSessionId) { mutableStateOf(false) }
     // Drag state — one component at a time, never hides the others.
     var draggingId by remember { mutableStateOf<String?>(null) }
@@ -154,7 +130,7 @@ internal fun NovexSideConversations(
     }
 
     val collapsed = chromeCollapsed && !isSidePage
-    if (!sidesLoaded && handle == null) return
+    if (!sidesLoaded) return
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = androidx.compose.ui.platform.LocalDensity.current
         val screenW = with(density) { maxWidth.toPx() }
@@ -260,113 +236,8 @@ internal fun NovexSideConversations(
             }
         }
 
-        // ── Status ear (right edge, main pages only): mini status bar. ──
-        if (handle != null && !expandedPanel && railAlpha > 0.01f) {
-            val earEntries = remember(handle.state.values) {
-                handle.state.values.entries
-                    .filter { it.value is PlaythroughValue.Number || it.value is PlaythroughValue.Flag }
-                    .sortedBy { it.key }
-            }
-            val visibleCells = earEntries.take(StatusEarMaxCells)
-            val overflow = earEntries.size - visibleCells.size
-            val cellCount = visibleCells.size + (if (overflow > 0) 1 else 0)
-            // 纯文本状态（无数值/标记）时凸耳退化成一格「≡」入口。
-            val earHeight = StatusEarCellHeight * cellCount.coerceAtLeast(1)
-            val earWpx = with(density) { StatusEarWidth.toPx() }
-            val earHpx = with(density) { earHeight.toPx() }
-            val maxEarY = (screenH - bottomReserve - earHpx).coerceAtLeast(topInsetPx)
-            val earBaseY = topInsetPx + handleFraction * (maxEarY - topInsetPx)
-            NovexEdgeGestureSurface(
-                shape = statusEarShape(),
-                floatingShape = RoundedCornerShape(50),
-                width = StatusEarWidth,
-                height = earHeight,
-                fill = novexEdgeFill(),
-                rim = novexEdgeRim(),
-                floating = draggingId == HUD_ID,
-                elevation = if (railAlpha >= 0.99f) 3.dp else 0.dp,
-                modifier = Modifier
-                    .graphicsLayer { alpha = railAlpha }
-                    .offset {
-                        IntOffset(
-                            (screenW - earWpx).roundToInt(),
-                            (if (draggingId == HUD_ID) dragY else earBaseY).roundToInt(),
-                        )
-                    },
-                onTap = if (collapsed) null else ({ expandedPanel = true }),
-                drag = if (collapsed) null else object : NovexEdgeDragCallbacks {
-                    override fun onDragStart() {
-                        draggingId = HUD_ID
-                        dragY = earBaseY
-                    }
-
-                    override fun onDrag(delta: Offset, change: PointerInputChange) {
-                        dragY = (dragY + delta.y).coerceIn(topInsetPx, maxEarY)
-                    }
-
-                    override fun onDragEnd() {
-                        handleFraction = ((dragY - topInsetPx) / (maxEarY - topInsetPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-                        draggingId = null
-                        NovexEdgePrefs.writeFraction(context, EDGE_PREFS_HUD, railSessionId, handleFraction)
-                    }
-
-                    override fun onDragCancel() { draggingId = null }
-                },
-            ) {
-                Column(Modifier.fillMaxSize()) {
-                    visibleCells.forEach { (key, value) ->
-                        StatusEarCell(
-                            key = key,
-                            text = when (value) {
-                                is PlaythroughValue.Number ->
-                                    if (value.value % 1.0 == 0.0) value.value.toLong().toString() else value.value.toString()
-                                is PlaythroughValue.Flag -> if (value.value) "✓" else "–"
-                                is PlaythroughValue.Text -> value.value.take(2)
-                            },
-                            highlighted = handle.update?.changes?.any { it.key == key } == true,
-                            modifier = Modifier.height(StatusEarCellHeight),
-                        )
-                        if (key != visibleCells.last().key || overflow > 0) {
-                            Box(
-                                Modifier
-                                    .padding(horizontal = 8.dp)
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(NovexColors.Divider.copy(alpha = 0.5f)),
-                            )
-                        }
-                    }
-                    if (overflow > 0) {
-                        Box(
-                            Modifier.fillMaxWidth().height(StatusEarCellHeight),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("+$overflow", color = NovexColors.TertiaryText, fontSize = 10.sp)
-                        }
-                    }
-                    if (earEntries.isEmpty()) {
-                        Box(
-                            Modifier.fillMaxWidth().height(StatusEarCellHeight),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("≡", color = NovexColors.SecondaryText, fontSize = 13.sp)
-                        }
-                    }
-                }
-                if (handle.update != null) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .padding(start = 4.dp, top = 4.dp)
-                            .size(6.dp)
-                            .background(NovexColors.Primary, RoundedCornerShape(50)),
-                    )
-                }
-            }
-        }
-
         // ── Scrim：面板展开时点击外部关闭。 ──
-        if ((expandedPanel || showSidePanel) && !collapsed) {
+        if (showSidePanel && !collapsed) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -375,29 +246,8 @@ internal fun NovexSideConversations(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                     ) {
-                        expandedPanel = false
                         showSidePanel = false
                     },
-            )
-        }
-
-        // ── Playthrough panel: right-anchored, fixed width, content scrolls. ──
-        if (handle != null && expandedPanel && !collapsed) {
-            val earHpx = with(density) { StatusEarCellHeight.toPx() * 2f }
-            val maxEarY = (screenH - bottomReserve - earHpx).coerceAtLeast(topInsetPx)
-            val anchorY = topInsetPx + handleFraction * (maxEarY - topInsetPx)
-            val maxPanelHeight = with(density) {
-                ((screenH - anchorY - 120.dp.toPx()).coerceAtLeast(200.dp.toPx())).toDp()
-            }
-            NovexPlaythroughPanel(
-                state = handle.state,
-                update = handle.update,
-                onDismissUpdate = handle.onDismissUpdate,
-                onCollapse = { expandedPanel = false },
-                maxHeight = maxPanelHeight,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(y = with(density) { anchorY.toDp() }),
             )
         }
 
@@ -408,8 +258,8 @@ internal fun NovexSideConversations(
                 Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = 0.dp, top = 24.dp, bottom = 24.dp)
-                    .shadow(6.dp, statusEarShape(14.dp))
-                    .clip(statusEarShape(14.dp))
+                    .shadow(6.dp, edgePanelShape(14.dp))
+                    .clip(edgePanelShape(14.dp))
                     .background(NovexColors.Surface)
                     .width(280.dp)
                     .heightIn(max = maxHeight - 48.dp),
@@ -537,34 +387,6 @@ private fun SidePanelRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-        }
-    }
-}
-
-/** 状态凸耳一格：键名首字 + 数值；本轮变更的格子闪薄荷底。 */
-@Composable
-private fun StatusEarCell(key: String, text: String, highlighted: Boolean, modifier: Modifier = Modifier) {
-    val flash = animateFloatAsState(
-        targetValue = if (highlighted) 1f else 0f,
-        animationSpec = tween(500),
-        label = "earFlash",
-    )
-    Box(
-        modifier
-            .fillMaxWidth()
-            .background(NovexColors.Primary.copy(alpha = 0.16f * flash.value)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(key.take(1), color = NovexColors.TertiaryText, fontSize = 8.sp, maxLines = 1)
-            Text(
-                text,
-                color = NovexColors.Text,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }

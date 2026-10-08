@@ -1,10 +1,7 @@
 package com.openminis.app.ui.settings
 
 import android.app.Activity
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -63,16 +60,10 @@ fun BackgroundSettingsScreen(onBack: () -> Unit) {
     val repo = (context.applicationContext as MinisApp).backgroundSettingsRepository
 
     val taskNotificationsEnabled by repo.taskNotificationsEnabled.collectAsState()
-    val backgroundOverlayEnabled by repo.backgroundOverlayEnabled.collectAsState()
     val dynamicIslandEnabled by repo.dynamicIslandEnabled.collectAsState()
 
     var ignoringOptimizations by remember {
         mutableStateOf(PowerOptimizationManager.isIgnoringBatteryOptimizations(context))
-    }
-    var canDrawOverlays by remember {
-        mutableStateOf(
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context),
-        )
     }
     var dynamicIslandCapable by remember {
         mutableStateOf(DynamicIslandSupport.isDynamicIslandCapable(context))
@@ -85,8 +76,6 @@ fun BackgroundSettingsScreen(onBack: () -> Unit) {
             if (event == Lifecycle.Event.ON_RESUME) {
                 ignoringOptimizations =
                     PowerOptimizationManager.isIgnoringBatteryOptimizations(context)
-                canDrawOverlays =
-                    Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
                 dynamicIslandCapable = DynamicIslandSupport.isDynamicIslandCapable(context)
             }
         }
@@ -115,48 +104,7 @@ fun BackgroundSettingsScreen(onBack: () -> Unit) {
             )
             BgFootnote(stringResource(R.string.settings_task_notifications_footer))
 
-            // 悬浮层：没拿到 SYSTEM_ALERT_WINDOW 就深链到系统授权页；用户意愿
-            // 先落库，回来后 canDrawOverlays 重探到 true 即生效。
-            BgToggleLine(
-                icon = NovexIcons.Layers,
-                iconColor = Color(0xFF5856D6),
-                title = stringResource(R.string.settings_bg_overlay),
-                checked = backgroundOverlayEnabled && canDrawOverlays,
-                onCheckedChange = { wanted ->
-                    if (wanted && !canDrawOverlays) {
-                        runCatching {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:" + context.packageName),
-                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                        }.onFailure {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                                )
-                            }
-                        }
-                        repo.setBackgroundOverlayEnabled(true)
-                    } else {
-                        repo.setBackgroundOverlayEnabled(wanted)
-                    }
-                },
-            )
-            BgFootnote(
-                stringResource(
-                    if (!canDrawOverlays && backgroundOverlayEnabled) {
-                        R.string.settings_bg_overlay_permission_needed
-                    } else {
-                        R.string.settings_bg_overlay_footer
-                    },
-                ),
-            )
-
-            // 实时活动仅 Android 16+ 且有 per-app 授权才可点；开时替代悬浮层
-            // （互斥逻辑在 AgentForegroundService.applyOverlayState）。
+            // 实时活动仅 Android 16+ 且有 per-app 授权才可点。
             BgToggleLine(
                 icon = NovexIcons.Bolt,
                 iconColor = Color(0xFF34C759),

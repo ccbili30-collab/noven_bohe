@@ -23,7 +23,17 @@ class HtmlIslandDocumentTest {
         assertTrue(doc.contains("connect-src 'none'"))
         assertTrue(doc.contains("default-src 'none'"))
         assertTrue(doc.contains("script-src 'unsafe-inline'"))
-        assertTrue(doc.contains("img-src data: blob:"))
+        assertTrue(doc.contains("img-src 'self' data: blob: minis: novex-res:"))
+    }
+
+    @Test
+    fun `island resources only allow session image schemes`() {
+        val doc = wrapIslandDocument("<p>hi</p>", "{}")
+        // 本地图片可进岛当素材，但 font/media/frame/connect 面不随
+        // img-src 一起放开——资源口子只服务装饰图。
+        assertTrue(doc.contains("minis:"))
+        assertTrue(doc.contains("media-src 'none'"))
+        assertTrue(doc.contains("frame-src 'none'"))
     }
 
     @Test

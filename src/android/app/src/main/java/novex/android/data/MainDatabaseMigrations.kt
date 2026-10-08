@@ -682,6 +682,10 @@ val MIGRATION_38_39 = step(38, 39) {
     addColumnUnlessPresent("sessions", "text_style_prompt", "ALTER TABLE sessions ADD COLUMN text_style_prompt TEXT")
 }
 
+val MIGRATION_39_40 = step(39, 40) {
+    addColumnUnlessPresent("sessions", "chat_skin_json", "ALTER TABLE sessions ADD COLUMN chat_skin_json TEXT")
+}
+
 /** Every step, wired into the database builder in ascending order. */
 internal val MAIN_SCHEMA_STEPS: Array<Migration> = arrayOf(
     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
@@ -691,5 +695,5 @@ internal val MAIN_SCHEMA_STEPS: Array<Migration> = arrayOf(
     MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
     MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
     MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
-    MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39,
+    MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40,
 )

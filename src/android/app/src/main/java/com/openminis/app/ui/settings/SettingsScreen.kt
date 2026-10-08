@@ -79,6 +79,7 @@ fun SettingsScreen(
     onProvidersClick: () -> Unit,
     onModelGroupsClick: () -> Unit,
     onImageGenerationClick: () -> Unit = {},
+    onWebAccessClick: () -> Unit = {},
     onSkillsClick: () -> Unit = {},
     // [P3.3 裁军] onMcpClick（MCP 集成页入口参数）随 MCP 集成面退役摘除。
     // Agent Runtime section; default no-op for callers that haven't wired
@@ -137,6 +138,12 @@ fun SettingsScreen(
                 title = "生图服务",
                 subtitle = "独立接口、模型与自动降级分组",
                 onClick = onImageGenerationClick,
+            )
+            NovexSettingsRow(
+                icon = R.drawable.ic_phosphor_globe,
+                title = "联网",
+                subtitle = "web_search 搜索后端（智谱 / Tavily / Brave）",
+                onClick = onWebAccessClick,
             )
             NovexSettingsRow(
                 icon = R.drawable.ic_phosphor_chart_bar,

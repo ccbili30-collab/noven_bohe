@@ -248,6 +248,21 @@ internal sealed class FlatChatItem {
         override fun keyVariant(n: Int) = copy(messageId = "$messageId#$n")
     }
 
+    /**
+     * 子分支导航行：活跃路径的叶子下面还挂着子行时（编辑/重试 fork
+     * 窗口期、发送中断的截断态）渲染，点按走 switchChildBranch 把活跃
+     * 路径延伸回已存的后续分支。count==1 时渲染为单箭头「查看后续分支」。
+     */
+    data class ChildBranchPicker(
+        val parentId: String,
+        val index: Int,
+        val count: Int,
+    ) : FlatChatItem() {
+        override val key = "child-branch:$parentId"
+        override val contentType = "child_branch"
+        override fun keyVariant(n: Int) = copy(parentId = "$parentId#$n")
+    }
+
     /** 迁移前的老会话：全部文本在 message.content，没有 text 块。 */
     class AssistantLegacyContent(
         val messageId: String,
@@ -290,6 +305,7 @@ internal val FlatChatItem.ownerMessageId: String?
         is FlatChatItem.AssistantError -> messageId
         is FlatChatItem.AssistantLegacyContent -> messageId
         is FlatChatItem.BranchSwitcher -> messageId
+        is FlatChatItem.ChildBranchPicker -> parentId
         else -> null
     }
 

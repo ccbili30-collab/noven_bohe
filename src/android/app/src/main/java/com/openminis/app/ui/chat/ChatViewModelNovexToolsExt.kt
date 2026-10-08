@@ -481,7 +481,6 @@ internal suspend fun ChatViewModel.executeUpdatePlaythroughStateTool(
     turnMessageId: String,
 ): ToolExecutionResult = runCatching {
         activeStreamingTurnId = turnMessageId
-        val before = _activePlaythroughState.value
         val updated = novexSettingsStore.update { configuration ->
             require(configuration.activeInteractiveFiction != null || integratedCards.binding(activeSessionId)!=null) { "请先选择互动卡片" }
             PlaythroughStateRegistration.applyUpdates(configuration = configuration, branchId = turnMessageId,
@@ -493,10 +492,6 @@ internal suspend fun ChatViewModel.executeUpdatePlaythroughStateTool(
         // 不含正在生成的这条消息——不在这里同步一次的话，AI 改了值、面板
         // 到回合结束前都还显示旧值，看起来就是"改不动"。
         _activePlaythroughState.value = after
-        val changes = diffNovexPlaythroughState(before, after)
-        if (changes.isNotEmpty()) {
-            _novexDataUpdates.tryEmit(NovexDataUpdateEvent(turnMessageId, changes))
-        }
         ToolExecutionResult(
             output = "已更新当前消息分支的本局状态；切换分支时会恢复对应状态。",
             success = true,

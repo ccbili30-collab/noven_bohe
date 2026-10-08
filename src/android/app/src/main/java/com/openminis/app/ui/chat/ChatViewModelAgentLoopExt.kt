@@ -1430,21 +1430,10 @@ internal suspend fun ChatViewModel.runAgentLoopBody(
                     result.timedOut -> ToolBlockStatus.TIMEOUT
                     else -> ToolBlockStatus.FAILED
                 }
-                // T-bg-overlay phase 1: tool finished — drop the
-                // notification's indeterminate progress bar so the
-                // user can tell streaming has paused (LLM step) vs
-                // a tool is in flight.
-                // [T-overlay-glyph-typed-outcome] Pass the typed
-                // outcome so the bg overlay glyph reflects the real
-                // SUCCESS / TIMEOUT / FAILED result instead of
-                // text-sniffing the stale "Running: foo" status.
-                val toolOutcome = when (finalStatus) {
-                    ToolBlockStatus.SUCCESS -> com.openminis.app.service.ToolOutcome.Success
-                    ToolBlockStatus.TIMEOUT -> com.openminis.app.service.ToolOutcome.Timeout
-                    ToolBlockStatus.FAILED -> com.openminis.app.service.ToolOutcome.Error
-                    else -> com.openminis.app.service.ToolOutcome.Unknown
-                }
-                SessionActivityTracker.clearToolRunning(toolOutcome)
+                // Tool finished — drop the notification's indeterminate
+                // progress bar so the user can tell streaming has paused
+                // (LLM step) vs a tool is in flight.
+                SessionActivityTracker.clearToolRunning()
                 android.util.Log.d("ToolChain[VM]", "[turn=$turn] block[$blockIdx] status→$finalStatus title=${result.toolTitle} contentLen=${finalContent.length}")
                 allToolBlocks[blockIdx] = allToolBlocks[blockIdx].copy(
                     toolStatus = finalStatus,
@@ -2076,6 +2065,12 @@ internal suspend fun ChatViewModel.executeAuthorizedTool(
         // /var/minis/{workspace,attachments,offloads,browser} files.
         ReadImageTool.NAME -> executeReadImageTool(argsJson)
         GenerateImageTool.NAME -> executeGenerateImageTool(argsJson)
+        com.openminis.app.tools.WebFetchTool.NAME -> withContext(Dispatchers.IO) {
+            com.openminis.app.tools.WebFetchTool.execute(argsJson)
+        }
+        com.openminis.app.tools.WebSearchTool.NAME -> withContext(Dispatchers.IO) {
+            com.openminis.app.tools.WebSearchTool.execute(argsJson, context)
+        }
         "shell_execute" -> com.openminis.app.tools.ToolExecutionResult(
             // R0 沙箱退役灰度：工具目录已不含 shell_execute；此处只兜历史回放或
             // 模型幻觉调用，明确拒绝而不是执行（P2.5 计划表）。

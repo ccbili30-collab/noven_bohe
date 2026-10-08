@@ -491,9 +491,25 @@ private fun SkillImportSheet(
                                             // importFromGitHub 抓 SKILL.md 并经
                                             // GitHub Contents API 递归兄弟文件
                                             // （scripts/references 才会落盘）。
-                                            val result = skillRepository.importFromGitHub(urlText.trim())
-                                            if (result != null) onDismiss()
-                                            else errorText = context.getString(R.string.skill_import_error_invalid)
+                                            // 失败按类报：URL 不认 / 网络不通 /
+                                            // HTTP 错误 / SKILL.md 非法。
+                                            when (
+                                                val result = skillRepository.importFromGitHub(urlText.trim())
+                                            ) {
+                                                is SkillRepository.ImportResult.Success -> onDismiss()
+                                                is SkillRepository.ImportResult.Failure -> {
+                                                    errorText = when (result) {
+                                                        is SkillRepository.ImportResult.Failure.UnrecognizedUrl ->
+                                                            context.getString(R.string.skill_import_error_unrecognized_url)
+                                                        is SkillRepository.ImportResult.Failure.Network ->
+                                                            context.getString(R.string.skill_import_error_network, result.detail)
+                                                        is SkillRepository.ImportResult.Failure.Http ->
+                                                            context.getString(R.string.skill_import_error_http, result.code)
+                                                        is SkillRepository.ImportResult.Failure.InvalidSkillMd ->
+                                                            context.getString(R.string.skill_import_error_format)
+                                                    }
+                                                }
+                                            }
                                         } catch (e: Exception) {
                                             errorText = "Error: ${e.message}"
                                         } finally {

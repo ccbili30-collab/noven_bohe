@@ -21,15 +21,16 @@ import org.json.JSONObject
 //   table — 模板是 markdown（表格为主），代入后走块渲染
 //   html  — 模板是完整 HTML 页，代入后装沙箱岛
 //
-// 槽位 slot：top / bottom 钉在会话顶/底（不属于任何单条消息）；inline
-// 画在 use 所在消息流位置。归属规则 = 每个 id 以最后一次 use 的 slot 为准，
-// 所以模型每轮都能改位置（投影是就地新画的实例，不是把旧 WebView 拖走）。
+// 件的位置 = use 块在消息流里的位置，就地投影。历史协议里的 top/bottom
+// 钉位槽已退役——前端件属于叙事流，不是屏幕镶边；解析仍认得 slot 字段
+// （旧消息不报格式错误），但一律按 inline 处理。
 //
 // 占位符 `{{key}}`：只替换 data 里存在的键——未命中键原样保留，Vue 等
 // 前端框架自己的双花括号语法不会被误伤。
 
 internal const val NOVEX_DEF_LANGUAGE = "novex-def"
 internal const val NOVEX_USE_LANGUAGE = "novex-use"
+internal const val NOVEX_SKIN_LANGUAGE = "novex-skin"
 
 internal fun isNovexDefLanguage(language: String): Boolean =
     language.trim().lowercase() == NOVEX_DEF_LANGUAGE
@@ -37,8 +38,9 @@ internal fun isNovexDefLanguage(language: String): Boolean =
 internal fun isNovexUseLanguage(language: String): Boolean =
     language.trim().lowercase() == NOVEX_USE_LANGUAGE
 
-internal const val NOVEX_SLOT_TOP = "top"
-internal const val NOVEX_SLOT_BOTTOM = "bottom"
+internal fun isNovexSkinLanguage(language: String): Boolean =
+    language.trim().lowercase() == NOVEX_SKIN_LANGUAGE
+
 internal const val NOVEX_SLOT_INLINE = "inline"
 
 /** 一件已注册的前端件：模板+元信息。 */
@@ -48,27 +50,30 @@ internal data class NovexArtifactDef(
     val name: String?,
     val defaultSlot: String?,
     val template: String,
+    /** 显示期替换标记：消息文本里出现该字面量时在该处投影此件
+     *  （等价于酒馆"占位标记→正则换页面"的语义，但是我们的协议）。 */
+    val marker: String? = null,
+    /** 酒馆「每回合自动注入」标记：卡里有同 findRegex 的空替换伴生脚本时
+     *  由转译器置位。显示期在整条消息末尾补插该标记再展开——对应酒馆框架
+     *  把 <StatusPlaceHolderImpl/> 之类占位符自动附加到每条回复的行为。 */
+    val autoMarker: Boolean = false,
+    /** 模板来自导入的酒馆前端资产：岛渲染时注入 tavern-compat 适配层
+     *  （getVariables→NOVEN_FRAME.state、vendor 的 jQuery/lodash）。 */
+    val tavernCompat: Boolean = false,
 )
 
-/** 一次调用：目标 id + 槽位（空 = 用 def 默认槽位/inline）+ 本轮数据。 */
+/** 一次调用：目标 id + 本轮数据（slot 字段已退役，仅存解析兼容）。 */
 internal data class NovexArtifactUse(
     val id: String,
-    val slot: String?,
     val data: Map<String, String>,
-) {
-    fun resolvedSlot(def: NovexArtifactDef?): String =
-        slot ?: def?.defaultSlot ?: NOVEX_SLOT_INLINE
-}
+)
 
-/** 会话级场景：defs 注册表 + 顶/底槽当前各自被哪些件占据。 */
+/** 会话级场景：defs 注册表（seed 在前，消息内同名 def 覆盖）。 */
 internal class NovexArtifactScene(
     val defs: Map<String, NovexArtifactDef>,
-    /** (def, use) 按最近 use 排序——后写的排后面（视觉上更靠槽位尾端）。 */
-    val topPins: List<Pair<NovexArtifactDef, NovexArtifactUse>>,
-    val bottomPins: List<Pair<NovexArtifactDef, NovexArtifactUse>>,
 ) {
     companion object {
-        val EMPTY = NovexArtifactScene(emptyMap(), emptyList(), emptyList())
+        val EMPTY = NovexArtifactScene(emptyMap())
     }
 }
 
@@ -101,27 +106,29 @@ internal fun parseNovexDef(code: String): NovexArtifactDef? {
     val kind = meta.optString("kind").trim().lowercase()
         .ifEmpty { "html" }
         .let { if (it in setOf("math", "html", "table")) it else "html" }
+    // slot 字段不再影响落点（件总在 use 处就地投影），仅为向后兼容保留读取。
     val slot = meta.optString("slot").trim().lowercase()
-        .let { if (it in setOf(NOVEX_SLOT_TOP, NOVEX_SLOT_BOTTOM, NOVEX_SLOT_INLINE)) it else null }
+        .ifEmpty { null }
     return NovexArtifactDef(
         id = id,
         kind = kind,
         name = meta.optString("name").trim().ifEmpty { null },
         defaultSlot = slot,
         template = lines.drop(metaIdx + 1).joinToString("\n").trim('\n'),
+        marker = meta.optString("marker").trim().ifEmpty { null },
+        autoMarker = meta.optBoolean("autoMarker", false),
+        tavernCompat = meta.optString("compat") == "tavern",
     )
 }
 
 /**
- * use 围栏体：整段 JSON。`{"id":…, "slot":…, "data":{…}}`；
- * 无 `data` 对象时，id/slot 以外的散键全部视作数据。
+ * use 围栏体：整段 JSON。`{"id":…, "data":{…}}`；
+ * 无 `data` 对象时，id/slot 以外的散键全部视作数据（slot 为历史字段）。
  */
 internal fun parseNovexUse(code: String): NovexArtifactUse? {
     val obj = runCatching { JSONObject(code.trim()) }.getOrNull() ?: return null
     val id = obj.optString("id").trim()
     if (id.isEmpty()) return null
-    val slot = obj.optString("slot").trim().lowercase()
-        .let { if (it in setOf(NOVEX_SLOT_TOP, NOVEX_SLOT_BOTTOM, NOVEX_SLOT_INLINE)) it else null }
     val data = mutableMapOf<String, String>()
     obj.optJSONObject("data")?.let { d ->
         for (k in d.keys()) data[k] = d.opt(k)?.toString() ?: ""
@@ -130,7 +137,7 @@ internal fun parseNovexUse(code: String): NovexArtifactUse? {
         if (k == "id" || k == "slot" || k == "data") continue
         data.putIfAbsent(k, obj.opt(k)?.toString() ?: "")
     }
-    return NovexArtifactUse(id, slot, data)
+    return NovexArtifactUse(id, data)
 }
 
 // 围栏体扫描：要求闭合 ```（流式中未闭合的半截块不算数，写完整才生效）。
@@ -148,8 +155,8 @@ internal fun collectDefsFromText(text: String): List<NovexArtifactDef> =
     }.toList()
 
 /**
- * 从消息列表扫出当前场景：defs 后者覆盖前者（允许模型改模板），
- * 槽位归属按每个 id 最后一次 use 的 resolvedSlot。
+ * 从消息列表扫出当前场景：defs 后者覆盖前者（允许模型改模板）。
+ * use 块不再参与场景归集——件的投影在消息流内就地发生。
  * [seedDefs] 为会话级预铺（卡内置前端件）——消息里的同名 def 可覆盖。
  */
 internal fun collectNovexArtifactScene(
@@ -157,32 +164,78 @@ internal fun collectNovexArtifactScene(
     seedDefs: Map<String, NovexArtifactDef> = emptyMap(),
 ): NovexArtifactScene {
     val defs = LinkedHashMap<String, NovexArtifactDef>().also { it.putAll(seedDefs) }
-    // 每个 id 保留最后一次 use（及其出现序），槽位归属用它裁定。
-    val lastUseById = LinkedHashMap<String, Pair<Int, NovexArtifactUse>>()
-    var order = 0
     for (msg in messages) {
         for (m in artifactFenceRegex.findAll(msg.content)) {
-            when (m.groupValues[1].lowercase()) {
-                NOVEX_DEF_LANGUAGE ->
-                    parseNovexDef(m.groupValues[2])?.let { defs[it.id] = it }
-                NOVEX_USE_LANGUAGE ->
-                    parseNovexUse(m.groupValues[2])?.let { lastUseById[it.id] = order++ to it }
+            if (m.groupValues[1].lowercase() == NOVEX_DEF_LANGUAGE) {
+                parseNovexDef(m.groupValues[2])?.let { defs[it.id] = it }
             }
         }
     }
-    val top = mutableListOf<Pair<NovexArtifactDef, NovexArtifactUse>>()
-    val bottom = mutableListOf<Pair<NovexArtifactDef, NovexArtifactUse>>()
-    lastUseById.entries
-        .sortedBy { it.value.first }
-        .forEach { (id, pair) ->
-            val def = defs[id] ?: return@forEach
-            when (pair.second.resolvedSlot(def)) {
-                NOVEX_SLOT_TOP -> top.add(def to pair.second)
-                NOVEX_SLOT_BOTTOM -> bottom.add(def to pair.second)
-            }
-        }
-    return NovexArtifactScene(defs, top, bottom)
+    return NovexArtifactScene(defs)
 }
+
+/**
+ * 显示期标记展开：消息文本里每个已注册 marker 字面量替换为对应的
+ * novex-use 围栏——复用整套投影管线（解析/预算/渲染），原文不改。
+ * 无 marker 定义时原样返回（保持 String 实例，下游 remember/缓存键不变）。
+ *
+ * [appendAutoMarkers] 只在「整条消息」级调用方打开（末片段/整条渲染）：
+ * 把 autoMarker def 里没出现的标记补到文末再展开——对应酒馆框架每回合
+ * 自动注入占位标记的行为。片段级调用保持 false，否则每段都长出一个件。
+ */
+internal fun expandNovexMarkers(
+    text: String,
+    defs: Map<String, NovexArtifactDef>,
+    appendAutoMarkers: Boolean = false,
+): String {
+    if (defs.isEmpty()) return text
+    var out = text
+    if (appendAutoMarkers) {
+        for (def in defs.values) {
+            val marker = def.marker ?: continue
+            if (def.autoMarker && marker.isNotEmpty() && marker !in out) out += "\n\n$marker"
+        }
+    }
+    var touched = false
+    for (def in defs.values) {
+        val marker = def.marker ?: continue
+        if (marker.isEmpty() || marker !in out) continue
+        // 模型常把标记单独包进一个代码围栏（```\n<标记>\n```）——不拆开
+        // 的话展开出的 novex-use 围栏会嵌套在原围栏里，整体被当成代码。
+        out = Regex(
+            "(?m)^```[^\\n]*\\n\\s*" + Regex.escape(marker) + "\\s*\\n```\\s*$",
+        ).replace(out, marker)
+        out = out.replace(marker, "\n\n```novex-use\n{\"id\":${JSONObject.quote(def.id)}}\n```\n\n")
+        touched = true
+    }
+    return if (touched) out else text
+}
+
+// ─── 皮肤围栏 ────────────────────────────────────────────────────────────────
+//
+// ```novex-skin 块：正文是皮肤 JSON（ChatSkin），最新一块生效；
+// {"clear":true} 或空正文 = 卸掉皮肤。解析本身在 ChatSkin（data.character），
+// 这里只负责围栏定位。
+
+private val skinFenceRegex = Regex(
+    "```\\s*novex-skin[^\\n`]*\\n(.*?)```",
+    setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+)
+
+/** 文本里最新的皮肤围栏正文（null = 无皮肤块）。卡皮肤模块播种用。 */
+internal fun latestNovexSkinFence(text: String): String? =
+    skinFenceRegex.findAll(text).lastOrNull()?.groupValues?.get(1)
+
+// 协议围栏（def/use/skin）不属于叙事文本：气泡展示与 frame.messages 投影
+// 前先剥掉——它们走各自的控制通道，原文只该出现在编辑器/复制里。
+private val protocolFenceRegex = Regex(
+    "```\\s*(novex-def|novex-use|novex-skin)[^\\n`]*\\n.*?```\\n?",
+    setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+)
+
+/** 剥掉闭合的 novex 协议围栏（未闭合的半截块保留——流式中可能还在写）。 */
+internal fun stripNovexProtocolFences(text: String): String =
+    protocolFenceRegex.replace(text, "").trim()
 
 // ─── 渲染 ───────────────────────────────────────────────────────────────────
 
@@ -202,11 +255,11 @@ internal fun RenderNovexArtifact(def: NovexArtifactDef, data: Map<String, String
                 blocks.forEach { RenderBlock(it) }
             }
         }
-        else -> HtmlIsland(rendered)
+        else -> HtmlIsland(rendered, tavernCompat = def.tavernCompat)
     }
 }
 
-/** 消息流里的 use 块：inline 槽就地投影；顶/底槽由 ChatScreen 钉位负责。 */
+/** 消息流里的 use 块：在块所在位置就地投影该件的最新数据实例。 */
 @Composable
 internal fun RenderNovexUse(code: String) {
     val use = parseNovexUse(code) ?: return
@@ -220,7 +273,6 @@ internal fun RenderNovexUse(code: String) {
         )
         return
     }
-    if (use.resolvedSlot(def) != NOVEX_SLOT_INLINE) return
     RenderNovexArtifact(def, use.data)
 }
 
@@ -230,21 +282,25 @@ internal fun RenderNovexDefChip(code: String) {
     val def = parseNovexDef(code)
     val label = when {
         def == null -> "前端件注册格式有误"
-        else -> buildString {
-            append("前端件「").append(def.name ?: def.id).append("」已注册 · ").append(def.kind)
-            def.defaultSlot?.let {
-                append(" · 默认").append(
-                    when (it) {
-                        NOVEX_SLOT_TOP -> "钉顶部"
-                        NOVEX_SLOT_BOTTOM -> "钉底部"
-                        else -> "随文"
-                    }
-                )
-            }
-        }
+        else -> "前端件「${def.name ?: def.id}」已注册 · ${def.kind}"
     }
     Text(
         label,
+        fontSize = 11.sp,
+        color = currentMdColors().blockquote,
+        modifier = Modifier.padding(vertical = 2.dp),
+    )
+}
+
+/**
+ * novex-skin 块在消息流里的样子：一行低调提示。皮肤改由卡片模块/电脑端
+ * 管理，消息里的皮肤围栏只被识别、不再驱动换装——历史上该围栏生效的
+ * 会话皮肤已持久化在会话配置里，不因这里的新语义被撤销。
+ */
+@Composable
+internal fun RenderNovexSkinChip(code: String) {
+    Text(
+        "皮肤围栏（皮肤由卡片或电脑端管理）",
         fontSize = 11.sp,
         color = currentMdColors().blockquote,
         modifier = Modifier.padding(vertical = 2.dp),

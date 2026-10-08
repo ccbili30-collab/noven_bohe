@@ -377,6 +377,7 @@ fun ChatViewModel.retryLast() {
 
     viewModelScope.launch {
         var streamLaunched = false
+        var forkedLeafParentId: String? = null
         try {
         val sid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
 
@@ -389,6 +390,7 @@ fun ChatViewModel.retryLast() {
                 ?: lastMsg.sourceDbIds.lastOrNull()
             if (persistedReplyId != null) {
                 val conversation = chatRepository.forkEditedMessageFrom(sid, persistedReplyId)
+                forkedLeafParentId = conversation.graph.activeLeafId
                 installActiveConversation(conversation)
                 AppLogger.info(
                     ChatViewModel.TAG_STREAM,
@@ -485,7 +487,6 @@ fun ChatViewModel.retryLast() {
                     // we're in the finally block of the agent loop and
                     // the stream has already flushed its last delta.
                     if (streamJob === coroutineContext[Job]) {
-                        publishOverlayReplyExcerpt(activeSessionId)
                         SessionActivityTracker.setInactive(activeSessionId)
                     } else {
                         AppLogger.info(ChatViewModel.TAG_STREAM, "retryLast stale stream skipped tracker finalization")
@@ -512,6 +513,19 @@ fun ChatViewModel.retryLast() {
             if (!streamLaunched) {
                 AppLogger.info(ChatViewModel.TAG_STREAM, "retryLast _isStreaming=false (setup aborted)")
                 _isStreaming.value = false
+                // 与 retryFromMessage 同款归位：fork 已截断活跃叶子，流没
+                // 起来时把叶子归回原尾巴，不留无入口的截断态。
+                val abortSid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
+                forkedLeafParentId?.let { parentId ->
+                    runCatching {
+                        installActiveConversation(chatRepository.switchChildBranch(abortSid, parentId, +1))
+                    }.onFailure {
+                        AppLogger.error(
+                            ChatViewModel.TAG_STREAM,
+                            "retryLast abort leaf restore failed: ${it.message}",
+                        )
+                    }
+                }
             }
         }
     }

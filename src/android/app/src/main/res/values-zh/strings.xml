@@ -410,6 +410,9 @@
     <string name="skill_import_error_no_url">请输入 URL</string>
     <string name="skill_import_error_invalid">SKILL.md 无效或 skill 已存在</string>
     <string name="skill_import_error_format">SKILL.md 无效。请确认包含 \'name:\' 字段的 YAML frontmatter。</string>
+    <string name="skill_import_error_unrecognized_url">无法识别该 URL——请使用 github.com 仓库或文件链接。</string>
+    <string name="skill_import_error_network">网络错误：%1$s。请检查网络——github.com 可能无法直连。</string>
+    <string name="skill_import_error_http">下载失败（HTTP %1$d）。请确认仓库路径与分支存在。</string>
     <string name="skill_import_in_progress">导入中…</string>
     <string name="skill_import_submit">导入</string>
     <string name="skill_detail_label_name">名称</string>

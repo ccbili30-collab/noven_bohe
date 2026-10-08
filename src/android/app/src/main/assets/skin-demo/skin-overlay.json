@@ -1,0 +1,84 @@
+{
+  "spec": 1,
+  "name": "墨玉羊皮",
+  "base": "minis://shared/skins/demo/",
+  "bubbleAssistant": {
+    "fill": "#E9DDBB",
+    "texture": {
+      "img": "./paper-tile.png",
+      "tile": true,
+      "alpha": 0.4
+    },
+    "border": {
+      "color": "#A9853F",
+      "width": 1,
+      "radius": 12
+    },
+    "shadow": {
+      "color": "#66000000",
+      "blur": 4,
+      "dy": 1.5
+    },
+    "padding": [
+      15,
+      11,
+      15,
+      11
+    ],
+    "maxWidth": 330,
+    "contentScheme": "light",
+    "corners": {
+      "img": "./corner.png",
+      "size": 16,
+      "inset": 3
+    }
+  },
+  "bubbleUser": {
+    "fill": "#402E20",
+    "border": {
+      "color": "#9C7B45",
+      "width": 1,
+      "radius": 16
+    },
+    "padding": [
+      15,
+      10,
+      15,
+      10
+    ],
+    "maxWidth": 330,
+    "contentScheme": "dark"
+  },
+  "avatarFrame": {
+    "color": "#C9A96A",
+    "width": 1.5
+  },
+  "topBar": {
+    "fill": "#1A1408",
+    "hairline": {
+      "color": "#8A6F3F",
+      "width": 1,
+      "edge": "bottom"
+    }
+  },
+  "composer": {
+    "fill": "#1A1408",
+    "hairline": {
+      "color": "#8A6F3F",
+      "width": 1,
+      "edge": "top"
+    }
+  },
+  "input": {
+    "bg": "#241B12",
+    "border": "#7A6036",
+    "text": "#EFE3C8"
+  },
+  "topSubtitle": "AI 助手 · 永远在你身边",
+  "background": {
+    "img": "./bg-dark.png",
+    "scrim": "#5C000000"
+  },
+  "accent": "#C9A96A",
+  "overlay": "<style>\n.dm-stage{position:fixed;inset:0;overflow:hidden;background:linear-gradient(180deg,#1a1713 0%,#262019 60%,#1a1713 100%);font:13px/1.4 system-ui,sans-serif}\n.dm{position:absolute;left:100%;white-space:nowrap;padding:4px 14px;border-radius:999px;animation:fly linear forwards;box-shadow:0 1px 4px rgba(0,0,0,.4)}\n.dm.a{background:rgba(201,169,106,.16);color:#e8d9b0;border:1px solid rgba(201,169,106,.45)}\n.dm.u{background:rgba(91,140,160,.18);color:#cfe6ee;border:1px solid rgba(91,140,160,.5)}\n.dm small{opacity:.6;margin-right:4px}\n@keyframes fly{to{transform:translateX(-160vw)}}\n.dm-hint{position:fixed;bottom:52px;left:0;right:0;text-align:center;color:#8a7c5c;font-size:11px;letter-spacing:2px}\n</style>\n<div class=\"dm-stage\" id=\"st\"><div class=\"dm-hint\">弹 幕 书 简 · NOVEN</div></div>\n<script>\n(function(){var st=document.getElementById('st');\nfunction render(){var F=window.NOVEN_FRAME||{};var ms=F.messages||[];\nst.querySelectorAll('.dm').forEach(function(e){e.remove()});\nms.slice(-14).forEach(function(m,i){var el=document.createElement('div');\nel.className='dm '+(m.role==='user'?'u':'a');\nel.innerHTML='<small>'+((m.name||m.role||'').slice(0,8))+'</small>'+(m.text||'').slice(0,60).replace(/</g,'&lt;');\nel.style.top=(6+(i%9)*9.5)+'%';el.style.animationDuration=(8+((i*37)%7))+'s';st.appendChild(el);});}\nwindow.addEventListener('noven:frame',render);render();})();\n</script>"
+}

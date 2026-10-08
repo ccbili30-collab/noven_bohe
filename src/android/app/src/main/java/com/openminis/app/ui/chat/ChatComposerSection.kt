@@ -1303,7 +1303,7 @@ internal fun ChatComposerSection(
                             modifier = Modifier
                                 .size(38.dp)
                                 .background(
-                                    if (handoffRunning) ChatColors.sendButtonDisabled else com.openminis.app.ui.noven.NovenColors.Mint,
+                                    if (handoffRunning) ChatColors.sendButtonDisabled else ChatColors.accent,
                                     CircleShape,
                                 )
                                 .clip(CircleShape)
@@ -1363,7 +1363,7 @@ internal fun ChatComposerSection(
                                 // [feat/ui-rikkahub] 发送是输入栏唯一主
                                 // 动作——激活态用品牌薄荷绿，停用仍灰。
                                 .background(
-                                    if (canActivate) com.openminis.app.ui.noven.NovenColors.Mint
+                                    if (canActivate) ChatColors.accent
                                     else ChatColors.sendButtonDisabled,
                                     CircleShape,
                                 )
@@ -1480,7 +1480,7 @@ internal fun ChatComposerSection(
                             // glyph 上，不加底色。
                             NovexCardStackGlyph(
                                 fillColor = ChatColors.inputBg,
-                                tint = if (showSlashMenu) com.openminis.app.ui.noven.NovenColors.Mint
+                                tint = if (showSlashMenu) ChatColors.accent
                                        else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.semantics { contentDescription = "指令卡" },
                             )

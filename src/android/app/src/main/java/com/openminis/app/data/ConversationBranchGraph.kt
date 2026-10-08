@@ -57,6 +57,52 @@ class ConversationBranchGraph private constructor(
         return SiblingPosition(index = index + 1, count = siblings.size)
     }
 
+    /**
+     * Position the next appended child of [parentId] would occupy: appends
+     * always land as the last sibling, so index == count == existing + 1.
+     * Used to tag a just-persisted row before the next graph reload.
+     */
+    fun siblingPositionForNewChild(parentId: String?): SiblingPosition {
+        val count = childrenByParent[parentId].orEmpty().size + 1
+        return SiblingPosition(index = count, count = count)
+    }
+
+    /**
+     * The child-line navigator for a node that is the visible leaf while
+     * stored children sit beyond it (forked edit/retry window, or a crash
+     * mid-fork). Index is the active child's 1-based position, 0 when no
+     * child is currently selected; count is the stored child count.
+     */
+    fun childSetPosition(messageId: String): SiblingPosition? {
+        val node = byId[messageId] ?: return null
+        val children = childrenByParent[messageId].orEmpty()
+        if (children.isEmpty()) return null
+        val index = children.indexOfFirst { it.id == node.activeChildId } + 1
+        return SiblingPosition(index = index, count = children.size)
+    }
+
+    /**
+     * Step through a node's children from the node itself — the parent-side
+     * counterpart of [switchSibling]. Selects the adjacent child (wrapping
+     * from an unselected state toward the nearest end) and keeps that
+     * child's saved tail.
+     */
+    fun switchChildFrom(messageId: String, delta: Int): Mutation {
+        val node = requireNode(messageId)
+        val children = childrenByParent[messageId].orEmpty()
+        require(children.isNotEmpty()) { "Message $messageId has no child branches" }
+        val currentIndex = children.indexOfFirst { it.id == node.activeChildId }
+        val targetIndex = (currentIndex + delta).coerceIn(0, children.lastIndex)
+        val target = children[targetIndex]
+        val prefix = ancestorPath(messageId)
+        val tail = activeTailFrom(target.id)
+        return mutation(
+            rootId = prefix.firstOrNull()?.id,
+            path = prefix + tail,
+            activeChildUpdates = mapOf(messageId to target.id),
+        )
+    }
+
     /** Select the adjacent sibling while keeping that sibling's saved tail. */
     fun switchSibling(messageId: String, delta: Int): Mutation {
         val node = requireNode(messageId)
@@ -79,6 +125,12 @@ class ConversationBranchGraph private constructor(
     /**
      * Re-enter after a user message. The existing reply subtree is retained;
      * the next appended assistant row will be another child of [messageId].
+     *
+     * Only the leaf anchor moves — the active-child pointer is left in place
+     * so the retained line stays pointer-linked until the new reply lands and
+     * `markActiveChild` retargets it. If the send never lands (setup failure,
+     * process death) the old line is still reachable and [switchChildFrom]
+     * restores it in one step.
      */
     fun forkReplyFrom(messageId: String): Mutation {
         requireNode(messageId)
@@ -86,7 +138,6 @@ class ConversationBranchGraph private constructor(
         return mutation(
             rootId = path.firstOrNull()?.id,
             path = path,
-            activeChildUpdates = mapOf(messageId to null),
             newMessageParentId = messageId,
         )
     }
@@ -94,6 +145,7 @@ class ConversationBranchGraph private constructor(
     /**
      * Re-enter before an edited message. The next appended user row becomes a
      * sibling of the original row, which remains available for navigation.
+     * Same leaf-only contract as [forkReplyFrom].
      */
     fun forkEditedMessageFrom(messageId: String): Mutation {
         val node = requireNode(messageId)
@@ -101,7 +153,6 @@ class ConversationBranchGraph private constructor(
         return mutation(
             rootId = path.firstOrNull()?.id,
             path = path,
-            activeChildUpdates = node.parentId?.let { mapOf(it to null) }.orEmpty(),
             newMessageParentId = node.parentId,
         )
     }

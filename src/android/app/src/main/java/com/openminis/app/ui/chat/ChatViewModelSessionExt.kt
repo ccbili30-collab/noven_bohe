@@ -154,6 +154,7 @@ internal fun ChatViewModel.loadSession() {
     agentHistory.clear()
     retainedTranscriptRows = emptyList()
     retainedTranscriptSessionId = null
+    lastInstalledBranchGraph = null
     // T-android-crash-detected-halt: when CrashFrequencyDetector
     // tripped (#459, ≥3 crashes in last hour), skip the heavy
     // session-restore path entirely. Re-running the same persisted
@@ -352,6 +353,8 @@ internal fun ChatViewModel.loadSession() {
             assistantAvatarPath = session.assistantAvatarPath,
             playerDisplayName = session.playerDisplayName,
             playerAvatarPath = session.playerAvatarPath,
+            skin = com.openminis.app.data.character.ChatSkin.fromJsonString(session.chatSkinJson)
+                .also { appliedSkinJson = if (it != null) session.chatSkinJson else null },
         )
         _conversationBackgroundPathOverride.value = session.chatBackgroundPath
         _conversationPrompt.value = session.conversationPrompt
@@ -435,6 +438,7 @@ internal fun ChatViewModel.loadSession() {
             val messages: List<novex.android.data.chat.MessageRow>,
             val ordered: List<ChatMessage>,
             val llmHistory: List<LLMMessage>,
+            val graph: com.openminis.app.data.ConversationBranchGraph,
             val loadMs: Long,
             val transformMs: Long,
         )
@@ -482,6 +486,7 @@ internal fun ChatViewModel.loadSession() {
                 messages = rows,
                 ordered = chatUi,
                 llmHistory = llm,
+                graph = conversation.graph,
                 loadMs = tIoAfterLoad - tIoBeforeLoad,
                 transformMs = tIoAfterTransform - tIoAfterLoad,
             )
@@ -489,6 +494,7 @@ internal fun ChatViewModel.loadSession() {
         val messages = loaded.messages
         activeBranchMessageIds = messages.mapTo(hashSetOf()) { it.id }
         activeBranchPathIds = messages.map { it.id }
+        lastInstalledBranchGraph = loaded.graph
         refreshNovexRuntimeProjection()
         val ordered = loaded.ordered
         val tHangDiagAfterLoad = tHangDiagBeforeLoad + loaded.loadMs

@@ -378,6 +378,29 @@ internal fun ChatTranscript(
                 // with the flat list (the scan is O(n) against joins the
                 // builder already does per chunk).
                 val assistantActions = remember(flatItems) { assistantActionAnchors(flatItems) }
+                // 皮肤分组位：同一消息连续的气泡行段，供气泡变体
+                // （groupFirst/Mid/Last）削角/去重边。
+                val skinBubbleGroupPositions = remember(flatItems) {
+                    fun bubbleMsgId(it: FlatChatItem): String? = when (it) {
+                        is FlatChatItem.AssistantText -> it.messageId
+                        is FlatChatItem.AssistantMarkdownBlock -> it.messageId
+                        else -> null
+                    }
+                    val ids = flatItems.map(::bubbleMsgId)
+                    buildMap {
+                        for (i in flatItems.indices) {
+                            val id = ids[i] ?: continue
+                            val prevSame = i > 0 && ids[i - 1] == id
+                            val nextSame = i < flatItems.lastIndex && ids[i + 1] == id
+                            put(flatItems[i].key, when {
+                                prevSame && nextSame -> SkinGroupPos.MID
+                                prevSame -> SkinGroupPos.LAST
+                                nextSame -> SkinGroupPos.FIRST
+                                else -> SkinGroupPos.SOLO
+                            })
+                        }
+                    }
+                }
                 Box {
                 AlwaysStretchOverscrollBox { sharedEffect ->
                 LazyColumn(
@@ -590,7 +613,8 @@ internal fun ChatTranscript(
                         Column {
                         ChatTranscriptRow(item,
                             ChatTranscriptRowState(isStreaming, canResume, viewModel.thinkingLevel.value, compactedHistoryExpanded),
-                            selectionController, panelExpansionState, perTurnPrompt = perTurnPrompt) { action ->
+                            selectionController, panelExpansionState, perTurnPrompt = perTurnPrompt,
+                            bubbleGroupPos = skinBubbleGroupPositions[item.key] ?: SkinGroupPos.SOLO) { action ->
                             when (action) {
                                 is ChatTranscriptAction.Share -> { onShareSnippet(action.text); onShowMoveSheet() }
                                 is ChatTranscriptAction.RetryFrom -> {
@@ -619,6 +643,7 @@ internal fun ChatTranscript(
                                 ChatTranscriptAction.RevertCompact -> viewModel.revertCompact()
                                 ChatTranscriptAction.ToggleCompactedHistory -> onToggleCompactedHistory()
                                 is ChatTranscriptAction.SwitchBranch -> safeMutate { viewModel.switchMessageBranch(action.messageId, action.delta) }
+                                is ChatTranscriptAction.SwitchChildBranch -> safeMutate { viewModel.switchChildBranch(action.parentId, action.delta) }
                             }
                         }
                         // [feat/ui-rikkahub] Per-reply action row — anchored

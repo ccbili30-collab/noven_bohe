@@ -56,7 +56,7 @@ class NovexChatDaoSchemaTest {
 
     @Test
     fun databaseVersionAndFileRemainPinned() {
-        assertEquals(39, database.openHelper.readableDatabase.version)
+        assertEquals(40, database.openHelper.readableDatabase.version)
         assertEquals("minis.db", NovexMainDatabase.DB_NAME)
     }
 
@@ -68,7 +68,7 @@ class NovexChatDaoSchemaTest {
                 "model_binding", "source", "memory_enabled", "pinned_at", "edit_count",
                 "thinking_override", "folder_id", "character_id", "character_snapshot_json",
                 "world_snapshot_json", "persona_id", "persona_snapshot_json", "world_id",
-                "character_version_id", "chat_background_path", "conversation_prompt",
+                "character_version_id", "chat_background_path", "chat_skin_json", "conversation_prompt",
                 "image_style_prompt", "per_turn_prompt", "text_style_prompt", "runtime_dice_enabled",
                 "runtime_ledger_enabled", "role_presentation_enabled", "assistant_display_name",
                 "assistant_avatar_path", "player_display_name", "player_avatar_path",

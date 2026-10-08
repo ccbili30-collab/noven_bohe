@@ -95,8 +95,15 @@ internal object GitHubLocator {
                 target(user = uri.second[0], repo = uri.second[1], branch = uri.second[2], rest = uri.second.drop(3))
             }
             "github.com" -> {
-                if (uri.second.size < 4) return null
-                target(user = uri.second[0], repo = uri.second[1], branch = uri.second[3], rest = uri.second.drop(4))
+                when {
+                    // 仓库根地址：用户最常粘贴的形态。分支未知 → HEAD 占位，
+                    // raw 域名按默认分支解析，contents API 省略 ref 同理。
+                    uri.second.size == 2 ->
+                        Target(uri.second[0], uri.second[1], DEFAULT_BRANCH_REF, "")
+                    uri.second.size >= 4 ->
+                        target(user = uri.second[0], repo = uri.second[1], branch = uri.second[3], rest = uri.second.drop(4))
+                    else -> return null
+                }
             }
             else -> null
         }
@@ -119,6 +126,10 @@ internal object GitHubLocator {
                 }
             }
             "github.com" -> {
+                if (segments.size == 2) {
+                    // 仓库根：取默认分支下的根 SKILL.md。
+                    return "https://raw.githubusercontent.com/${segments[0]}/${segments[1]}/$DEFAULT_BRANCH_REF/${SkillMarkdown.FILE_NAME}"
+                }
                 if (segments.size < 4) return null
                 val dir = segments.drop(4).joinToString("/")
                 val path = if (dir.endsWith(SkillMarkdown.FILE_NAME, true)) {
@@ -150,6 +161,9 @@ internal object GitHubLocator {
         val host = uri.host ?: return null
         return host to uri.pathSegments.filter { it.isNotEmpty() }
     }
+
+    /** 仓库根地址的分支占位：raw 与 contents API 各自解析为默认分支。 */
+    internal const val DEFAULT_BRANCH_REF = "HEAD"
 }
 
 /**
@@ -282,34 +296,47 @@ internal class SkillSyncClient {
         val encoded = java.net.URLEncoder.encode(target.dirPath, "UTF-8")
             .replace("+", "%20")
             .replace("%2F", "/")
-        return "https://api.github.com/repos/${target.user}/${target.repo}/contents/$encoded?ref=${target.branch}"
+        val base = "https://api.github.com/repos/${target.user}/${target.repo}/contents/$encoded"
+        // HEAD 是本地占位：contents API 省略 ref 即默认分支。
+        return if (target.branch == GitHubLocator.DEFAULT_BRANCH_REF) base else "$base?ref=${target.branch}"
     }
 
-    /** 普通文本 GET：非 2xx 或网络异常 → null（调用方决定失败文案）。 */
-    suspend fun fetchText(url: String): String? = fetch(url) { body -> body }
+    /** 文本 GET 的三态结果：成功 / HTTP 错误码 / 网络层失败。 */
+    sealed interface FetchOutcome {
+        class Ok(val body: String) : FetchOutcome
+        class Http(val code: Int) : FetchOutcome
+        class Net(val detail: String) : FetchOutcome
+    }
 
     /**
-     * 同 [fetchText]，但网络/IO 异常原样抛出 —— 供需要区分「网络错误」与
+     * 带失败定性的文本 GET —— 导入路径用它把「网络不通」与「HTTP 错误」
+     * 分开报给用户。
+     */
+    fun fetchTextOutcome(url: String): FetchOutcome {
+        return try {
+            val call = http.newCall(Request.Builder().url(url).get().build())
+            call.execute().use { response ->
+                val body = response.body?.string()
+                when {
+                    !response.isSuccessful -> FetchOutcome.Http(response.code)
+                    body == null -> FetchOutcome.Net("empty body")
+                    else -> FetchOutcome.Ok(body)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(logTag, "GET failed for $url: ${e.javaClass.simpleName}: ${e.message}")
+            FetchOutcome.Net(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * 网络/IO 异常原样抛出的文本 GET —— 供需要区分「网络错误」与
      * 「HTTP 错误」两条失败文案的调用方（检查更新）使用。
      */
     fun fetchTextStrict(url: String): String? {
         val call = http.newCall(Request.Builder().url(url).get().build())
         return call.execute().use { response ->
             if (!response.isSuccessful) null else response.body?.string()
-        }
-    }
-
-    private inline fun <T> fetch(url: String, decode: (String) -> T): T? {
-        return try {
-            val call = http.newCall(Request.Builder().url(url).get().build())
-            call.execute().use { response ->
-                if (!response.isSuccessful) return null
-                val text = response.body?.string() ?: return null
-                decode(text)
-            }
-        } catch (e: Exception) {
-            Log.w(logTag, "GET failed for $url: ${e.message}")
-            null
         }
     }
 

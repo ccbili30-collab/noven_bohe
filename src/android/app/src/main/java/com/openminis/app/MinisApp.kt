@@ -646,6 +646,13 @@ class MinisApp : Application(), ImageLoaderFactory, novex.android.CardImportProv
 
         novex.android.ContentPaths.registerGlobalMounts(this)
 
+        // 演示皮肤包：assets/skin-demo → minis-global/shared/skins/demo。
+        // shared 是全局桶——minis://shared/skins/demo/… 在所有会话可解析，
+        // 用户/模型发一条 ```novex-skin 围栏即可试戴。幂等（已存在跳过），
+        // 失败只记日志不挡启动。
+        runCatching { seedBundledSkinAssets() }
+            .onFailure { Log.w("MinisApp", "skin-demo seed failed: ${it.message}") }
+
         // [T-android-session-paused-badge-hardkill] 冷启动对账：生命周期
         // 回调的推送只在优雅的后台→前台往返时触发；硬杀（强退/进程死亡）
         // 永远走不到，重启后徽标会缺。持久化的消息尾是权威事实源——
@@ -691,6 +698,23 @@ class MinisApp : Application(), ImageLoaderFactory, novex.android.CardImportProv
      * prefs blob that AlarmOffloadHandler previously read, so list/cancel
      * commands will no longer surface them.
      */
+    /** assets/skin-demo/ → minis-global/shared/skins/demo/（演示皮肤图集）。 */
+    private fun seedBundledSkinAssets() {
+        val names = assets.list("skin-demo").orEmpty()
+        if (names.isEmpty()) return
+        val dest = java.io.File(filesDir, "minis-global/shared/skins/demo")
+        dest.mkdirs()
+        for (name in names) {
+            val out = java.io.File(dest, name)
+            if (out.exists() && out.length() > 0) continue
+            runCatching {
+                assets.open("skin-demo/$name").use { input ->
+                    out.outputStream().use { input.copyTo(it) }
+                }
+            }.onFailure { Log.w("MinisApp", "skin-demo copy failed for $name: ${it.message}") }
+        }
+    }
+
     private fun migrateGhostAlarms() {
         val prefs = getSharedPreferences("minis_alarms_prefs", Context.MODE_PRIVATE)
         val raw = prefs.getString("alarms_json", null) ?: return
