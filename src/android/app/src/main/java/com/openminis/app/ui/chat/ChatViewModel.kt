@@ -5022,10 +5022,11 @@ class ChatViewModel(
                     _isStreaming.value = false
                     // fork 已把叶子截到重试点；流没起来时把叶子归回原
                     // 尾巴——旧线直接回来，不留只能手动「后续分支」归位
-                    // 的截断态。sid 在 try 内不可见，重新解析。
+                    // 的截断态。delta=0 保持当前子行、只重挂活跃叶子。
+                    // sid 在 try 内不可见，重新解析。
                     val abortSid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
                     runCatching {
-                        val restored = chatRepository.switchChildBranch(abortSid, persistedUserId, +1)
+                        val restored = chatRepository.switchChildBranch(abortSid, persistedUserId, 0)
                         installActiveConversation(restored)
                     }.onFailure {
                         AppLogger.error(TAG_STREAM, "retry abort leaf restore failed: ${it.message}")

@@ -25,9 +25,9 @@ class ConversationBranchUiTest {
     }
 
     @Test
-    fun `assistant switcher sits at the head of the reply ahead of all blocks`() {
-        // 助手回复尾部常挂数屏高的岛/工具块——分支行必须在块之前，
-        // 否则文游卡里等于不可见。
+    fun `assistant switcher sits at the very bottom of the reply`() {
+        // 岛也是回复的一部分——分支行沉到整条回复（含岛/工具块）之后，
+        // 与玩家气泡下的分支行位置对称。
         val message = ChatMessage(
             id = "a2",
             role = "assistant",
@@ -45,12 +45,12 @@ class ConversationBranchUiTest {
         assertEquals(1, items.count { it is FlatChatItem.BranchSwitcher })
         assertEquals(
             FlatChatItem.BranchSwitcher("a2", 2, 2),
-            items.first(),
+            items.last(),
         )
     }
 
     @Test
-    fun `assistant switcher follows the identity header in card sessions`() {
+    fun `assistant switcher keeps the identity header but sits last`() {
         val message = ChatMessage(
             id = "a2",
             role = "assistant",
@@ -62,7 +62,7 @@ class ConversationBranchUiTest {
         val items = buildFlatChatItems(listOf(message), showAssistantIdentity = true)
 
         assertEquals(FlatChatItem.AssistantHeader("a2"), items[0])
-        assertEquals(FlatChatItem.BranchSwitcher("a2", 1, 3), items[1])
+        assertEquals(FlatChatItem.BranchSwitcher("a2", 1, 3), items.last())
     }
 
     @Test
@@ -84,7 +84,7 @@ class ConversationBranchUiTest {
     }
 
     @Test
-    fun `assistant leaf with stored children emits picker at reply head`() {
+    fun `assistant leaf with stored children emits picker at reply end`() {
         val items = buildFlatChatItems(
             listOf(
                 ChatMessage(
@@ -97,7 +97,7 @@ class ConversationBranchUiTest {
             ),
         )
 
-        assertEquals(FlatChatItem.ChildBranchPicker("a1", 0, 1), items.first())
+        assertEquals(FlatChatItem.ChildBranchPicker("a1", 0, 1), items.last())
     }
 
     @Test
