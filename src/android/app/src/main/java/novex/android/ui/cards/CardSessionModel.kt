@@ -21,7 +21,9 @@ data class CardSession(val page:CardPage=CardPage.DETAIL,val previewReturn:CardP
     val markdownRef:ContentRef?=null,val textStart:Long=0,val textEnd:Long=0,val textMore:Boolean=false,val loadedText:String="",
     val editorEntryTarget:String?=null,val previewTargetId:String?=null,val recoveryInput:String?=null,val dirty:Boolean=false,val busy:Boolean=false,val error:String?=null,val targetId:String?=null,
     // [T008] 设定总览提纯：进行中标记、待采纳稿（先进待审，采纳才落卡）。
-    val purifying:Boolean=false,val purifyDraft:String?=null,val overviewMeta:OverviewMeta?=null) {
+    val purifying:Boolean=false,val purifyDraft:String?=null,val overviewMeta:OverviewMeta?=null,
+    // [T008-P3] 媒体页发起的换图草稿标记：整卡草稿共享，仅此标记下才显示媒体保存条。
+    val mediaAppearanceDraft:Boolean=false) {
     val shownSaved:ContentDocument? get()=saved?.let {ContentTargets.find(it,targetId?:it.id)}
     val shownDraft:ContentDocument? get()=draft?.content?.let {ContentTargets.find(it,targetId?:it.id)}
 }
@@ -237,8 +239,9 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 换头像/封面：开草稿进图片素材页选择（pictureReturn 回本页）。 */
     fun mediaPickAppearance(cover:Boolean)=action {
         beginDraftFromReading()
-        state=state.copy(page=CardPage.PICTURES,pictureReturn=CardPage.MEDIA)
+        state=state.copy(page=CardPage.PICTURES,pictureReturn=CardPage.MEDIA,mediaAppearanceDraft=true)
     }
+    fun clearMediaAppearanceDraft(){state=state.copy(mediaAppearanceDraft=false)}
     /** 清除头像/封面：即时提交，不留草稿。 */
     fun mediaClearAppearance(cover:Boolean)=action {
         beginDraftFromReading()

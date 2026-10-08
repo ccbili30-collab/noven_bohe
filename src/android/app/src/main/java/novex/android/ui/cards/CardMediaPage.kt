@@ -7,6 +7,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,10 +36,16 @@ import novex.content.ContentDocument
     val hasAvatar=shown.appearance.avatarResourceId!=null
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal=16.dp)) {
         Spacer(Modifier.height(8.dp))
-        if(state.draft!=null)Row(Modifier.fillMaxWidth().padding(vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
-            Text("有未保存的媒体更改",style=NovexType.Metadata,color=NovexColors.SecondaryText,modifier=Modifier.weight(1f))
-            TextButton(onClick={model.discardDraft()},enabled=!state.busy){Text("放弃",color=NovexColors.SecondaryText)}
-            TextButton(onClick={model.save()},enabled=!state.busy){Text("保存",color=NovenColors.Mint)}
+        var confirmDiscard by remember {mutableStateOf(false)}
+        if(confirmDiscard)novex.android.ui.AlertDialog(onDismissRequest={if(!state.busy)confirmDiscard=false},
+            title={Text("放弃更改？")},
+            text={Text("将放弃本次全部未保存的草稿更改（含其他编辑）。")},
+            confirmButton={TextButton(enabled=!state.busy,onClick={confirmDiscard=false;model.discardDraft {model.clearMediaAppearanceDraft()}}){Text("放弃",color=NovenColors.Mint)}},
+            dismissButton={TextButton(enabled=!state.busy,onClick={confirmDiscard=false}){Text("取消")}})
+        if(state.draft!=null && state.mediaAppearanceDraft)Row(Modifier.fillMaxWidth().padding(vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
+            Text("有未保存的更改（保存将应用整卡草稿）",style=NovexType.Metadata,color=NovexColors.SecondaryText,modifier=Modifier.weight(1f))
+            TextButton(onClick={confirmDiscard=true},enabled=!state.busy){Text("放弃",color=NovexColors.SecondaryText)}
+            TextButton(onClick={model.save {model.clearMediaAppearanceDraft()}},enabled=!state.busy){Text("保存",color=NovenColors.Mint)}
         }
         MediaSlotRow(
             title=if(card.kind==CardKind.WORLD)"封面 · 世界卡门面" else "全屏背景 · 卡片主页头图",
