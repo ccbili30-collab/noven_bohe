@@ -34,7 +34,7 @@ class NovexDocumentAttachmentCardTest {
             order = order,
             text = text,
             headingPath = path,
-            headingLevel = path.size,
+            headingLevel = path.size.takeIf { it > 0 },
             source = NovexDocumentSourceAnchor(part = "word/document.xml", ordinal = order),
         )
 
@@ -94,8 +94,8 @@ class NovexDocumentAttachmentCardTest {
         )
         val card = store.open(NovexDocumentAttachmentCard.materialize(store, doc))!!.content
         assertEquals(3, card.modules.size)
-        assertEquals("巨章（1）", card.modules[1].name)
-        assertEquals("巨章（2）", card.modules[2].name)
+        assertEquals("巨章", card.modules[1].name)
+        assertEquals("巨章（续2）", card.modules[2].name)
     }
 
     @Test
