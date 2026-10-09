@@ -152,8 +152,9 @@ class NovexToolExecution(private val journal: NovexOperationJournal) {
     }
 
     suspend fun execute(operation: NovexToolOperation, mode: () -> NovexExecutionMode,
+        readOnlyCause: () -> String? = { null },
         effect: suspend () -> ToolExecutionResult): ToolExecutionResult {
-        if (mode() == NovexExecutionMode.READ_ONLY) return denied("当前对话为只读，本次没有执行工具")
+        if (mode() == NovexExecutionMode.READ_ONLY) return denied("当前对话为只读（${readOnlyCause() ?: "执行权限设为只读"}），本次没有执行工具")
         var waiting: CompletableDeferred<Boolean>? = null
         var previous: ToolExecutionResult? = null
         lock.withLock {
@@ -178,7 +179,7 @@ class NovexToolExecution(private val journal: NovexOperationJournal) {
             if (waiting?.await() == false) return denied("你已拒绝此操作，本次没有执行")
             if (mode() == NovexExecutionMode.READ_ONLY) {
                 lock.withLock { journal.save(NovexOperationRecord(operation, NovexOperationStatus.DENIED)) }
-                return denied("对话已切换为只读，本次没有执行工具")
+                return denied("对话已切换为只读（${readOnlyCause() ?: "执行权限设为只读"}），本次没有执行工具")
             }
             // A free call cannot silently inherit approval after switching to approval mode.
             if (mode() == NovexExecutionMode.APPROVAL && journal.read(operation.id)?.status != NovexOperationStatus.APPROVED) {

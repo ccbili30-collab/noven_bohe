@@ -31,7 +31,7 @@ import novex.content.ContentBlock
 @Composable internal fun CardPicturesPage(model:CardSessionModel) {
     val picker=androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()){uri->uri?.let(model::addPictureResource)}
     val state=model.state
-    val card=state.shownDraft?:return
+    val card=state.shownWorking?:return
     val resources=card.resources.filter {it.mediaType.startsWith("image/")}
     var removing by remember {mutableStateOf<String?>(null)}
     var selected by remember {mutableStateOf<String?>(null)}

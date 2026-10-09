@@ -45,9 +45,10 @@ sealed interface CardToolResult {
     data class StateSaved(val conversationId:String,val eventId:String):CardToolResult
     data class Registered(val conversationId:String,val registrationId:String):CardToolResult
     data class Saved(val rootId:String,val targetId:String,val revision:String,
-                     // [T-saved-with-ids] 本次保存新建的模块/块编号（2026-09-16 工具协议批）：
+                     // [T-saved-with-ids] 本次保存新建的模块/块/内部角色编号（2026-09-16 工具协议批）：
                      // 模型直接引用继续下一步，免 read_card 回读。
-                     val createdModules:List<String> = emptyList(),val createdBlocks:List<String> = emptyList()):CardToolResult
+                     val createdModules:List<String> = emptyList(),val createdBlocks:List<String> = emptyList(),
+                     val createdTargets:List<String> = emptyList()):CardToolResult
     data class Stopped(val preservedDraft:String?):CardToolResult
     data class Failed(val reason:String,val preservedDraft:String?=null):CardToolResult
 }
@@ -157,7 +158,7 @@ class CardToolCoordinator(private val store:CardStore,private val journal:TurnJo
                 val built=empty.copy(modules=CardBulk.buildModules(bulkCreation.tree,request.target.rootId.take(8),textRef={text->bulkTextRef(text)})).validate()
                 val savedCard=store.save(built,null,ChangeSource.AI,operation)
                 val ids=createdIds(empty,built)
-                return finish(request,CardToolResult.Saved(request.target.rootId,request.target.rootId,savedCard.revision,ids.first,ids.second))
+                return finish(request,CardToolResult.Saved(request.target.rootId,request.target.rootId,savedCard.revision,ids.first,ids.second,ids.third))
             }catch(failure:Exception){
                 val actual=store.history(request.target.rootId,operation)
                 if(actual!=null)return finish(request,CardToolResult.Saved(request.target.rootId,request.target.rootId,actual.revision))
@@ -236,9 +237,9 @@ class CardToolCoordinator(private val store:CardStore,private val journal:TurnJo
                 if(stop.isStopped())return finish(request,CardToolResult.Stopped(updated!!.version))
                 saved=CardDrafts(store).commitTarget(request.target.rootId,updated!!.version,request.target.targetId,beforeDraft,lease)
             }
-            // [T-saved-with-ids] 对提交前后结构做差集，回传本次新建的模块/块编号。
+            // [T-saved-with-ids] 对提交前后结构做差集，回传本次新建的模块/块/内部角色编号。
             val created=createdIds(beforeContent,updated?.content)
-            return finish(request,CardToolResult.Saved(request.target.rootId,request.target.targetId,saved!!.revision,created.first,created.second))
+            return finish(request,CardToolResult.Saved(request.target.rootId,request.target.targetId,saved!!.revision,created.first,created.second,created.third))
         } catch(failure:Exception) {
             // 原子提交之后记录结果前若发生异常，以真实修订核对是否已保存。
             val actual=saved?:updated?.let { store.history(request.target.rootId,it.version) }
@@ -271,22 +272,25 @@ class CardToolCoordinator(private val store:CardStore,private val journal:TurnJo
      * 子模块与内部角色）。任一侧缺失（创建路径/崩溃恢复）返回空，模型回落
      * 到 read_card，行为向后兼容。
      */
-    private fun createdIds(before:ContentDocument?,after:ContentDocument?):Pair<List<String>,List<String>> {
-        if(before==null||after==null)return emptyList<String>() to emptyList<String>()
-        fun collect(document:ContentDocument,modules:MutableSet<String>,blocks:MutableSet<String>) {
+    private fun createdIds(before:ContentDocument?,after:ContentDocument?):Triple<List<String>,List<String>,List<String>> {
+        if(before==null||after==null)return Triple(emptyList(),emptyList(),emptyList())
+        fun collect(document:ContentDocument,modules:MutableSet<String>,blocks:MutableSet<String>,targets:MutableSet<String>) {
             fun visit(module:ContentModule){modules.add(module.id);module.blocks.forEach{blocks.add(it.id)};module.children.forEach(::visit)}
             document.modules.forEach(::visit)
-            document.internalCharacters.forEach{collect(it,modules,blocks)}
+            document.internalCharacters.forEach{targets.add(it.id);collect(it,modules,blocks,targets)}
         }
-        val beforeModules=mutableSetOf<String>();val beforeBlocks=mutableSetOf<String>();collect(before,beforeModules,beforeBlocks)
-        val afterModules=mutableSetOf<String>();val afterBlocks=mutableSetOf<String>();collect(after,afterModules,afterBlocks)
-        return (afterModules-beforeModules).toList() to (afterBlocks-beforeBlocks).toList()
+        val beforeModules=mutableSetOf<String>();val beforeBlocks=mutableSetOf<String>();val beforeTargets=mutableSetOf<String>()
+        collect(before,beforeModules,beforeBlocks,beforeTargets)
+        val afterModules=mutableSetOf<String>();val afterBlocks=mutableSetOf<String>();val afterTargets=mutableSetOf<String>()
+        collect(after,afterModules,afterBlocks,afterTargets)
+        return Triple((afterModules-beforeModules).toList(),(afterBlocks-beforeBlocks).toList(),(afterTargets-beforeTargets).toList())
     }
 
     private fun finish(request:CardToolRequest,result:CardToolResult):CardToolResult {
         val value=when(result) {
             is CardToolResult.Saved->JSONObject().put("kind","saved").put("root",result.rootId).put("target",result.targetId).put("revision",result.revision)
                 .put("created_modules",JSONArray(result.createdModules)).put("created_blocks",JSONArray(result.createdBlocks))
+                .put("created_targets",JSONArray(result.createdTargets))
             is CardToolResult.Stopped->JSONObject().put("kind","stopped").put("draft",result.preservedDraft?:JSONObject.NULL)
             is CardToolResult.Failed->JSONObject().put("kind","failed").put("reason",result.reason).put("draft",result.preservedDraft?:JSONObject.NULL)
             else->error("结果不是已执行操作的结束状态")
@@ -298,9 +302,12 @@ class CardToolCoordinator(private val store:CardStore,private val journal:TurnJo
         if(request.edit is CardToolEdit.Create || request.edit is CardToolEdit.CreateBulk)onCreated?.invoke(request.target)
         val command=(request.edit as? CardToolEdit.Shared)?.command
         if(command is EditorCommand.AddCharacter || command is EditorCommand.CopyCharacter) {
-            val saved=requireNotNull(store.history(result.rootId,result.revision))
-            val role=ContentTargets.find(saved.content,request.target.targetId).internalCharacters.last()
-            onCreated?.invoke(ManagementTarget(result.rootId,role.id))
+            // 新角色编号以回执差集为准；旧日志无 created_targets 时回落为列表末位。
+            val roleId=result.createdTargets.lastOrNull()?:run {
+                val saved=requireNotNull(store.history(result.rootId,result.revision))
+                ContentTargets.find(saved.content,request.target.targetId).internalCharacters.last().id
+            }
+            onCreated?.invoke(ManagementTarget(result.rootId,roleId))
         }
     }
     private fun encode(request:CardToolRequest):String {

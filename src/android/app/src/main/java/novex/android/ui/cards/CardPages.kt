@@ -60,7 +60,7 @@ import androidx.compose.ui.semantics.semantics
     var addIntroduction by remember {mutableStateOf(false)}
     var introductionText by remember {mutableStateOf("")}
     val openIntroduction:()->Unit={
-        val displayed=if(state.page==CardPage.DETAIL)state.shownSaved else state.shownDraft
+        val displayed=if(state.page==CardPage.DETAIL)state.shownSaved else state.shownWorking
         if(displayed?.introductionModule()!=null)model.introduction()
         else {introductionText="";addIntroduction=true}
     }
@@ -139,7 +139,7 @@ import androidx.compose.ui.semantics.semantics
         containerColor=NovenColors.Canvas,
         topBar={if(state.page!=CardPage.DETAIL)NovexPageTopBar(title=when(state.page){
             CardPage.DETAIL->""
-            CardPage.MODULES->if(state.shownDraft?.kind==CardKind.WORLD)"编辑世界" else "编辑角色"
+            CardPage.MODULES->if(state.shownWorking?.kind==CardKind.WORLD)"编辑世界" else "编辑角色"
             CardPage.EDIT->"编辑模块"
             CardPage.PICTURES->"图片素材"
             CardPage.BLOCKS->"图文顺序"
@@ -163,12 +163,12 @@ import androidx.compose.ui.semantics.semantics
                         DropdownMenu(expanded=editMore,onDismissRequest={editMore=false}) {
                             DropdownMenuItem(text={Text("交给 AI")},onClick={editMore=false;model.prepareAi(onManage)})
                             DropdownMenuItem(text={Text("交给已有对话")},onClick={editMore=false;model.prepareAi {onExisting(true)}})
-                            DropdownMenuItem(text={Text("改名")},onClick={editMore=false;cardName=state.shownDraft?.name.orEmpty();renameCard=true})
+                            DropdownMenuItem(text={Text("改名")},onClick={editMore=false;cardName=state.shownWorking?.name.orEmpty();renameCard=true})
                             DropdownMenuItem(text={Text("滚动模式")},onClick={editMore=false;model.setReadingLayout(novex.content.ReadingLayout.CONTINUOUS)})
                             DropdownMenuItem(text={Text("翻页模式")},onClick={editMore=false;model.setReadingLayout(novex.content.ReadingLayout.PAGED)})
-                            if(state.shownDraft?.appearance?.coverResourceId!=null)DropdownMenuItem(text={Text("清除封面")},onClick={editMore=false;model.clearAppearance(true)})
-                            if(state.shownDraft?.appearance?.avatarResourceId!=null)DropdownMenuItem(text={Text("清除头像")},onClick={editMore=false;model.clearAppearance(false)})
-                            DropdownMenuItem(text={Text("放弃本次草稿")},onClick={editMore=false;discard=true})
+                            if(state.shownWorking?.appearance?.coverResourceId!=null)DropdownMenuItem(text={Text("清除封面")},onClick={editMore=false;model.clearAppearance(true)})
+                            if(state.shownWorking?.appearance?.avatarResourceId!=null)DropdownMenuItem(text={Text("清除头像")},onClick={editMore=false;model.clearAppearance(false)})
+                            if(state.draft!=null)DropdownMenuItem(text={Text("放弃本次草稿")},onClick={editMore=false;discard=true})
                         }
                     }
                 }
@@ -287,11 +287,11 @@ import androidx.compose.ui.semantics.semantics
                     }
                 }
             }
-            CardPage.PREVIEW->state.draft?.let {CardReading(novex.content.ContentTargets.find(it.content,state.previewTargetId?:it.content.id),model,onCharacter=model::previewCharacter,readingScope="draft")}
+            CardPage.PREVIEW->(state.draft?.content?:state.saved)?.let {CardReading(novex.content.ContentTargets.find(it,state.previewTargetId?:it.id),model,onCharacter=model::previewCharacter,readingScope="draft")}
             CardPage.OVERVIEW->state.shownSaved?.let {saved->CardOverviewPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
             CardPage.INJECTION->state.shownSaved?.let {saved->CardInjectionPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
             CardPage.MEDIA->state.shownSaved?.let {saved->CardMediaPage(novex.content.ContentTargets.find(saved,state.targetId?:saved.id),model)}
-            CardPage.MODULES->state.shownDraft?.let {card->ModuleTreeEditor(card,model,header={
+            CardPage.MODULES->state.shownWorking?.let {card->ModuleTreeEditor(card,model,header={
                 CardHero(card,model,editing=true,onImage=model::pictures,onName={cardName=card.name;renameCard=true},onIntroduction=openIntroduction)
             },footer={
                 if(card.kind==CardKind.WORLD) {
@@ -345,7 +345,7 @@ import androidx.compose.ui.semantics.semantics
         }
     }}
     placeRole?.let {id->AlertDialog(onDismissRequest={placeRole=null},title={Text("角色显示在哪个模块？")},text={Column() {
-        val modules=state.shownDraft?.modules?.flattenModules().orEmpty()
+        val modules=state.shownWorking?.modules?.flattenModules().orEmpty()
         if(modules.isEmpty())Text("先新增一个模块，再选择展示位置。")
         modules.forEach {module->TextButton(enabled=!state.busy,onClick={model.placeCharacter(id,module.id);placeRole=null}){Text(module.name.ifBlank {"未命名模块"})}}
     }},confirmButton={TextButton(onClick={placeRole=null}){Text("取消")}})}
@@ -368,7 +368,7 @@ import androidx.compose.ui.semantics.semantics
     removeChoice?.let {choice->AlertDialog(onDismissRequest={if(!state.busy)removeChoice=null},title={Text(if(choice=="module")"移除整个模块？" else "移除当前内容块？")},text={Column {Text("更改先保留在草稿中，保存后生效。图片素材和历史版本保留。");state.error?.let {Text(it,color=MaterialTheme.colorScheme.error)}}},confirmButton={TextButton(enabled=!state.busy,onClick={if(choice=="module")model.removeModule{removeChoice=null} else model.removeCurrentBlock{removeChoice=null}}){Text("移除")}},dismissButton={TextButton(enabled=!state.busy,onClick={removeChoice=null}){Text("取消")}})}
     if(newCharacter)NewInternalCharacterDialog(state.busy,state.error,onDismiss={newCharacter=false}){name->model.createCharacter(name){newCharacter=false}}
     if(copyCharacter)CopyInternalCharacterDialog(model,onDismiss={copyCharacter=false}){id->model.copyCharacter(id){copyCharacter=false}}
-    if(moduleOptions)state.shownDraft?.modules?.flattenModules()?.find {it.id==state.moduleId}?.let {module->
+    if(moduleOptions)state.shownWorking?.modules?.flattenModules()?.find {it.id==state.moduleId}?.let {module->
         ModuleOptionsDialog(module,state.busy,state.error,onDismiss={moduleOptions=false}){tags,use,routing,temporality->model.moduleOptions(tags,use,routing,temporality){moduleOptions=false}}
     }
 }

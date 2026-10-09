@@ -194,7 +194,8 @@ object CardToolProtocol {
         is CardToolResult.Registered->JSONObject().put("status","registered").put("conversation_id",result.conversationId).put("registration_id",result.registrationId)
         is CardToolResult.Saved->JSONObject().put("status","saved").put("root_id",result.rootId).put("target_id",result.targetId).put("revision",result.revision)
             // [T-saved-with-ids] 新建编号 + 可直链版本：下一步直接引用，免 read_card 回读。
-            .put("created_module_ids",JSONArray(result.createdModules)).put("created_block_ids",JSONArray(result.createdBlocks)).put("next_draft_version","saved:${result.revision}")
+            .put("created_module_ids",JSONArray(result.createdModules)).put("created_block_ids",JSONArray(result.createdBlocks))
+            .put("created_target_ids",JSONArray(result.createdTargets)).put("next_draft_version","saved:${result.revision}")
         is CardToolResult.Failed->JSONObject().put("status","failed").put("reason",result.reason).put("preserved_draft",result.preservedDraft?:JSONObject.NULL)
         is CardToolResult.Stopped->JSONObject().put("status","stopped").put("preserved_draft",result.preservedDraft?:JSONObject.NULL)
         CardToolResult.Denied->JSONObject().put("status","denied")

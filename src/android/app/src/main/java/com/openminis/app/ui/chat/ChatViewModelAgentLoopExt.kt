@@ -1993,7 +1993,9 @@ internal suspend fun ChatViewModel.executeTool(
     }
     val operation = novex.core.NovexToolOperation(
         activeSessionId, turnMessageId, toolId, name, argsJson, friendlyToolTitle(name), details)
-    return novexToolExecution.execute(operation, { currentNovexConfiguration().executionMode }) {
+    return novexToolExecution.execute(operation, { currentNovexConfiguration().executionMode },
+        { if (currentNovexConfiguration().unreadableConfiguration != null) "对话设置数据未能恢复，原数据已保留，暂不能修改"
+          else null }) {
         executeAuthorizedTool(name, argsJson, toolId, toolBlocks, assistantId, currentText, turnMessageId, requestMessageId)
     }
 }

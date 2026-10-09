@@ -9,14 +9,14 @@ import novex.content.ContentBlock
 
 @Composable internal fun BlockOrderPage(model:CardSessionModel) {
     val state=model.state
-    val blocks=state.shownDraft?.modules?.flattenModules()?.singleOrNull {it.id==state.moduleId}?.blocks.orEmpty()
+    val blocks=state.shownWorking?.modules?.flattenModules()?.singleOrNull {it.id==state.moduleId}?.blocks.orEmpty()
     ReorderList(blocks.mapIndexed {index,block->OrderEntry(block.id,"${if(block is ContentBlock.Image)"图片" else "文字"} ${index+1}")},
         !state.busy,{model.module(requireNotNull(state.moduleId),it)},model::moveBlock,operationLabel="内容操作",
         hasLeading={id->blocks.single {it.id==id} is ContentBlock.Image},
         leading={id->
             val block=blocks.single {it.id==id}
             if(block is ContentBlock.Image) {
-                val resource=requireNotNull(state.shownDraft).resources.single {it.id==block.resourceId}
+                val resource=requireNotNull(state.shownWorking).resources.single {it.id==block.resourceId}
                 CardThumbnail(resource.content,model)
             }
         },

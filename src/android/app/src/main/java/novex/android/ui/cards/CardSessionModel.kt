@@ -26,6 +26,8 @@ data class CardSession(val page:CardPage=CardPage.DETAIL,val previewReturn:CardP
     val mediaAppearanceDraft:Boolean=false) {
     val shownSaved:ContentDocument? get()=saved?.let {ContentTargets.find(it,targetId?:it.id)}
     val shownDraft:ContentDocument? get()=draft?.content?.let {ContentTargets.find(it,targetId?:it.id)}
+    /** 编辑视图的工作内容：有草稿读草稿，无草稿读正式版——进入编辑页不保证草稿已存在。 */
+    val shownWorking:ContentDocument? get()=shownDraft?:shownSaved
 }
 
 /** 只协调手机编辑会话；内容变更及提交都交给共同编辑入口。 */
@@ -78,31 +80,37 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         flush();ContentTargets.find(requireNotNull(state.saved),id)
         state=state.copy(targetId=id,page=CardPage.DETAIL,moduleId=null,blockId=null,dirty=false)
     }
-    private suspend fun beginEditing():CardDraft=withContext(Dispatchers.IO) {
-        val draft=CardDrafts(store).begin(requireNotNull(state.saved).id)
-        organizeDraft(draft,state.targetId?:draft.content.id)
+    /** 草稿推迟到首次真实修改才落盘——打开编辑页本身不产生草稿文件，避免空转留下遮蔽 AI/正式版的草稿。 */
+    private suspend fun liveDraft():CardDraft {
+        state.draft?.let {return it}
+        val draft=withContext(Dispatchers.IO) {
+            organizeDraft(CardDrafts(store).begin(requireNotNull(state.saved).id),state.targetId?:requireNotNull(state.saved).id)
+        }
+        state=state.copy(draft=draft)
+        return draft
     }
     private fun organizeDraft(draft:CardDraft,target:String):CardDraft {
         val shown=ContentTargets.find(draft.content,target)
         return if(FolderContents.organize(shown)==shown)draft
         else CardEditor(store).apply(draft.content.id,draft.version,target,EditorCommand.OrganizeFolders)
     }
-    fun promoteModule(id:String)=applyComposition(EditorCommand.PromoteModule(id,state.shownDraft?.introductionModule()?.id))
+    fun promoteModule(id:String)=applyComposition(EditorCommand.PromoteModule(id,state.shownWorking?.introductionModule()?.id))
     fun edit()=action {
-        val draft=beginEditing()
-        val requested=state.targetId?:draft.content.id
-        require(requested==draft.content.id || draft.content.internalCharacters.any {it.id==requested}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
-        state=state.copy(page=CardPage.MODULES,draft=draft,editorEntryTarget=state.targetId?:draft.content.id,targetId=state.targetId?.takeIf {id->id==draft.content.id || draft.content.internalCharacters.any {it.id==id}}?:draft.content.id)
+        val root=state.draft?.content?:requireNotNull(state.saved)
+        val requested=state.targetId?:root.id
+        require(requested==root.id || root.internalCharacters.any {it.id==requested}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
+        state=state.copy(page=CardPage.MODULES,editorEntryTarget=requested,targetId=requested)
     }
     fun editTarget(id:String)=action {
-        flush();val draft=withContext(Dispatchers.IO){organizeDraft(requireNotNull(state.draft),id)}
+        flush();val draft=state.draft?.let {current->withContext(Dispatchers.IO){organizeDraft(current,id)}}
         state=state.copy(draft=draft,targetId=id,page=CardPage.MODULES,moduleId=null,blockId=null,dirty=false)
     }
     fun createCharacter(name:String,onSaved:()->Unit={})=changeCharacters(onSaved) {draft->CardCharacters(store).create(draft.content.id,draft.version,name)}
     fun copyCharacter(sourceId:String,onSaved:()->Unit={})=changeCharacters(onSaved) {draft->CardCharacters(store).copy(draft.content.id,draft.version,sourceId)}
     private fun changeCharacters(onSaved:()->Unit,change:(CardDraft)->CardDraft)=action(onSaved) {
-        flush();val current=requireNotNull(state.draft)
-        require(state.targetId==current.content.id){"请在世界中添加角色"}
+        flush()
+        require(state.targetId==null || state.targetId==requireNotNull(state.saved).id){"请在世界中添加角色"}
+        val current=liveDraft()
         val created=withContext(Dispatchers.IO){change(current)}
         val added=created.content.internalCharacters.single {candidate->current.content.internalCharacters.none {it.id==candidate.id}}
         val next=withContext(Dispatchers.IO){organizeDraft(created,added.id)}
@@ -110,7 +118,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     }
     suspend fun sourceCharacters():List<CardSummary> = withContext(Dispatchers.IO){store.list().filter {it.kind==CardKind.CHARACTER}}
     fun moveModule(moduleId:String,beforeId:String?)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.MoveModule(moduleId,beforeId))}
         state=state.copy(draft=next)
     }
@@ -118,26 +126,26 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     fun placeModule(id:String,parentId:String?,beforeId:String?)=applyComposition(EditorCommand.PlaceModule(id,parentId,beforeId))
     fun moduleLayout(id:String,layout:ModuleLayout)=applyComposition(EditorCommand.ModuleLayoutChange(id,layout))
     fun editPart(moduleId:String)=action() {
-        val draft=beginEditing()
-        val requested=state.targetId?:draft.content.id
-        require(requested==draft.content.id || draft.content.internalCharacters.any {it.id==requested}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
-        state=state.copy(draft=draft,page=CardPage.MODULES,editorEntryTarget=state.targetId?:draft.content.id)
+        val root=state.draft?.content?:requireNotNull(state.saved)
+        val requested=state.targetId?:root.id
+        require(requested==root.id || root.internalCharacters.any {it.id==requested}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
+        state=state.copy(page=CardPage.MODULES,editorEntryTarget=requested)
         // 展示页只进入整卡编辑，定位对应模块；再次点击才进入模块正文。
-        focusModule(requireNotNull(state.shownDraft),moduleId,"editor")
+        focusModule(requireNotNull(state.shownWorking),moduleId,"editor")
     }
     fun introduction(initialText:String?=null,onReady:()->Unit={})=action(onReady) {
         flush()
         if(state.page==CardPage.DETAIL) {
-            val draft=beginEditing()
-            val target=state.targetId?:draft.content.id
-            require(target==draft.content.id || draft.content.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
-            state=state.copy(draft=draft,page=CardPage.MODULES,editorEntryTarget=target)
+            val root=state.draft?.content?:requireNotNull(state.saved)
+            val target=state.targetId?:root.id
+            require(target==root.id || root.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
+            state=state.copy(page=CardPage.MODULES,editorEntryTarget=target)
         }
-        val existing=requireNotNull(state.shownDraft).introductionModule()
+        val existing=requireNotNull(state.shownWorking).introductionModule()
         if(existing!=null)loadModule(existing.id,null)
         else {
             require(!initialText.isNullOrBlank()) {"请填写简介"}
-            val draft=requireNotNull(state.draft)
+            val draft=liveDraft()
             val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.AddModule("简介"))}
             state=state.copy(draft=next)
             loadModule(requireNotNull(next.position.moduleId),null)
@@ -145,28 +153,28 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         if(!initialText.isNullOrBlank()){changeText(TextFieldValue(initialText));flush()}
     }
     fun addModule(parentId:String?=null,layout:ModuleLayout=ModuleLayout.VERTICAL)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.AddModule("",parentId,layout))}
         state=state.copy(draft=next)
         loadModule(requireNotNull(next.position.moduleId),null)
     }
-    /** 阅读态发起编辑共用前置：开草稿并进入模块编辑页，目标校验与 introduction() 同源。 */
+    /** 阅读态发起编辑共用前置：只进入模块编辑页不落盘，目标校验与 introduction() 同源；草稿由首个变更动作经 liveDraft() 建立。 */
     private suspend fun beginDraftFromReading() {
         flush()
         if(state.page==CardPage.DETAIL || state.page==CardPage.OVERVIEW || state.page==CardPage.MEDIA) {
-            val draft=beginEditing()
-            val target=state.targetId?:draft.content.id
-            require(target==draft.content.id || draft.content.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
-            state=state.copy(draft=draft,page=CardPage.MODULES,editorEntryTarget=target)
+            val root=state.draft?.content?:requireNotNull(state.saved)
+            val target=state.targetId?:root.id
+            require(target==root.id || root.internalCharacters.any {it.id==target}) {"该角色已在草稿中移除，请先返回世界处理草稿"}
+            state=state.copy(page=CardPage.MODULES,editorEntryTarget=target)
         }
     }
     /** 设定总览：已有则定位编辑，没有则新建命名模块（命名识别见 overviewModule()）。 */
     fun overview(onReady:()->Unit={})=action(onReady) {
         beginDraftFromReading()
-        val existing=requireNotNull(state.shownDraft).overviewModule()
+        val existing=requireNotNull(state.shownWorking).overviewModule()
         if(existing!=null)loadModule(existing.id,null)
         else {
-            val draft=requireNotNull(state.draft)
+            val draft=liveDraft()
             val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.AddModule("总览"))}
             state=state.copy(draft=next)
             loadModule(requireNotNull(next.position.moduleId),null)
@@ -175,7 +183,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 阅读器底部「+」：从浏览直进新建模块编辑，免先跳编辑树。 */
     fun addModuleFromReading(onReady:()->Unit={})=action(onReady) {
         beginDraftFromReading()
-        val draft=requireNotNull(state.draft)
+        val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.AddModule(""))}
         state=state.copy(draft=next)
         loadModule(requireNotNull(next.position.moduleId),null)
@@ -184,11 +192,11 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 显隐=novex-hidden 标签位（沿用特殊标签先例）；阅读器页签/注入页随之增减，编辑树保留。 */
     fun setModuleHiddenFromReading(moduleId:String,hidden:Boolean)=action {
         beginDraftFromReading()
-        val target=state.targetId?:requireNotNull(state.draft).content.id
-        val module=requireNotNull(state.shownDraft).modules.flattenModules().singleOrNull {it.id==moduleId}
+        val module=requireNotNull(state.shownWorking).modules.flattenModules().singleOrNull {it.id==moduleId}
             ?:throw IllegalArgumentException("模块不存在或已在草稿中移除")
         val tags=module.tags.toMutableList().apply {if(hidden)add("novex-hidden") else remove("novex-hidden")}
-        var next=requireNotNull(state.draft)
+        var next=liveDraft()
+        val target=state.targetId?:next.content.id
         next=withContext(Dispatchers.IO){CardEditor(store).apply(next.content.id,next.version,target,
             EditorCommand.ModuleOptions(moduleId,tags,module.use,module.routing,module.temporality))}
         val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
@@ -197,15 +205,16 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 根级模块上下移一位；已在边界或非根模块则无操作。 */
     fun moveModuleFromReading(moduleId:String,up:Boolean)=action {
         beginDraftFromReading()
-        val card=requireNotNull(state.shownDraft)
+        val card=requireNotNull(state.shownWorking)
         val siblings=card.modules.filterNot {it.id==card.introductionModule()?.id || it.id==card.overviewModule()?.id}
         val index=siblings.indexOfFirst {it.id==moduleId}
         if(index<0 || (up && index==0) || (!up && index>=siblings.size-1)) {
-            if(state.draft!=null && state.page==CardPage.MODULES)state=state.copy(page=CardPage.DETAIL)
+            // 本动作从阅读页自动进入模块页时（惰性草稿下可能尚无草稿），边界回退详情页。
+            if(state.page==CardPage.MODULES)state=state.copy(page=CardPage.DETAIL)
             return@action
         }
         val beforeId=if(up)siblings[index-1].id else siblings.getOrNull(index+2)?.id
-        var next=requireNotNull(state.draft)
+        var next=liveDraft()
         next=withContext(Dispatchers.IO){CardEditor(store).apply(next.content.id,next.version,state.targetId?:next.content.id,
             EditorCommand.MoveModule(moduleId,beforeId))}
         val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
@@ -215,7 +224,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** [T008] 模板建模块：命名+脚手架正文一步到位（模板=普通命名模块，无新存储形态）。 */
     fun addModuleFromTemplate(template:ModuleTemplate,onReady:()->Unit={})=action(onReady) {
         beginDraftFromReading()
-        val draft=requireNotNull(state.draft)
+        val draft=liveDraft()
         val target=state.targetId?:draft.content.id
         val editor=CardEditor(store)
         val added=withContext(Dispatchers.IO){editor.apply(draft.content.id,draft.version,target,EditorCommand.AddModule(template.name))}
@@ -245,8 +254,8 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     /** 清除头像/封面：即时提交，不留草稿。 */
     fun mediaClearAppearance(cover:Boolean)=action {
         beginDraftFromReading()
-        val target=state.targetId?:requireNotNull(state.draft).content.id
-        var next=requireNotNull(state.draft)
+        var next=liveDraft()
+        val target=state.targetId?:next.content.id
         next=withContext(Dispatchers.IO){CardEditor(store).apply(next.content.id,next.version,target,EditorCommand.Appearance(null,cover))}
         val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
         state=state.copy(saved=committed.content,draft=null,page=CardPage.MEDIA,dirty=false,moduleId=null,blockId=null)
@@ -291,9 +300,9 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         val text=requireNotNull(state.purifyDraft)
         val fromPage=state.page
         beginDraftFromReading()
-        val target=state.targetId?:requireNotNull(state.draft).content.id
-        val shown=requireNotNull(state.shownDraft)
-        var next=requireNotNull(state.draft)
+        val shown=requireNotNull(state.shownWorking)
+        var next=liveDraft()
+        val target=state.targetId?:next.content.id
         val editor=CardEditor(store)
         val existing=shown.overviewModule()
         val overviewId=if(existing!=null)existing.id else {
@@ -303,7 +312,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         }
         val moduleName=existing?.name?.ifBlank { "总览" } ?: "总览"
         next=withContext(Dispatchers.IO){editor.apply(next.content.id,next.version,target,EditorCommand.WriteMarkdownText(overviewId,moduleName,text))}
-        val covered=requireNotNull(state.shownDraft).bodyModules().size
+        val covered=requireNotNull(state.shownWorking).bodyModules().size
         val meta=OverviewMeta(purifiedAtMs=System.currentTimeMillis(),coveredModules=covered,approxTokens=(text.length*3/4))
         next=withContext(Dispatchers.IO){editor.apply(next.content.id,next.version,target,EditorCommand.PutExtensionText(OverviewPurifier.META_EXTENSION_KEY,meta.toJson()))}
         val committed=withContext(Dispatchers.IO){CardDrafts(store).commit(next.content.id,next.version)}
@@ -312,17 +321,18 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     }
     fun dismissPurifyDraft(){if(!state.busy)state=state.copy(purifyDraft=null)}
     fun addPresentedModule(horizontal:Boolean)=action {
-        flush();val draft=requireNotNull(state.draft)
-        val command=EditorCommand.AddPresentedModule(horizontal,requireNotNull(state.shownDraft).introductionModule()?.id)
+        flush();val draft=liveDraft()
+        val command=EditorCommand.AddPresentedModule(horizontal,requireNotNull(state.shownWorking).introductionModule()?.id)
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,command)}
         state=state.copy(draft=next)
         loadModule(requireNotNull(next.position.moduleId),null)
     }
     fun module(id:String,block:String?=null)=action {flush();loadModule(id,block)}
     private suspend fun loadModule(id:String,block:String?,start:Long?=null) {
-        val draft=requireNotNull(state.draft);val module=requireNotNull(state.shownDraft).modules.flattenModules().single {it.id==id}
-        focusModule(requireNotNull(state.shownDraft),id,"editor")
-        val position=draft.position
+        val working=requireNotNull(state.shownWorking);val module=working.modules.flattenModules().single {it.id==id}
+        focusModule(working,id,"editor")
+        val draft=state.draft
+        val position=draft?.position?:EditorPosition()
         val same=position.moduleId==id && position.blockId==null
         val offset=start?:if(same)position.textOffset else 0L
         val ref=withContext(Dispatchers.IO){ModuleMarkdown(store).compose(module)}
@@ -330,7 +340,8 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         val text=page.text
         val selection=if(same && start==null)TextRange(position.selectionStart.coerceIn(0,text.length),position.selectionEnd.coerceIn(0,text.length))else TextRange.Zero
         val nextPosition=EditorPosition(id,null,selection.min,selection.max,textOffset=offset,textLength=maxOf(4096,text.codePointCount(0,text.length)))
-        val updated=if(nextPosition==position)draft else withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.Position(nextPosition))}
+        // 阅读位置只在已有草稿时持久化；不为光标移动单独建草稿文件。
+        val updated=if(draft!=null && nextPosition!=position)withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.Position(nextPosition))}else draft
         state=state.copy(page=CardPage.EDIT,draft=updated,moduleId=id,blockId=null,title=module.name,text=TextFieldValue(text,selection),dirty=false,
             markdownRef=ref,textStart=offset,textEnd=offset+text.codePointCount(0,text.length),textMore=page.next!=null,loadedText=text)
     }
@@ -348,11 +359,14 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     fun changeText(value:TextFieldValue){state=state.copy(text=value,dirty=true);sequence++;changes.trySend(Unit)}
     private suspend fun flush() {
         if(!state.dirty)return
-        val snapshot=state;val generation=sequence;val draft=requireNotNull(snapshot.draft)
+        val snapshot=state;val generation=sequence
         val position=EditorPosition(snapshot.moduleId,snapshot.blockId,snapshot.text.selection.min,snapshot.text.selection.max,textOffset=snapshot.textStart,textLength=maxOf(4096,snapshot.text.text.codePointCount(0,snapshot.text.text.length)))
-        val original=requireNotNull(snapshot.shownDraft).modules.flattenModules().single {it.id==snapshot.moduleId}
+        val original=requireNotNull(snapshot.shownWorking).modules.flattenModules().single {it.id==snapshot.moduleId}
         val textUnchanged=snapshot.loadedText==snapshot.text.text
         val unchanged=textUnchanged && snapshot.title==original.name
+        // 仅光标位置变化且无草稿：不为此单独建草稿文件；位置随下次真实修改的 WriteMarkdown 一并记录。
+        if(snapshot.draft==null && unchanged)return
+        val draft=snapshot.draft?:liveDraft()
         val nextRef=if(textUnchanged)snapshot.markdownRef else withContext(Dispatchers.IO) {
             ModuleMarkdown(store).replaceRange(requireNotNull(snapshot.markdownRef),snapshot.textStart,snapshot.textEnd,snapshot.text.text)
         }
@@ -367,7 +381,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     fun blockOrder()=action {flush();state=state.copy(page=CardPage.BLOCKS)}
     fun returnFromBlockOrder(){state=state.copy(page=CardPage.EDIT)}
     fun moveBlock(blockId:String,beforeId:String?)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val command=EditorCommand.MoveBlock(requireNotNull(state.moduleId),blockId,beforeId)
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,command)}
         state=state.copy(draft=next)
@@ -384,16 +398,16 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     }
     fun preview()=action {
         flush()
-        val card=requireNotNull(state.shownDraft)
+        val card=requireNotNull(state.shownWorking)
         state.moduleId?.takeIf {card.modules.findModule(it)!=null}?.let {focusModule(card,it,"draft")}
         state=state.copy(previewReturn=state.page,previewTargetId=state.targetId,page=CardPage.PREVIEW)
     }
     fun previewCharacter(id:String) {
-        ContentTargets.find(requireNotNull(state.draft).content,id)
+        ContentTargets.find(requireNotNull(state.draft?.content?:state.saved),id)
         state=state.copy(previewTargetId=id)
     }
     fun previewBack() {
-        val root=requireNotNull(state.draft).content.id
+        val root=requireNotNull(state.draft?.content?:state.saved).id
         if(state.previewTargetId!=state.targetId && state.previewTargetId!=root)state=state.copy(previewTargetId=root)
         else returnFromPreview()
     }
@@ -406,19 +420,19 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     }
     fun dismissRecoveryInput(){state=state.copy(recoveryInput=null)}
     fun moduleOptions(tags:List<String>,use:ModuleUse?,routing:novex.content.ModuleRouting?=null,temporality:novex.content.ModuleTemporality?=null,onSaved:()->Unit={})=action(onSaved) {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val command=EditorCommand.ModuleOptions(requireNotNull(state.moduleId),tags,use,routing,temporality)
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,command)}
         state=state.copy(draft=next)
     }
     fun addText()=action {
-        flush();val draft=requireNotNull(state.draft);val moduleId=requireNotNull(state.moduleId)
+        flush();val draft=liveDraft();val moduleId=requireNotNull(state.moduleId)
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.AddText(moduleId,state.blockId))}
         state=state.copy(draft=next)
         loadModule(moduleId,next.position.blockId)
     }
     fun addImage(uri:android.net.Uri)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val resource=withContext(Dispatchers.IO){
             val input=requireNotNull(getApplication<Application>().contentResolver.openInputStream(uri)){"无法读取所选图片"}
             CardImages(store).receive(input)
@@ -435,7 +449,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         changeText(TextFieldValue(text,TextRange(input.selection.min+marker.length)))
     }
     fun addPictureResource(uri:android.net.Uri)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val next=withContext(Dispatchers.IO) {
             val input=requireNotNull(getApplication<Application>().contentResolver.openInputStream(uri)){"无法读取所选图片"}
             val resource=CardImages(store).receive(input)
@@ -446,8 +460,8 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     fun setCover()=setImageAppearance(true)
     fun setAvatar()=setImageAppearance(false)
     private fun setImageAppearance(cover:Boolean)=action {
-        flush();val draft=requireNotNull(state.draft)
-        val image=requireNotNull(state.shownDraft).modules.flattenModules().single {it.id==state.moduleId}.blocks.single {it.id==state.blockId} as ContentBlock.Image
+        flush();val draft=liveDraft()
+        val image=requireNotNull(state.shownWorking).modules.flattenModules().single {it.id==state.moduleId}.blocks.single {it.id==state.blockId} as ContentBlock.Image
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.Appearance(image.resourceId,cover))}
         state=state.copy(draft=next)
     }
@@ -457,23 +471,23 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         else state=state.copy(page=state.pictureReturn)
     }
     fun useOwnedAppearance(resourceId:String,cover:Boolean)=action {
-        val draft=requireNotNull(state.draft)
+        val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.Appearance(resourceId,cover))}
         state=state.copy(draft=next)
     }
     fun insertOwnedImage(resourceId:String)=action {
         require(state.pictureReturn==CardPage.EDIT){"请先打开要放入图片的模块"}
-        require(state.shownDraft?.resources?.any {it.id==resourceId}==true){"图片不属于当前卡片"}
+        require(state.shownWorking?.resources?.any {it.id==resourceId}==true){"图片不属于当前卡片"}
         state=state.copy(page=CardPage.EDIT)
         insertMarkdownImage(resourceId);flush()
     }
     fun clearAppearance(cover:Boolean)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.Appearance(null,cover))}
         state=state.copy(draft=next)
     }
     fun replaceImage(uri:android.net.Uri)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val moduleId=requireNotNull(state.moduleId);val blockId=requireNotNull(state.blockId)
         val next=withContext(Dispatchers.IO) {
             val input=requireNotNull(getApplication<Application>().contentResolver.openInputStream(uri)){"无法读取所选图片"}
@@ -482,8 +496,8 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         state=state.copy(draft=next)
     }
     fun removeImageDisplay()=action {
-        flush();val draft=requireNotNull(state.draft);val moduleId=requireNotNull(state.moduleId)
-        val image=requireNotNull(state.shownDraft).modules.flattenModules().single {it.id==moduleId}.blocks.single {it.id==state.blockId} as ContentBlock.Image
+        flush();val draft=liveDraft();val moduleId=requireNotNull(state.moduleId)
+        val image=requireNotNull(state.shownWorking).modules.flattenModules().single {it.id==moduleId}.blocks.single {it.id==state.blockId} as ContentBlock.Image
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.RemoveBlock(moduleId,image.id))}
         state=state.copy(draft=next)
         loadModule(moduleId,next.position.blockId)
@@ -498,14 +512,17 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
     fun removeResource(id:String,removeUses:Boolean,onSaved:()->Unit={})=applyComposition(EditorCommand.RemoveResource(id,removeUses),onSaved)
     fun removeCharacter(id:String,onSaved:()->Unit={})=applyComposition(EditorCommand.RemoveCharacter(id),onSaved)
     private fun applyComposition(command:EditorCommand,onSaved:()->Unit={})=action(onSaved) {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,command)}
         state=state.copy(draft=next)
     }
     fun prepareAi(onReady:()->Unit)=action {
-        flush();val draft=requireNotNull(state.draft)
-        val saved=withContext(Dispatchers.IO){CardDrafts(store).commit(draft.content.id,draft.version)}
-        state=state.copy(saved=saved.content,draft=null,page=CardPage.DETAIL)
+        flush()
+        state.draft?.let {draft->
+            val saved=withContext(Dispatchers.IO){CardDrafts(store).commit(draft.content.id,draft.version)}
+            state=state.copy(saved=saved.content,draft=null)
+        }
+        state=state.copy(page=CardPage.DETAIL)
         onReady()
     }
     fun discardDraft(onDiscarded:()->Unit={})=action(onDiscarded) {
@@ -519,7 +536,7 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         sequence++;state=state.copy(saved=saved,draft=newer,page=CardPage.DETAIL,dirty=false,moduleId=null,blockId=null,text=TextFieldValue(),loadedText="",error=if(newer!=null)"本地输入已放弃，其他更新的草稿仍保留" else null,targetId=state.targetId?.takeIf {it==saved.id || saved.internalCharacters.any {role->role.id==it}}?:saved.id)
     }
     fun renameCard(name:String,onSaved:()->Unit={})=action(onSaved) {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.Rename(name))}
         state=state.copy(draft=next)
     }
@@ -533,17 +550,17 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         }
     }
     fun deleteModule(id:String)=action {
-        flush();val draft=requireNotNull(state.draft)
+        flush();val draft=liveDraft()
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.RemoveModule(id))}
         state=state.copy(draft=next,page=CardPage.MODULES,moduleId=null,blockId=null,dirty=false)
     }
     fun removeModule(onSaved:()->Unit={})=action(onSaved) {
-        flush();val draft=requireNotNull(state.draft);val moduleId=requireNotNull(state.moduleId)
+        flush();val draft=liveDraft();val moduleId=requireNotNull(state.moduleId)
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.RemoveModule(moduleId))}
         state=state.copy(draft=next,page=CardPage.MODULES,moduleId=null,blockId=null,dirty=false)
     }
     fun removeCurrentBlock(onSaved:()->Unit={})=action {
-        flush();val draft=requireNotNull(state.draft);val moduleId=requireNotNull(state.moduleId);val blockId=requireNotNull(state.blockId)
+        flush();val draft=liveDraft();val moduleId=requireNotNull(state.moduleId);val blockId=requireNotNull(state.blockId)
         val next=withContext(Dispatchers.IO){CardEditor(store).apply(draft.content.id,draft.version,state.targetId?:draft.content.id,EditorCommand.RemoveBlock(moduleId,blockId))}
         state=state.copy(draft=next,page=CardPage.MODULES,moduleId=null,blockId=null,dirty=false)
         onSaved()
@@ -561,7 +578,8 @@ class CardSessionModel(application:Application):AndroidViewModel(application) {
         if(changed)onChanged() else state=state.copy(page=CardPage.DETAIL,moduleId=null,blockId=null)
     }
     fun save(onSaved:()->Unit={})=action(onSaved) {
-        flush();val draft=requireNotNull(state.draft)
+        flush()
+        val draft=state.draft?:run {state=state.copy(page=CardPage.DETAIL);return@action}
         val saved=withContext(Dispatchers.IO){CardDrafts(store).commit(draft.content.id,draft.version)}
         state=state.copy(saved=saved.content,draft=null,page=CardPage.DETAIL)
     }

@@ -38,7 +38,7 @@ class CardDraftsTest {
         assertEquals(saved, reopened.commit(card.id, changed.version))
     }
 
-    @Test fun `延迟更新被拒绝且外部正式修改不会覆盖未保存草稿`() {
+    @Test fun `延迟更新被拒绝且陈旧草稿不遮蔽较新的正式内容`() {
         val root = temporary.newFolder().toPath(); val store = CardStore(root)
         store.save(card, null, ChangeSource.HUMAN, "initial")
         val drafts = CardDrafts(store); val first = drafts.begin(card.id)
@@ -46,8 +46,10 @@ class CardDraftsTest {
         assertThrows(DraftConflict::class.java) { drafts.update(card.id, first.version, card, EditorPosition()) }
         store.save(card.copy(name = "较新的正式内容"), "initial", ChangeSource.AI, "other")
         assertThrows(RevisionConflict::class.java) { drafts.commit(card.id, updated.version) }
-        assertEquals(updated, drafts.read(card.id))
+        // 基线落后于正式修订的草稿按失效丢弃，读回与列表都不再见它。
+        assertNull(drafts.read(card.id))
         assertEquals("other", store.open(card.id)!!.revision)
+        assertEquals("较新的正式内容", drafts.begin(card.id).content.name)
     }
 
     @Test fun `保存成功清理前中断重开能识别已提交且不重复保存`() {

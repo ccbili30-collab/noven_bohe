@@ -118,6 +118,17 @@ class CardDrafts(private val store: CardStore) {
             }
             Files.delete(path(cardId)); return null
         }
+        // 陈旧草稿不遮蔽正式内容：基线落后于正式修订（例如 AI 工具已另行提交）
+        // 或卡已被删除的草稿按失效丢弃；不存在并发编辑通道，旧稿没有胜出语义。
+        val saved = store.open(cardId)
+        if (draft.baseRevision == null) {
+            // 无基线草稿是「新建卡」草稿；卡已存在说明它已被别的入口提交或重复。
+            if (saved != null) { Files.delete(path(cardId)); return null }
+            return draft
+        }
+        if (saved == null || saved.revision != draft.baseRevision) {
+            Files.delete(path(cardId)); return null
+        }
         return draft
     }
 

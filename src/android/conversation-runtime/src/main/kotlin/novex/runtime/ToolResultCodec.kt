@@ -12,7 +12,7 @@ object ToolResultCodec {
         return when(value.optString(if(legacy) "kind" else "status")) {
             "read" -> CardToolResult.Read(value.toString())
             "saved" -> CardToolResult.Saved(value.getString(if(legacy) "root" else "root_id"), value.getString(if(legacy) "target" else "target_id"), value.getString("revision"),
-                strings("created_modules"),strings("created_blocks"))
+                strings("created_modules"),strings("created_blocks"),strings("created_targets"))
             "registered" -> CardToolResult.Registered(value.getString("conversation_id"), value.getString("registration_id"))
             "state_saved" -> CardToolResult.StateSaved(value.getString("conversation_id"), value.getString("event_id"))
             "checkpoint_saved" -> CardToolResult.CheckpointSaved(value.getString("conversation_id"), value.getString("checkpoint_id"))
