@@ -572,25 +572,19 @@ internal fun NovenWorkCard(
 
 // ── 导入文件选择 ──────────────────────────────────────────────────────────
 
-/** 返回一个「先选类型，再打开文件选择器」的入口函数。
+/** 统一导入入口：不问类型——格式由导入管线按内容自动识别。
  *  OpenDocument 的回调早于 onResume 到达——此时 NavBackStackEntry 还在
  *  STARTED，safeNavigate 会把导航静默丢弃（导入点了没反应的 bug）。
  *  这里先等宿主回到 RESUMED 再回调。 */
 @Composable
-internal fun rememberNovenImportPicker(onPicked: (Uri, Boolean) -> Unit): (Boolean) -> Unit {
-    var pendingWorld = androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(false)
-    }
+internal fun rememberNovenImportPicker(onPicked: (Uri) -> Unit): () -> Unit {
     val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             owner.lifecycle.currentStateFlow.first { it == androidx.lifecycle.Lifecycle.State.RESUMED }
-            onPicked(uri, pendingWorld.value)
+            onPicked(uri)
         }
     }
-    return { world ->
-        pendingWorld.value = world
-        launcher.launch(arrayOf("*/*"))
-    }
+    return { launcher.launch(arrayOf("*/*")) }
 }

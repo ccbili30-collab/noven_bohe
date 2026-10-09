@@ -27,12 +27,14 @@ class HtmlIslandDocumentTest {
     }
 
     @Test
-    fun `island resources only allow session image schemes`() {
+    fun `island resources keep interceptor as the network gate`() {
         val doc = wrapIslandDocument("<p>hi</p>", "{}")
-        // 本地图片可进岛当素材，但 font/media/frame/connect 面不随
-        // img-src 一起放开——资源口子只服务装饰图。
+        // CSP 放行 http/https 是为让收割映射命中的远程 URL 走到拦截器
+        // 换本地字节——真正的断网闸在 shouldInterceptRequest，未映射的
+        // 远程请求仍被回空。connect/frame 仍整体关闭。
         assertTrue(doc.contains("minis:"))
-        assertTrue(doc.contains("media-src 'none'"))
+        assertTrue(doc.contains("novex-asset:"))
+        assertTrue(doc.contains("connect-src 'none'"))
         assertTrue(doc.contains("frame-src 'none'"))
     }
 

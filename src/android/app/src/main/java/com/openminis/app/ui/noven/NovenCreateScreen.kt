@@ -81,8 +81,8 @@ internal fun NovenCreateScreen(
     }
 
     var aiInput by rememberSaveable { mutableStateOf("") }
-    var importChoiceOpen by remember { mutableStateOf(false) }
-    val importPicker = rememberNovenImportPicker { uri, world -> onImportCard(uri, world) }
+    // 导入不先问类型：统一入口按内容自动识别格式。
+    val importPicker = rememberNovenImportPicker { uri -> onImportCard(uri, false) }
     val unfinished = library.state.imports + library.state.edits
     val importIds = remember(library.state.imports) { library.state.imports.map { it.id }.toSet() }
     // 丢弃确认态：点一次「放弃」先武装成红色「确认放弃」，再点一次才真删——
@@ -193,7 +193,7 @@ internal fun NovenCreateScreen(
             NovenCreateTile("新建世界", R.drawable.ic_phosphor_globe, Modifier.weight(1f), onCreateWorld)
             NovenCreateTile("新建角色", R.drawable.ic_phosphor_user, Modifier.weight(1f), onCreateCharacter)
             NovenCreateTile("导入卡片", R.drawable.ic_phosphor_download_simple, Modifier.weight(1f)) {
-                importChoiceOpen = true
+                importPicker()
             }
         }
 
@@ -292,22 +292,6 @@ internal fun NovenCreateScreen(
         Spacer(Modifier.height(24.dp))
     }
 
-    if (importChoiceOpen) {
-        AlertDialog(
-            onDismissRequest = { importChoiceOpen = false },
-            title = { Text("导入卡片") },
-            confirmButton = {
-                TextButton(onClick = { importChoiceOpen = false; importPicker(true) }) {
-                    Text("导入世界卡")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { importChoiceOpen = false; importPicker(false) }) {
-                    Text("导入角色卡")
-                }
-            },
-        )
-    }
 }
 
 @Composable

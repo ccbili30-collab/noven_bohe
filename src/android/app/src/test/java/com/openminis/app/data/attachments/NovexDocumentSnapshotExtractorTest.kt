@@ -198,14 +198,14 @@ class NovexDocumentSnapshotExtractorTest {
     }
 
     @Test
-    fun legacyDocReturnsAnExplicitUnsupportedSnapshotWithoutCallingTheOldExtractor() {
+    fun legacyDocGoesThroughCompatExtractorAndSurfacesParseFailure() {
         val original = temporaryFile("legacy.doc", "legacy bytes")
         var calls = 0
         val adapter = NovexDocumentSnapshotExtractor(
             cache = InMemoryNovexDocumentSnapshotCache(),
             legacyExtractor = NovexLegacyDocumentExtractor { _, _, _, _ ->
                 calls += 1
-                error("旧版文档不应进入现有解析器")
+                error("兼容解析器抛错")
             },
         )
 
@@ -213,10 +213,9 @@ class NovexDocumentSnapshotExtractorTest {
             adapter.extract(null, original, "application/msword", "legacy.doc"),
         )
 
-        assertEquals(0, calls)
-        assertEquals(NovexDocumentStatus.UNSUPPORTED, snapshot.status)
-        assertTrue(snapshot.blocks.isEmpty())
-        assertTrue(snapshot.warnings.any { it.code == "document.legacy_doc_unsupported" })
+        assertEquals(1, calls)
+        assertEquals(NovexDocumentStatus.DAMAGED, snapshot.status)
+        assertTrue(snapshot.warnings.any { it.code == "document.parse_failed" })
     }
 
     @Test

@@ -10,8 +10,10 @@ import org.json.JSONObject
  * 后语义不变但落进我们的协议：标记写进 def meta 的 marker 字段，显示期
  * 由 novex 管线就地展开为 novex-use 投影（NovexArtifacts.expandNovexMarkers）。
  *
- * 远程引导（$('body').load(cdn)/外链页面）在导入期抓取并内联——运行时
- * 沙箱断网不变，离线可玩；抓不到记 notes，不阻塞导入。
+ * 远程引用转译期一律不联网：保留原文并记入 Outcome.remoteRefs，由导入后
+ * 的 TavernAssetHarvester 抓回存为卡资源、改写为 novex-asset:// 本地引用；
+ * 远程引导页（$('body').load(cdn)）离线时输出带 remotePage meta 的占位
+ * def，收割期回填正文。沙箱断网不变，收割后的卡离线可玩。
  * 装饰类替换（改气泡颜色/剥标记）不转译，逐条记 notes。
  */
 object TavernFrontendTranslator {
@@ -19,14 +21,17 @@ object TavernFrontendTranslator {
     /** 一个前端件模块：标题 + 含 ```novex-def 围栏的正文。 */
     data class Module(val title: String, val defFenceText: String)
 
-    data class Outcome(val modules: List<Module>, val notes: List<String>)
+    /** 收割素材清单条目：url + 形态提示（page 为远程引导整页）。 */
+    data class Outcome(val modules: List<Module>, val notes: List<String>, val remoteRefs: List<String> = emptyList())
 
     /**
-     * @param fetchRemote 导入期联网抓取（URL → 字节）。注入点：默认 null
-     *   表示离线导入——远程引导项全部记 notes 跳过；UI 层可传真实实现。
+     * @param fetchRemote 仅用于 REMOTE_LOADER 整页抓取（页本身是内容，不是素材）。
+     *   缺省 null 时 loader 输出带 remotePage meta 的占位 def，素材收割期补正文；
+     *   其余远程引用一律保留原文并记入 remoteRefs，由 TavernAssetHarvester 收割。
      */
     fun translate(scripts: JSONArray?, fetchRemote: (String) -> ByteArray? = { null }): Outcome {
         if (scripts == null) return Outcome(emptyList(), emptyList())
+        val refs = linkedSetOf<String>()
         // 「对AI隐藏X」伴生脚本：同 findRegex、空替换——酒馆里这类标记由框架
         // 每回合自动注入消息、再对模型隐藏。对应我们 def meta 的 autoMarker：
         // 显示期补插标记再展开，模型无需也看不到占位符。
@@ -45,7 +50,7 @@ object TavernFrontendTranslator {
             val find = s.optString("findRegex")
             when (TavernCardAnalyzer.classifyRegex(find, replace)) {
                 TavernCardAnalyzer.RegexFate.MARKER_FRONTEND -> {
-                    val html = localizeRemoteRefs(replace.trim().trim('`').trim(), fetchRemote, notes, name)
+                    val html = localizeRemoteRefs(replace.trim().trim('`').trim(), notes, name, refs)
                     val marker = markerLiteral(find)
                     modules += Module(name, defFence(name, html, marker, autoMarker = marker in hiddenMarkers, index = ++index))
                     if (marker != null && marker in hiddenMarkers) notes += "$name：标记每回合自动注入（伴生隐藏脚本），已标 autoMarker"
@@ -54,12 +59,20 @@ object TavernFrontendTranslator {
                     val url = remoteLoadUrl(replace)
                     val bytes = url?.let { u -> runCatching { fetchRemote(u) }.getOrNull() }
                     if (bytes != null) {
-                        val html = localizeRemoteRefs(String(bytes, Charsets.UTF_8), fetchRemote, notes, name)
+                        val html = localizeRemoteRefs(String(bytes, Charsets.UTF_8), notes, name, refs)
                         val marker = markerLiteral(find)
                         modules += Module(name, defFence(name, html, marker, autoMarker = marker in hiddenMarkers, index = ++index))
                         notes += "$name：远程页面已抓取内联（${bytes.size / 1024}KB）"
+                    } else if (url != null) {
+                        // 离线转译：页本身也交给收割——占位 def 带 remotePage，
+                        // 收割期抓回正文回填；抓不到则页面持续留占位文案。
+                        refs += url
+                        val marker = markerLiteral(find)
+                        modules += Module(name, defFence(name, "<div>页面素材收集中…</div>", marker,
+                            autoMarker = marker in hiddenMarkers, index = ++index, remotePage = url))
+                        notes += "$name：远程页面（$url）待素材收割补齐"
                     } else {
-                        notes += "$name：远程页面${url?.let { "（$it）" } ?: ""}未能抓取，未转译——联网导入可补齐"
+                        notes += "$name：远程引导形态未识别，不转译"
                     }
                 }
                 TavernCardAnalyzer.RegexFate.STRIPPER ->
@@ -70,11 +83,11 @@ object TavernFrontendTranslator {
                     notes += "$name：替换形态未识别，不转译"
             }
         }
-        return Outcome(modules, notes)
+        return Outcome(modules, notes, refs.toList())
     }
 
     /** def 围栏正文：meta 首行 + 模板。id 从名字生成稳定的 slug。 */
-    private fun defFence(name: String, html: String, marker: String?, autoMarker: Boolean, index: Int): String {
+    private fun defFence(name: String, html: String, marker: String?, autoMarker: Boolean, index: Int, remotePage: String? = null): String {
         val meta = JSONObject()
             .put("id", "tavern-${slugify(name).ifBlank { "page-$index" }}")
             .put("kind", "html")
@@ -82,6 +95,7 @@ object TavernFrontendTranslator {
             .put("compat", "tavern")
         if (marker != null) meta.put("marker", marker)
         if (autoMarker && marker != null) meta.put("autoMarker", true)
+        if (remotePage != null) meta.put("remotePage", remotePage)
         return "```novex-def\n$meta\n$html\n```"
     }
 
@@ -101,43 +115,24 @@ object TavernFrontendTranslator {
             ?: Regex("""(?:src|href)\s*=\s*['"](https?://[^'"]+)['"]""").find(replace)?.groupValues?.get(1)
 
     /**
-     * 远程引用导入期本地化（运行时沙箱断网不变）：
+     * 远程引用收集（转译期零网络，预览秒开）：
      * - jquery/lodash 的 CDN script → 剥除（岛按 compat 注入 vendor 副本，重复会冲突）
-     * - 其余 script src → 抓回内联为 <script> 正文；失败剥除
      * - 字体/图标 CDN 样式（googleapis/font-awesome/material symbols）→ 剥除降级
-     * - 其余 stylesheet link → 抓回改为 <style>；失败剥除
-     * - img 等 src → data: URI 内联（单资源 1.5MB、整页 4MB 封顶）
-     * - video/audio/source → 保留远程引用并记 notes（离线不可播，不耗内联预算）
+     * - 其余 script src / stylesheet link / src 引用 → **保留原文**并记入 refs，
+     *   由导入后的 TavernAssetHarvester 统一抓回、改写为 novex-asset:// 本地资源
      */
-    private fun localizeRemoteRefs(html: String, fetchRemote: (String) -> ByteArray?, notes: MutableList<String>, name: String): String {
+    private fun localizeRemoteRefs(html: String, notes: MutableList<String>, name: String, refs: MutableSet<String>): String {
         var out = html
-        var fetchedTotal = 0
-
-        fun fetch(url: String): ByteArray? = runCatching { fetchRemote(url) }.getOrNull()
-
-        // script src：vendored 库剥除，其余抓回内联正文
         out = SCRIPT_TAG_REGEX.replace(out) { m ->
             val url = m.groupValues[1]
-            when {
-                VENDORED_LIB_REGEX.containsMatchIn(url) -> {
-                    notes += "$name：vendored 库引用已剥除（岛注入 $url）"
-                    ""
-                }
-                else -> {
-                    val body = fetch(url)?.takeIf { it.size <= MAX_INLINE_ONE }
-                    if (body != null) {
-                        fetchedTotal += body.size
-                        notes += "$name：脚本已内联（${body.size / 1024}KB）"
-                        "<script>\n${String(body, Charsets.UTF_8)}\n</script>"
-                    } else {
-                        notes += "$name：脚本 $url 未能抓取，已剥除（相关功能缺失）"
-                        ""
-                    }
-                }
+            if (VENDORED_LIB_REGEX.containsMatchIn(url)) {
+                notes += "$name：vendored 库引用已剥除（岛注入 $url）"
+                ""
+            } else {
+                refs += url
+                m.value
             }
         }
-
-        // stylesheet link：字体/图标 CDN 剥除降级，其余抓回为 <style>
         out = LINK_TAG_REGEX.replace(out) { m ->
             val tag = m.value
             val url = m.groupValues[1]
@@ -147,39 +142,13 @@ object TavernFrontendTranslator {
                     notes += "$name：字体/图标引用已剥除（沙箱断网，降级系统字体）"
                     ""
                 }
-                else -> {
-                    val css = fetch(url)?.takeIf { it.size <= MAX_INLINE_ONE }
-                    if (css != null) {
-                        fetchedTotal += css.size
-                        "<style>\n${String(css, Charsets.UTF_8)}\n</style>"
-                    } else {
-                        notes += "$name：样式表 $url 未能抓取，已剥除"
-                        ""
-                    }
-                }
+                else -> { refs += url; tag }
             }
         }
-
-        // 图片 src → data: URI；媒体源保留远程引用
+        // img/video/audio/source 的 src 一律收集；href 的 <a> 跳转目标不是素材，不收集
         out = URL_ATTR_REGEX.replace(out) { m ->
-            val attr = m.groupValues[1]
-            val url = m.groupValues[2]
-            if (fetchedTotal >= MAX_INLINE_TOTAL) {
-                notes += "$name：内联预算用尽，$url 保留远程引用（离线缺图）"
-                return@replace m.value
-            }
-            val mime = IMAGE_MIMES[url.substringBefore('?').substringAfterLast('.', "").lowercase()]
-            if (mime == null) {
-                notes += "$name：媒体源 $url 保留远程引用（离线不可播）"
-                return@replace m.value
-            }
-            val bytes = fetch(url)
-            if (bytes == null || bytes.isEmpty() || bytes.size > MAX_INLINE_ONE) {
-                notes += "$name：素材 $url ${if (bytes != null) "超过内联上限" else "未能抓取"}，保留远程引用（离线缺图）"
-                return@replace m.value
-            }
-            fetchedTotal += bytes.size
-            "$attr=\"data:$mime;base64,${java.util.Base64.getEncoder().encodeToString(bytes)}\""
+            if (m.groupValues[1] == "src") refs += m.groupValues[2]
+            m.value
         }
         return out
     }
@@ -192,11 +161,4 @@ object TavernFrontendTranslator {
     private val LINK_TAG_REGEX = Regex("""<link[^>]*\bhref\s*=\s*["'](https?://[^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
     private val VENDORED_LIB_REGEX = Regex("""jquery|lodash""", RegexOption.IGNORE_CASE)
     private val FONT_CDN_REGEX = Regex("""fonts\.googleapis|fonts\.gstatic|font-awesome|fontawesome|material.icons|material.symbols|cdnjs.*\.css""", RegexOption.IGNORE_CASE)
-    private val IMAGE_MIMES = mapOf(
-        "png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg",
-        "gif" to "image/gif", "webp" to "image/webp", "svg" to "image/svg+xml",
-        "avif" to "image/avif", "ico" to "image/x-icon",
-    )
-    private const val MAX_INLINE_ONE = 1_500_000
-    private const val MAX_INLINE_TOTAL = 4_000_000
 }

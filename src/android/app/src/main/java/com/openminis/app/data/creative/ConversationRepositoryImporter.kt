@@ -64,7 +64,12 @@ class ConversationRepositoryImporter(private val context: Context, private val s
                 var originalSaved = false
                 try {
                     val stream = requireNotNull(context.contentResolver.openInputStream(uri)) { "无法打开，请重新选择文件" }
-                    val saved = stream.use { input -> importer.save(id, path, mime?.takeUnless { it == "application/octet-stream" } ?: guessMime(path), object : FilterInputStream(input) {
+                    // 复合扩展名（如 沧澜间.TXT.docx）下部分 provider 按前段后缀猜
+                    // MIME 返回 text/plain——文档型扩展名一律按扩展名定档，避免
+                    // 被误判纯文本跳过解析管线。
+                    val effectiveMime = if (isStructuredDocumentName(path)) guessMime(path)
+                        else mime?.takeUnless { it == "application/octet-stream" } ?: guessMime(path)
+                    val saved = stream.use { input -> importer.save(id, path, effectiveMime, object : FilterInputStream(input) {
                         override fun read(b: ByteArray, off: Int, len: Int): Int {
                             if (stopped.get()) throw InterruptedException("已停止")
                             return super.read(b, off, len)
@@ -78,7 +83,7 @@ class ConversationRepositoryImporter(private val context: Context, private val s
                         reused = it.reused + if (saved.reused) 1 else 0) }
                     if (!stopped.get() && !readableText(saved.entry.mimeType)) {
                         val original = artifacts.file(record.artifact.id)
-                        val snapshot = extractor.extract(context, original, mime, path.substringAfterLast('/'))
+                        val snapshot = extractor.extract(context, original, effectiveMime, path.substringAfterLast('/'))
                         if (snapshot != null && snapshot.blocks.isNotEmpty()) {
                             importer.saveParsed(saved.entry, snapshot.blocks.joinToString("\n\n") { it.text })
                             snapshot.warnings.forEach { issue(path, "原件已保存；${it.message}") }
@@ -155,6 +160,11 @@ class ConversationRepositoryImporter(private val context: Context, private val s
     }
 
     private fun readableText(mime: String) = mime.startsWith("text/") || mime in setOf("application/json", "application/xml", "application/yaml")
+
+    /** 末段扩展名是结构化文档格式——提供方 MIME 可能按前段后缀误报。 */
+    private fun isStructuredDocumentName(path: String) =
+        path.substringAfterLast('.').lowercase() in setOf(
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "pdf", "epub")
 
     private fun guessMime(path: String): String = when (path.substringAfterLast('.').lowercase()) {
         "txt", "md", "csv", "json", "yaml", "yml", "xml", "html" -> "text/plain"

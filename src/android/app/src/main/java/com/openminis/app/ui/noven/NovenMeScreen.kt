@@ -114,7 +114,8 @@ internal fun NovenMeScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) } // 0 世界 1 角色 2 创作库
     var editOpen by remember { mutableStateOf(false) }
     var newMenuOpen by remember { mutableStateOf(false) }
-    val importPicker = rememberNovenImportPicker { uri, world -> onImportCard(uri, world) }
+    // 导入不先问类型：统一入口按内容自动识别格式。
+    val importPicker = rememberNovenImportPicker { uri -> onImportCard(uri, false) }
 
     var exportId by remember { mutableStateOf<String?>(null) }
     val exporter = rememberLauncherForActivityResult(
@@ -220,12 +221,8 @@ internal fun NovenMeScreen(
                             onClick = { newMenuOpen = false; onCreateCharacter() },
                         )
                         DropdownMenuItem(
-                            text = { Text("导入世界卡") },
-                            onClick = { newMenuOpen = false; importPicker(true) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("导入角色卡") },
-                            onClick = { newMenuOpen = false; importPicker(false) },
+                            text = { Text("导入卡片") },
+                            onClick = { newMenuOpen = false; importPicker() },
                         )
                     }
                 }

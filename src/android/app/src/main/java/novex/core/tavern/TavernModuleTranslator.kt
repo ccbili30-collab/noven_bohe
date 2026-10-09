@@ -43,6 +43,8 @@ object TavernModuleTranslator {
         val frontendModules: List<ModuleSpec>,
         /** 转译报告逐条——未转译/降级项的诚实清单。 */
         val report: List<String>,
+        /** 页面内收集到的远程素材引用——导入后由收割器抓回本地化。 */
+        val remoteRefs: List<String> = emptyList(),
     )
 
     private val FIELDS = linkedMapOf(
@@ -138,8 +140,10 @@ object TavernModuleTranslator {
         val greetings = data.optJSONArray("alternate_greetings")?.length() ?: 0
         if (greetings > 0) report += "备选开场白 $greetings 条未展开（保留在原件归档）"
 
+        if (frontendOutcome.remoteRefs.isNotEmpty())
+            report += "页面引用远程素材 ${frontendOutcome.remoteRefs.size} 项，导入后收割为本地资源"
         return Outcome(name, data.optString("description").take(200),
-            fieldModules, bookModules, frontendModules, report)
+            fieldModules, bookModules, frontendModules, report, frontendOutcome.remoteRefs)
     }
 
     /** `a|b|c` 纯字面量交替 → 词表；含其他正则元字符 → null。 */

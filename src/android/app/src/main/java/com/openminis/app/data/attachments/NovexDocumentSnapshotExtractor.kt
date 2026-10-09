@@ -66,21 +66,7 @@ class NovexDocumentSnapshotExtractor(
                 parserVersion
             },
         )
-        if (format == NovexDocumentFormat.DOC) {
-            return pipeline.resolve(descriptor) {
-                NovexCompatibilityDocument(
-                    text = "",
-                    status = NovexDocumentStatus.UNSUPPORTED,
-                    warnings = listOf(
-                        NovexDocumentWarning(
-                            code = "document.legacy_doc_unsupported",
-                            message = "旧版 Word 文档尚未支持，请另存为 .docx 后重试",
-                        ),
-                    ),
-                )
-            }
-        }
-
+        // 旧版 .doc 走通用兼容解析（POI HWPF），不再整体拒收。
         if (format == NovexDocumentFormat.DOCX) {
             val structured = runCatching {
                 pipeline.resolveStructured(descriptor) {

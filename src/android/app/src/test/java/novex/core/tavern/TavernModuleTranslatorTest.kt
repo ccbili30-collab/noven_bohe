@@ -103,16 +103,18 @@ class TavernModuleTranslatorTest {
     }
 
     @Test
-    fun `remote loader inlines fetched page offline misses are reported`() {
+    fun `remote loader keeps page url offline emits remotePage module`() {
         val scripts = JSONArray().put(JSONObject()
             .put("scriptName", "远程页")
             .put("findRegex", "【开场白】")
             .put("replaceString", """<script>${'$'}('body').load('https://cdn.example.com/page.html')</script>"""))
-        // 无抓取器：记报告、不产出
+        // 转译期零网络：产出带 remotePage meta 的占位 def，收割期回填正文
         val offline = TavernModuleTranslator.translate(card(regexScripts = scripts))
-        assertTrue(offline.frontendModules.isEmpty())
-        assertTrue(offline.report.any { "未能抓取" in it })
-        // 有抓取器：页面内联成 def
+        assertEquals(1, offline.frontendModules.size)
+        assertTrue("remotePage" in offline.frontendModules.single().text)
+        assertTrue("https://cdn.example.com/page.html" in offline.remoteRefs)
+        assertTrue(offline.report.any { "待素材收割" in it })
+        // 注入抓取器时仍可整页内联（测试/未来联网通道）
         val online = TavernModuleTranslator.translate(card(regexScripts = scripts)) {
             "<html><body>远程页内容</body></html>".toByteArray()
         }
@@ -173,38 +175,38 @@ class TavernModuleTranslatorTest {
     }
 
     @Test
-    fun `other remote scripts inline fetched bodies missed ones stripped`() {
+    fun `remote scripts kept for harvest vendored libs still stripped`() {
         val html = """<html><body>
             |<div>页面内容</div>
             |<script src="https://cdn.example.com/lib.js"></script>
-            |<script src="https://dead.example.com/gone.js"></script>
+            |<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
             |</body></html>""".trimMargin().replace("\n", "")
         val scripts = JSONArray().put(JSONObject()
             .put("scriptName", "页").put("findRegex", "【P】").put("replaceString", html))
-        val out = TavernModuleTranslator.translate(card(regexScripts = scripts)) { url ->
-            if ("lib.js" in url) "window.LIB=1;".toByteArray() else null
-        }
+        val out = TavernModuleTranslator.translate(card(regexScripts = scripts))
         val text = out.frontendModules.single().text
-        assertTrue("window.LIB=1;" in text)
-        assertFalse("gone.js" in text)
-        assertTrue(out.report.any { "未能抓取" in it && "剥除" in it })
+        // 转译期不联网：远程脚本引用原样保留并计入收割清单
+        assertTrue("cdn.example.com/lib.js" in text)
+        assertTrue("https://cdn.example.com/lib.js" in out.remoteRefs)
+        // vendored 库仍剥除（岛按 compat 注入副本）
+        assertFalse("jquery.com" in text)
     }
 
     @Test
-    fun `images inline as data uri media keeps remote ref`() {
+    fun `image and media refs kept remote collected for harvest`() {
         val html = """<html><body>
             |<img src="https://cdn.example.com/pic.webp">
             |<video><source src="https://cdn.example.com/pv.mp4"></video>
             |</body></html>""".trimMargin().replace("\n", "")
         val scripts = JSONArray().put(JSONObject()
             .put("scriptName", "页").put("findRegex", "【P】").put("replaceString", html))
-        val out = TavernModuleTranslator.translate(card(regexScripts = scripts)) { url ->
-            if (url.endsWith(".webp")) byteArrayOf(1, 2, 3) else null
-        }
+        val out = TavernModuleTranslator.translate(card(regexScripts = scripts))
         val text = out.frontendModules.single().text
-        assertTrue("data:image/webp;base64," in text)
+        // 不再内联 data: URI——引用原样保留并进入收割清单
+        assertTrue("https://cdn.example.com/pic.webp" in text)
         assertTrue("https://cdn.example.com/pv.mp4" in text)
-        assertTrue(out.report.any { "媒体源" in it })
+        assertTrue(out.remoteRefs.containsAll(listOf(
+            "https://cdn.example.com/pic.webp", "https://cdn.example.com/pv.mp4")))
     }
 
     @Test

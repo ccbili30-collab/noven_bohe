@@ -18,7 +18,7 @@ import org.w3c.dom.Node
  * DOCX uses the Android-shaded Apache POI reader first and retains the small
  * OOXML ZIP/XML reader only as a recovery path. Other OOXML and EPUB formats
  * use format-specific readers; PDF is handled by the Android PDFBox port.
- * Legacy binary Office files remain unsupported.
+ * Legacy binary .doc is read through POI HWPF.
  */
 object DocumentTextExtractor {
     const val MAX_EXTRACTED_CHARS = 2_000_000
@@ -49,10 +49,11 @@ object DocumentTextExtractor {
 
     fun supports(fileName: String, mimeType: String?): Boolean {
         val ext = fileName.substringAfterLast('.', "").lowercase()
-        return ext in setOf("docx", "xlsx", "pptx", "pdf", "epub", "rtf", "txt", "md", "markdown", "csv", "json", "xml", "yaml", "yml") ||
+        return ext in setOf("docx", "doc", "xlsx", "pptx", "pdf", "epub", "rtf", "txt", "md", "markdown", "csv", "json", "xml", "yaml", "yml") ||
             mimeType.orEmpty().lowercase().let { mime ->
                 mime.startsWith("text/") || mime.contains("wordprocessingml") ||
                     mime.contains("spreadsheetml") || mime.contains("presentationml") ||
+                    mime.contains("application/msword") ||
                     mime.contains("application/pdf") || mime.contains("application/epub+zip") ||
                     mime.contains("application/rtf") || mime.contains("application/json")
             }
@@ -60,9 +61,24 @@ object DocumentTextExtractor {
 
     fun extract(context: Context?, file: File, mimeType: String?, originalName: String): Result? {
         if (!supports(originalName, mimeType)) return null
-        val ext = originalName.substringAfterLast('.', "").lowercase()
+        val ext = originalName.substringAfterLast('.', "").lowercase().ifBlank {
+            // 文件名无扩展名时按 MIME 兜底定档，避免二进制被当纯文本读。
+            mimeType.orEmpty().lowercase().let { mime ->
+                when {
+                    "wordprocessingml" in mime -> "docx"
+                    "msword" in mime -> "doc"
+                    "spreadsheetml" in mime -> "xlsx"
+                    "presentationml" in mime -> "pptx"
+                    "application/pdf" in mime -> "pdf"
+                    "epub+zip" in mime -> "epub"
+                    "application/rtf" in mime -> "rtf"
+                    else -> ""
+                }
+            }
+        }
         val raw = when (ext) {
             "docx" -> extractDocx(file)
+            "doc" -> RawResult(extractDoc(file), "Word 文档（旧版格式）", "poi-hwpf")
             "xlsx" -> RawResult(extractXlsx(file), "Excel 工作簿", "built-in")
             "pptx" -> RawResult(extractPptx(file), "PowerPoint 演示文稿", "built-in")
             "pdf" -> RawResult(extractPdf(context, file), "PDF 文档", "PDFBox")
@@ -126,6 +142,10 @@ object DocumentTextExtractor {
             throw ExtractionException("DOCX 降级 ZIP/XML 解析", fallbackFailure)
         }
     }
+
+    /** 旧版二进制 .doc：Apache POI HWPF。加密/损坏按原因抛出，调用方分级。 */
+    private fun extractDoc(file: File): String =
+        org.apache.poi.hwpf.extractor.WordExtractor(file.inputStream().buffered()).use { it.text }
 
     private fun extractDocxLegacy(file: File): String = ZipFile(file).use { zip ->
         val names = buildList {

@@ -91,9 +91,10 @@ class LegacyArchiveImport(private val store:CardStore,private val directory:java
     }
 
     /** 酒馆 JSON → ContentDocument：字段模块 + 世界书触发模块 + 前端件模块。
-     *  远程引导页/素材在导入期联网内联（IO 线程，超时封顶），抓不到记报告。 */
+     *  转译期零网络——远程引用由导入预览页的 TavernAssetHarvester 后台收割
+     *  为卡资源（URL→novex-asset 映射进 extensions），此函数秒回。 */
     private fun prepareTavern(sourceJson:String,name:String,kind:CardKind):CardDraft {
-        val outcome=novex.core.tavern.TavernModuleTranslator.translate(sourceJson,::fetchRemote)
+        val outcome=novex.core.tavern.TavernModuleTranslator.translate(sourceJson)
         fun text(value:String):ContentRef {
             val ref=store.contents.allocator()();store.contents.receive(listOf(ContentTransfer(ContentRef("text"),ref))){value.byteInputStream()};return ref
         }
@@ -116,13 +117,4 @@ class LegacyArchiveImport(private val store:CardStore,private val directory:java
             outcome.cardName.ifBlank{name},modules,emptyList(),extensions=preserved).validate()
         return CardDrafts(store).create(content,ChangeSource.IMPORT)
     }
-
-    /** 导入期远程抓取：短超时、一次性，失败返回 null（转译器记报告）。 */
-    private fun fetchRemote(url:String):ByteArray?=runCatching {
-        val conn=java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
-        conn.connectTimeout=8000;conn.readTimeout=8000;conn.instanceFollowRedirects=true
-        try {
-            if(conn.responseCode in 200..299)conn.inputStream.use {it.readBytes().takeIf{b->b.size<=8*1024*1024}}else null
-        } finally {conn.disconnect()}
-    }.getOrNull()
 }

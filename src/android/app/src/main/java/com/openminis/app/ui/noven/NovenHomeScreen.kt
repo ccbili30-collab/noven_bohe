@@ -111,9 +111,9 @@ internal fun NovenHomeScreen(
     var kindFilter by rememberSaveable { mutableIntStateOf(0) } // 0 全部 1 角色 2 世界
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
     var filterMenuOpen by remember { mutableStateOf(false) }
-    var importChoiceOpen by remember { mutableStateOf(false) }
+    // 导入不先问类型：统一入口按内容自动识别格式。
     var actionError by remember { mutableStateOf<String?>(null) }
-    val importPicker = rememberNovenImportPicker { uri, world -> onImportCard(uri, world) }
+    val importPicker = rememberNovenImportPicker { uri -> onImportCard(uri, false) }
 
     val cards = library.state.cards
     val displays by produceState<Map<String, NovenCardDisplay>>(emptyMap(), cards, libraryReady) {
@@ -255,7 +255,7 @@ internal fun NovenHomeScreen(
                     actions = {
                         NovenPillButton(label = "新建世界", onClick = onCreateWorld)
                         Spacer(Modifier.width(8.dp))
-                        NovenPillButton(label = "导入卡片", onClick = { importChoiceOpen = true })
+                        NovenPillButton(label = "导入卡片", onClick = { importPicker() })
                     },
                 )
             }
@@ -297,22 +297,6 @@ internal fun NovenHomeScreen(
         }
     }
 
-    if (importChoiceOpen) {
-        AlertDialog(
-            onDismissRequest = { importChoiceOpen = false },
-            title = { Text("导入卡片") },
-            confirmButton = {
-                TextButton(onClick = { importChoiceOpen = false; importPicker(true) }) {
-                    Text("导入世界卡")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { importChoiceOpen = false; importPicker(false) }) {
-                    Text("导入角色卡")
-                }
-            },
-        )
-    }
     actionError?.let {
         AlertDialog(
             onDismissRequest = { actionError = null },

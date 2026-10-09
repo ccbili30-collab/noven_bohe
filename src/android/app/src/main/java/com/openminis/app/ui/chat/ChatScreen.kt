@@ -1660,7 +1660,7 @@ fun ChatScreen(
     // HTML 岛数据桥：卡名/卡类 + 本局状态 → window.NOVEN_FRAME。
     // playthroughState 喂给 HtmlIslandBridge 状态注入，故提升到 provider 之前收集。
     val playthroughState by viewModel.activePlaythroughState.collectAsState()
-    val islandCard by produceState<Pair<String, String>?>(null, sessionId) {
+    val islandCard by produceState<novex.content.ContentDocument?>(null, sessionId) {
         viewModel.novexConfigurationJson.collect { raw ->
             value = runCatching {
                 novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
@@ -1672,9 +1672,27 @@ fun ChatScreen(
                         runCatching { viewModel.integratedCards.store.open(sel.rootId) }.getOrNull()
                     }
                 }
-                ?.content?.let { it.name to it.kind.name.lowercase() }
+                ?.content
         }
     }
+    // 卡收割资源：novex-asset://<资源ID> 与 url 映射命中的远程引用→本地字节。
+    val islandResources = islandCard?.resources?.associate { it.id to (it.content to it.mediaType) }
+    val islandResourceLoader = remember(islandResources) {
+        islandResources?.let { index ->
+            { id: String ->
+                index[id]?.let { (ref, mime) ->
+                    runCatching { viewModel.integratedCards.store.contents.open(ref) to mime }.getOrNull()
+                }
+            }
+        }
+    }
+    val islandRemoteMap = islandCard?.extensions?.get(novex.core.tavern.TavernAssetHarvester.URL_MAP_EXT)?.let { ref ->
+        runCatching {
+            val json = org.json.JSONObject(
+                viewModel.integratedCards.store.contents.open(ref).use { it.readBytes().toString(Charsets.UTF_8) })
+            json.keys().asSequence().associateWith { json.getString(it) }
+        }.getOrNull()
+    } ?: emptyMap()
 
     // 皮肤 accent/输入区色：覆盖 palette 的强调语义位（链接/发送键/思考态）
     // 与输入框底色/描边/文字色——会话级换色，不动主题本身。底图皮肤在场且
@@ -1711,10 +1729,12 @@ fun ChatScreen(
         LocalMarkdownSessionId provides sessionId,
         LocalImmersiveChatProfile provides immersiveProfile,
         LocalHtmlIslandBridge provides HtmlIslandBridge(
-            cardName = islandCard?.first,
-            cardKind = islandCard?.second,
+            cardName = islandCard?.name,
+            cardKind = islandCard?.kind?.name?.lowercase(),
             state = playthroughState,
             sessionId = sessionId,
+            cardResourceLoader = islandResourceLoader,
+            remoteResources = islandRemoteMap,
             messagesJson = remember(transcriptMessages, immersiveProfile.effectiveAssistantName, immersiveProfile.effectivePlayerName) {
                 // 覆盖层/岛用的最近消息投影：最近 30 条 {role,name,text}，
                 // 超长正文截断——皮肤层是呈现层不是历史档案。

@@ -66,6 +66,10 @@ internal class HtmlIslandBridge(
     val sessionId: String? = null,
     /** 最近消息 JSON 数组 [{role,name,text}]——皮肤覆盖层（弹幕等）吃这个。 */
     val messagesJson: String = "[]",
+    /** 卡收割资源：资源ID → (字节流, MIME)。导入收割的素材由此进岛。 */
+    val cardResourceLoader: ((String) -> Pair<java.io.InputStream, String>?)? = null,
+    /** 收割期留下的 远程URL→资源ID 映射：JS 动态拼的已知素材也能本地命中。 */
+    val remoteResources: Map<String, String> = emptyMap(),
 )
 
 internal val LocalHtmlIslandBridge = compositionLocalOf<HtmlIslandBridge?> { null }
@@ -127,6 +131,7 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
     renderer.onCrash = { reloadTick++ }
     renderer.onError = { islandError = it }
     renderer.sessionId = islandSessionId
+    renderer.cardBridge = bridge
 
     val shape = RoundedCornerShape(10.dp)
     Box(
@@ -212,6 +217,7 @@ private class IslandRenderer {
     private var boundView: WebView? = null
     private var pushedFrame: String? = null
     var sessionId: String? = null
+    var cardBridge: HtmlIslandBridge? = null
     var onHeight: ((Int) -> Unit)? = null
     var onCrash: (() -> Unit)? = null
     var onError: ((String?) -> Unit)? = null
@@ -261,6 +267,15 @@ private class IslandRenderer {
                 val scheme = request.url.scheme?.lowercase()
                 if (scheme == "data" || scheme == "blob") return null
                 if (url == IslandBaseUrl) return null
+                // 卡收割资源：novex-asset://<资源ID> → 卡本地资源字节。
+                if (scheme == "novex-asset") {
+                    val id = request.url.host
+                        ?: url.removePrefix("novex-asset://").substringBefore('/').substringBefore('?')
+                    cardBridge?.cardResourceLoader?.invoke(id)?.let { (stream, mime) ->
+                        return WebResourceResponse(mime, null, stream)
+                    }
+                    return emptyIslandResponse()
+                }
                 // 岛资源口子：本会话的图片文件可进岛当素材（上传的花纹/
                 // 生图/工作区产物）。三种写法同路——模型上下文里见到的
                 // /var/minis/... 路径原样写进 src 也能解析。
@@ -268,6 +283,20 @@ private class IslandRenderer {
                     url.startsWith(IslandResourcePrefix)
                 ) {
                     return islandResourceResponse(view.context, url, sessionId)
+                }
+                // 收割映射：JS 运行期拼出的已知素材 URL 也回本地字节；
+                // 不在表里的远程请求照旧掐断（沙箱不开口子）。
+                cardBridge?.let { bridge ->
+                    val map = bridge.remoteResources
+                    if (map.isNotEmpty()) {
+                        val hit = map[url] ?: map[url.substringBefore('?')]
+                            ?: map[url.substringBefore('#')]
+                        hit?.let { id ->
+                            bridge.cardResourceLoader?.invoke(id)?.let { (stream, mime) ->
+                                return WebResourceResponse(mime, null, stream)
+                            }
+                        }
+                    }
                 }
                 // 空响应掐断一切网络子资源（blockNetworkLoads 之上的双保险）。
                 return WebResourceResponse("text/plain", "utf-8", "".byteInputStream())
@@ -355,7 +384,9 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
     append("<!DOCTYPE html><html><head>")
     append("<meta charset=\"utf-8\">")
     append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
-    append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob: minis: novex-res:; font-src data:; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">")
+    // CSP 放行 https: 形态（收割映射命中的远程 URL 子资源经拦截器回本地
+    // 字节，未命中仍被拦为空响应）——真正的断网闸在 shouldInterceptRequest。
+    append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' novex-asset: minis: https: http:; style-src 'unsafe-inline' novex-asset: minis: https: http:; img-src 'self' data: blob: minis: novex-res: novex-asset: https: http:; font-src data: novex-asset: https: http:; connect-src 'none'; media-src novex-asset: minis: blob: https: http:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">")
     append("<style>html,body{margin:0;padding:0;background:transparent}*{box-sizing:border-box}</style>")
     append("<script>window.NOVEN_FRAME=")
     append(frameJson.replace("</", "<\\/"))

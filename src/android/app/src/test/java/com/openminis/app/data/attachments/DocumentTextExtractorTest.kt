@@ -49,8 +49,26 @@ class DocumentTextExtractorTest {
     }
 
     @Test
-    fun `legacy binary office files are not claimed as supported`() {
-        assertFalse(DocumentTextExtractor.supports("legacy.doc", "application/msword"))
+    fun `compound extensions resolve by final suffix`() {
+        // 回归：沧澜间.TXT.docx 曾被当作 TXT.docx/不可识别——按末段后缀定档。
+        val file = makeZip(
+            "word/document.xml" to """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <w:document xmlns:w="urn:test"><w:body>
+                  <w:p><w:r><w:t>沧澜间正文</w:t></w:r></w:p>
+                </w:body></w:document>
+            """.trimIndent(),
+        )
+        val result = DocumentTextExtractor.extract(null, file, null, "沧澜间.TXT.docx")
+        assertNotNull(result)
+        assertTrue(result!!.text.contains("沧澜间正文"))
+        assertTrue(result.formatLabel.contains("Word"))
+        assertTrue(DocumentTextExtractor.supports("报告.TXT.docx", "text/plain"))
+    }
+
+    @Test
+    fun `legacy binary doc supported via HWPF xls remains unsupported`() {
+        assertTrue(DocumentTextExtractor.supports("legacy.doc", "application/msword"))
         assertFalse(DocumentTextExtractor.supports("legacy.xls", "application/vnd.ms-excel"))
     }
 
