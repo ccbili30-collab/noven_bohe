@@ -4059,8 +4059,10 @@ class ChatViewModel(
         _diceInjectionEnabled.value = saved.diceInjectionEnabled
         _ledgerInjectionEnabled.value = saved.ledgerInjectionEnabled
         _novexConfigurationJson.value = saved.novexConfigurationJson
+        _conversationBackgroundPathOverride.value = saved.backgroundPath
         refreshNovexRuntimeProjection()
         _immersiveProfile.value = _immersiveProfile.value.copy(
+            backgroundPath = saved.backgroundPath ?: sourceConversationBackgroundPath(),
             rolePresentationEnabled = saved.rolePresentationEnabled,
             assistantDisplayName = saved.assistantDisplayName.ifBlank { null },
             assistantAvatarPath = saved.assistantAvatarPath,
@@ -4177,21 +4179,10 @@ class ChatViewModel(
                 )
             },
         )
-        _conversationPrompt.value = value.conversationPrompt
-        _imageStylePrompt.value = value.imageStylePrompt
-        _perTurnPrompt.value = value.perTurnPrompt
-        _textStylePrompt.value = value.textStylePrompt
-        _diceInjectionEnabled.value = value.diceInjectionEnabled
-        _ledgerInjectionEnabled.value = value.ledgerInjectionEnabled
-        _conversationBackgroundPathOverride.value = value.backgroundPath
-        _immersiveProfile.value = _immersiveProfile.value.copy(
-            backgroundPath = value.backgroundPath ?: sourceConversationBackgroundPath(),
-            rolePresentationEnabled = value.rolePresentationEnabled,
-            assistantDisplayName = value.assistantDisplayName.ifBlank { null },
-            assistantAvatarPath = value.assistantAvatarPath,
-            playerDisplayName = value.playerDisplayName.ifBlank { null },
-            playerAvatarPath = value.playerAvatarPath,
-        )
+        // [净眼 P3-1 同款纪律] 不得在 update 前同步置位内存态——update 的
+        // before=current() 会读到已改的新值使 committed==before 短路跳过
+        // 落盘（内存有 DB 无，重启即丢：每轮注入/文风只改快照字段时必中）。
+        // 内存态统一由 update 落盘差异后的 install 回调装。
         viewModelScope.launch {
             val result = runCatching {
                 novexSettingsStore.update(settings = value, expectedConfigurationJson = expectedConfigurationJson, captureSources = true)

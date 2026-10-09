@@ -43,6 +43,17 @@ class NovexConversationSettingsStoreTest {
         assertEquals("本对话修改", f.live.conversationPrompt)
     }
 
+    @Test fun settingsOnlyEditsMustStillPersist() = runBlocking {
+        // 回归：每轮注入/文风这类只落在快照字段、不动配置 JSON 的编辑
+        // 必须落盘——曾因保存方在 update 前预置位内存态，使 before 读到
+        // 新值、committed==before 短路跳写，重启即丢。
+        val f = Fixture()
+        f.store.update(settings = f.live.copy(perTurnPrompt = "每轮给选项", textStylePrompt = "克制文风"))
+        assertTrue("write" in f.events)
+        assertEquals("每轮给选项", f.stored.perTurnPrompt)
+        assertEquals("克制文风", f.stored.textStylePrompt)
+    }
+
     @Test fun failedWriteDoesNotInstallOrClaimTheNewState() = runBlocking {
         val f = Fixture(); val before = f.live; f.failWrite = true
         val failure = runCatching { f.store.update { it.copy(answerIdentity = NovexPersonaPresets.gameHost) } }
