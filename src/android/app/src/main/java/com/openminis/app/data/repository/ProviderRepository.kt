@@ -550,6 +550,11 @@ class ProviderRepository(private val context: Context) {
         get() = store.config.value.visionGroupId
         set(value) = commitIf { it.visionGroupId = value; true }
 
+    /** 全局默认上下文上限：新会话的起始值；组显式覆盖优先，存量会话不改。 */
+    var defaultContextLimitTokens: Int?
+        get() = store.config.value.defaultContextLimitTokens
+        set(value) = commitIf { it.defaultContextLimitTokens = value; true }
+
     /** 视觉分组已绑定且仍存在，才给不能原生看图的主模型暴露 read_image。 */
     fun hasVisionGroupConfigured(): Boolean {
         val bound = store.config.value.visionGroupId ?: return false

@@ -173,6 +173,8 @@
 
     <!-- [T-android-vision-group / GH#182] Vision Input slot label: the group whose vision-capable members read images for a main model that cannot natively see them. -->
     <string name="model_groups_vision">Vision Input</string>
+    <string name="model_groups_default_context_limit">Default Context Limit</string>
+    <string name="model_groups_default_context_limit_hint">Starting context limit for new conversations. Groups can still override it; existing conversations keep their saved value.</string>
     <!-- [T-mcp-env-var-picker-android] Insert a reference to an App env var as $$VAR -->
     <!-- [T-mcp-env-var-delete-confirm-android] Clear-all env vars affordance + confirm -->
 
@@ -846,6 +848,7 @@
     <string name="model_group_detail_limit_context_window">Limit Context Window</string>
     <string name="model_group_detail_max_context">Max Context</string>
     <string name="model_group_detail_unlimited">Unlimited</string>
+<string name="model_group_detail_inherit_global">Follows global default (%1$s)</string>
     
     <string name="model_groups_model_groups">Model Groups</string>
     <string name="model_groups_new_group">New Group</string>

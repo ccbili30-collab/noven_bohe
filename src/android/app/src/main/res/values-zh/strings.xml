@@ -717,6 +717,7 @@
     <string name="model_group_detail_limit_context_window">限制上下文窗口</string>
     <string name="model_group_detail_max_context">最大上下文</string>
     <string name="model_group_detail_unlimited">不限</string>
+<string name="model_group_detail_inherit_global">跟随全局默认（%1$s）</string>
     
     <string name="model_groups_model_groups">模型分组</string>
     <string name="model_groups_new_group">新建分组</string>
@@ -750,6 +751,8 @@
     <string name="model_groups_binding_image_generation">图片生成</string>
     <!-- [T-android-vision-group / GH#182] Vision Input slot label -->
     <string name="model_groups_vision">视觉输入</string>
+    <string name="model_groups_default_context_limit">默认上下文上限</string>
+    <string name="model_groups_default_context_limit_hint">新会话的起始上下文上限；分组可覆盖，已有会话不受影响。</string>
     <string name="add_models_to_group_search_models">搜索模型</string>
     <string name="add_models_to_group_clear">清除</string>
         <string name="agent_loop_models_groups">分组</string>

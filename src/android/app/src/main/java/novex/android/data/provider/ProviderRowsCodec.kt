@@ -47,6 +47,8 @@ object ProviderMetaKeys {
     const val VISION_GROUP_ID = "vision_group_id"
     const val IMAGE_GENERATION_GROUP_IDS = "image_generation_group_ids"
     const val IMAGE_GENERATION_PROVIDER_INSTANCE_IDS = "image_generation_provider_instance_ids"
+    /** 全局默认上下文上限（token 数）；新会话的起始值，组仍可覆盖。 */
+    const val DEFAULT_CONTEXT_LIMIT_TOKENS = "default_context_limit_tokens"
     /** Hash of the legacy JSON mirror at the moment we last wrote it. */
     const val JSON_SYNC_HASH = "json_sync_hash"
 }
@@ -158,6 +160,7 @@ fun ProviderConfig.toRows(jsonForBlobs: Json, jsonSyncHash: String? = null): Pro
         if (imageGenerationProviderInstanceIds.isNotEmpty()) {
             add(ProviderMetaRow(ProviderMetaKeys.IMAGE_GENERATION_PROVIDER_INSTANCE_IDS, jsonForBlobs.encodeToString(stringList, imageGenerationProviderInstanceIds)))
         }
+        slot(ProviderMetaKeys.DEFAULT_CONTEXT_LIMIT_TOKENS, defaultContextLimitTokens?.toString())
         slot(ProviderMetaKeys.JSON_SYNC_HASH, jsonSyncHash)
     }
 
@@ -243,5 +246,7 @@ fun ProviderRowsSnapshot.toConfig(jsonForBlobs: Json): ProviderConfig {
         agentLoopGroupIds = (loopIdsByKind["group"] ?: mutableListOf()).toMutableList(),
         imageGenerationGroupIds = metaList(ProviderMetaKeys.IMAGE_GENERATION_GROUP_IDS),
         imageGenerationProviderInstanceIds = metaList(ProviderMetaKeys.IMAGE_GENERATION_PROVIDER_INSTANCE_IDS),
+        defaultContextLimitTokens = meta[ProviderMetaKeys.DEFAULT_CONTEXT_LIMIT_TOKENS]
+            ?.toIntOrNull()?.takeIf { it > 0 },
     )
 }

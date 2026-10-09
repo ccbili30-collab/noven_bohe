@@ -28,6 +28,9 @@ class WebAccessSettingsRepository(context: Context) {
 
         TAVILY("webSearch.tavilyKey", "Tavily"),
         BRAVE("webSearch.braveKey", "Brave"),
+
+        /** DeepSeek 官方 Anthropic 兼容端点的服务端联网工具；仅官方 key 有效。 */
+        DEEPSEEK("webSearch.deepseekKey", "DeepSeek"),
     }
 
     private val store: SharedPreferences =
@@ -59,6 +62,7 @@ class WebAccessSettingsRepository(context: Context) {
             SearchBackend.ZHIPU_PAYG,
             SearchBackend.TAVILY,
             SearchBackend.BRAVE,
+            SearchBackend.DEEPSEEK,
         )
     }
 }

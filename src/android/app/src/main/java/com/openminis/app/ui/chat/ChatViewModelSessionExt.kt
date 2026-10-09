@@ -265,6 +265,12 @@ internal fun ChatViewModel.loadSession() {
                 worldId = _immersiveProfile.value.worldId,
                 characterVersionId = _immersiveProfile.value.characterVersionId,
             )
+            // 全局默认上下文上限：新会话起始值（组显式值稍后仍可覆盖）。
+            providerRepository.config.value.defaultContextLimitTokens?.let { global ->
+                if (startingConfiguration.contextLimitTokens == novex.core.NovexConversationContextLimit.MINIMUM) {
+                    startingConfiguration = startingConfiguration.copy(contextLimitTokens = global)
+                }
+            }
             if(initialCharacterId==null && initialCharacterVersionId==null && initialWorldId==null && initialInteractiveFictionId==null)
                 startingConfiguration=startingConfiguration.copy(cardBindingJson=(initialCardEntry?.second ?: com.openminis.app.cards.CardBinding()).encode())
             if (initialInteractiveFictionId == null) {
@@ -1111,12 +1117,30 @@ fun ChatViewModel.selectGroupEntry(groupId: String, entryId: String) {
  */
 internal fun ChatViewModel.applyGroupSessionDefaults(groupId: String) {
     val group = providerRepository.group(groupId) ?: return
-    val level = group.defaultThinkingLevel ?: return
-    if (_thinkingLevel.value == level) return
-    _thinkingLevel.value = level
-    viewModelScope.launch {
-        val sid = ensureSession()
-        chatRepository.dao.setThinkingChoice(sid, level.name)
+    group.defaultThinkingLevel?.let { level ->
+        if (_thinkingLevel.value != level) {
+            _thinkingLevel.value = level
+            viewModelScope.launch {
+                val sid = ensureSession()
+                chatRepository.dao.setThinkingChoice(sid, level.name)
+            }
+        }
+    }
+    // 上下文上限：组显式值优先，缺省回落全局默认；只对新会话（尚无
+    // 消息、上限仍是内置默认或全局默认值）生效——用户手调过的值和
+    // 已有会话的保存值都不被改写。
+    val globalDefault = providerRepository.config.value.defaultContextLimitTokens
+    val contextLimit = group.contextLimitTokens ?: globalDefault
+    if (contextLimit != null && agentHistory.isEmpty()) {
+        val current = novex.core.NovexConversationConfigurationCodec.decode(
+            _novexConfigurationJson.value, activeSessionId)
+        val untouched = current.contextLimitTokens == novex.core.NovexConversationContextLimit.MINIMUM ||
+            current.contextLimitTokens == globalDefault
+        if (current.unreadableConfiguration == null && untouched &&
+            current.contextLimitTokens != contextLimit) {
+            _novexConfigurationJson.value = novex.core.NovexConversationConfigurationCodec.encode(
+                current.copy(contextLimitTokens = contextLimit))
+        }
     }
 }
 

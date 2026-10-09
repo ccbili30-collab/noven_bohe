@@ -263,6 +263,9 @@ data class ProviderConfig(
     val agentLoopGroupIds: MutableList<String> = mutableListOf(),
     val imageGenerationGroupIds: MutableList<String> = mutableListOf(),
     val imageGenerationProviderInstanceIds: MutableList<String> = mutableListOf(),
+    // 全局默认上下文上限：新会话的起始值；组内 contextLimitTokens 仍可
+    // 覆盖，已存在会话的保存值不受影响。null = 不设全局默认。
+    var defaultContextLimitTokens: Int? = null,
     // In-memory identity only: bumped on every save so change detection can
     // compare a scalar instead of walking lists that writers mutate in
     // place. Default must be unique — a constant default made a freshly

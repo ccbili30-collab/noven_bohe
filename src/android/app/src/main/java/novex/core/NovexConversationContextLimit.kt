@@ -11,9 +11,12 @@ object NovexConversationContextLimit {
 
     fun minimum(modelWindow: Int): Int = minOf(MINIMUM, modelWindow.coerceAtLeast(1))
 
-    fun effective(modelWindow: Int?, conversationLimit: Int?, groupLimit: Int?): Int? {
+    fun effective(modelWindow: Int?, conversationLimit: Int?, groupLimit: Int?,
+                  globalLimit: Int? = null): Int? {
         val window = modelWindow?.takeIf { it > 0 } ?: return null
-        val limit = conversationLimit?.takeIf { it > 0 } ?: groupLimit?.takeIf { it > 0 }
+        val limit = conversationLimit?.takeIf { it > 0 }
+            ?: groupLimit?.takeIf { it > 0 }
+            ?: globalLimit?.takeIf { it > 0 }
         return minOf(window, limit ?: window)
     }
 

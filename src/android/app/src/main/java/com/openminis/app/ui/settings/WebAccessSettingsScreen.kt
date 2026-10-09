@@ -89,6 +89,12 @@ private enum class Backend(
         subtitle = "通用搜索 API，免费档每月 2000 次。",
         keyUrl = "https://brave.com/search/api/",
     ),
+    DEEPSEEK(
+        repoBackend = SearchBackend.DEEPSEEK,
+        headline = "DeepSeek",
+        subtitle = "官方 Anthropic 兼容端点的服务端联网搜索，每次检索消耗一次模型调用。仅 api.deepseek.com 官方 Key 有效，第三方中转不支持。",
+        keyUrl = "https://platform.deepseek.com/api_keys",
+    ),
 }
 
 @Composable

@@ -48,6 +48,7 @@ class WebSearchClient {
         SearchBackend.ZHIPU_CODING_PLAN -> zhipuCodingPlanMcp(apiKey, query)
         SearchBackend.TAVILY -> tavily(apiKey, query, count)
         SearchBackend.BRAVE -> brave(apiKey, query, count)
+        SearchBackend.DEEPSEEK -> deepseek(apiKey, query, count)
     }
 
     // ── 智谱按量：POST /api/paas/v4/web_search ─────────────────────────
@@ -275,6 +276,78 @@ class WebSearchClient {
             }
         } catch (e: IOException) {
             SearchOutcome.Net(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    // ── DeepSeek：Anthropic 兼容端点的服务端 web_search ────────────────
+    //
+    // 官方 api.deepseek.com/anthropic 暴露 web_search_20250305 服务端工
+    // 具——搜索在服务端完成，每次调用 = 一次 messages 请求。响应 content
+    // 里是 server_tool_use / web_search_tool_result / text 块：结构化命
+    // 中从 web_search_result 子块取 title/url，全部落空时退回 text 块
+    // 原文（模型会自己概括搜到什么）。第三方中转没有此工具。
+
+    private fun deepseek(apiKey: String, query: String, count: Int): SearchOutcome {
+        val body = JSONObject()
+            .put("model", "deepseek-chat")
+            .put("max_tokens", 4096)
+            .put(
+                "tools",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "web_search_20250305")
+                        .put("name", "web_search"),
+                ),
+            )
+            .put(
+                "messages",
+                JSONArray().put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("content", "联网搜索并列出最相关的结果：$query"),
+                ),
+            )
+            .toString().toRequestBody(JSON_MEDIA)
+        return postJson(
+            url = "https://api.deepseek.com/anthropic/v1/messages",
+            body = body,
+            headers = mapOf(
+                "x-api-key" to apiKey,
+                "Authorization" to "Bearer $apiKey",
+                "anthropic-version" to "2023-06-01",
+            ),
+        ) { json ->
+            val blocks = json.optJSONArray("content") ?: return@postJson null
+            val hits = mutableListOf<SearchHit>()
+            val texts = StringBuilder()
+            for (i in 0 until blocks.length()) {
+                val block = blocks.optJSONObject(i) ?: continue
+                when (block.optString("type")) {
+                    "web_search_tool_result" -> {
+                        val results = block.optJSONArray("content") ?: continue
+                        for (j in 0 until results.length()) {
+                            val it = results.optJSONObject(j) ?: continue
+                            if (it.optString("type") != "web_search_result") continue
+                            val url = it.optString("url")
+                            if (url.isBlank()) continue
+                            hits += SearchHit(
+                                title = it.optString("title"),
+                                url = url,
+                                snippet = it.optString("content")
+                                    .ifEmpty { it.optString("page_age") },
+                            )
+                        }
+                    }
+                    "text" -> texts.append(block.optString("text")).append('\n')
+                }
+            }
+            when {
+                hits.isNotEmpty() -> hits.take(count.coerceIn(1, 20))
+                texts.isNotEmpty() -> listOf(
+                    SearchHit(title = "deepseek web_search", url = "", snippet = texts.toString().trim()),
+                )
+                else -> null
+            }
         }
     }
 

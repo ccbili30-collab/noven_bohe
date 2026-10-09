@@ -30,4 +30,15 @@ class NovexConversationContextLimitTest {
         assertNull(NovexConversationContextLimit.effective(null, 1_000_000, null))
         assertNull(NovexConversationContextLimit.effective(0, 1_000_000, null))
     }
+
+    @Test fun globalDefaultAppliesBelowConversationAndGroup() {
+        // 全局默认是最低优先级兜底：会话显式值 > 组显式值 > 全局值 > 模型窗口。
+        assertEquals(400_000, NovexConversationContextLimit.effective(1_000_000, null, null, 400_000))
+        assertEquals(128_000, NovexConversationContextLimit.effective(1_000_000, null, 128_000, 400_000))
+        assertEquals(200_000, NovexConversationContextLimit.effective(1_000_000, 200_000, 128_000, 400_000))
+        // 全局默认仍受模型物理窗口钳制。
+        assertEquals(64_000, NovexConversationContextLimit.effective(64_000, null, null, 400_000))
+        // 未设全局默认时行为不变。
+        assertEquals(1_000_000, NovexConversationContextLimit.effective(1_000_000, null, null, null))
+    }
 }

@@ -383,6 +383,24 @@ fun ModelGroupsScreen(
                 }
             }
 
+            // 全局默认上下文上限：与有没有分组无关，总是可见。
+            item("global_context_section_header") {
+                SectionHeader(text = stringResource(R.string.model_groups_default_context_limit))
+            }
+            item("global_context_section_card") {
+                SectionCard {
+                    DefaultContextLimitRow(
+                        value = config.defaultContextLimitTokens,
+                        onChange = { providerRepository.defaultContextLimitTokens = it },
+                    )
+                }
+            }
+            item("global_context_section_footer") {
+                SectionFooter(
+                    text = stringResource(R.string.model_groups_default_context_limit_hint),
+                )
+            }
+
             // T182 / T185 / T186: Agent Loop Models section. Mirrors iOS
             // ModelGroupsView.swift L77-79's inline AgentLoopModelsSection
             // — header + curated rows + add-row + footer all directly in
@@ -510,6 +528,32 @@ fun ModelGroupsScreen(
                     Text(stringResource(R.string.common_cancel))
                 }
             },
+        )
+    }
+}
+
+/** 全局默认上下文上限：关闭 = 不设全局默认（新会话用内置起始值）。 */
+@Composable
+private fun DefaultContextLimitRow(
+    value: Int?,
+    onChange: (Int?) -> Unit,
+) {
+    val enabled = value != null
+    SettingsSwitchRow(
+        title = stringResource(R.string.model_group_detail_limit_context_window),
+        checked = enabled,
+        onCheckedChange = { on ->
+            onChange(if (on) novex.core.NovexConversationContextLimit.MINIMUM else null)
+        },
+        icon = novex.android.ui.NovexIcons.Memory,
+        showDivider = enabled,
+    )
+    if (enabled) {
+        ContextLimitSlider(
+            value = value,
+            unlimitedLabel = stringResource(R.string.model_group_detail_unlimited),
+            maxContextLabel = stringResource(R.string.model_group_detail_max_context),
+            onValueChange = { onChange(it) },
         )
     }
 }

@@ -546,6 +546,7 @@ private fun SessionDefaultsSection(
         )
         ContextRows(
             group = group,
+            globalDefault = config.defaultContextLimitTokens,
             value = contextLimitTokens,
             onChange = onContextChange,
         )
@@ -624,6 +625,7 @@ private fun thinkingLevelLabel(level: ThinkingLevel): String = stringResource(
 @Composable
 private fun ContextRows(
     group: ModelGroup,
+    globalDefault: Int?,
     value: Int?,
     onChange: (newTokens: Int?, lastTokens: Int?) -> Unit,
 ) {
@@ -634,6 +636,10 @@ private fun ContextRows(
     // 仍按 min(groupLimit, modelLimit) 逐请求钳制。
     SettingsSwitchRow(
         title = stringResource(R.string.model_group_detail_limit_context_window),
+        // 关闭时如实显示继承的全局默认，避免"关了是什么"靠猜。
+        subtitle = if (!enabled) globalDefault?.let {
+            stringResource(R.string.model_group_detail_inherit_global, contextPresetLabel(it))
+        } else null,
         checked = enabled,
         onCheckedChange = { on ->
             if (on) {
@@ -677,7 +683,7 @@ private val CONTEXT_STEPS_TOKENS = listOf(
 private class ContextStep(val tokens: Int, val label: String)
 
 @Composable
-private fun ContextLimitSlider(
+internal fun ContextLimitSlider(
     value: Int?,
     unlimitedLabel: String,
     maxContextLabel: String,

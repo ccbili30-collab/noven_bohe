@@ -1862,7 +1862,8 @@ class ChatViewModel(
         val groupLimit = _selectedGroupId.value
             ?.let { gid -> config.modelGroups.find { it.id == gid }?.contextLimitTokens }
         return novex.core.NovexConversationContextLimit.effective(
-            detectedModelContextWindow, currentNovexConfiguration().contextLimitTokens, groupLimit)
+            detectedModelContextWindow, currentNovexConfiguration().contextLimitTokens, groupLimit,
+            config.defaultContextLimitTokens)
     }
 
     val contextCapacity: StateFlow<Pair<Int?, Int?>> by lazy {
@@ -3803,7 +3804,12 @@ class ChatViewModel(
 
     internal val _novexConfigurationJson = MutableStateFlow(
         novex.core.NovexConversationConfigurationCodec.encode(
-            novex.core.NovexConversationConfiguration.empty(sessionId).snapshot.copy(cardBindingJson=if(isDraft)com.openminis.app.cards.CardBinding().encode() else null),
+            // 全局默认上下文只落在草稿/新会话的起始值上；加载既有会话时
+            // 366 行附近的覆盖会把这里的值换掉，存量会话不受影响。
+            novex.core.NovexConversationConfiguration.empty(sessionId).snapshot.copy(
+                contextLimitTokens = providerRepository.config.value.defaultContextLimitTokens
+                    ?: novex.core.NovexConversationContextLimit.MINIMUM,
+                cardBindingJson=if(isDraft)com.openminis.app.cards.CardBinding().encode() else null),
         ),
     )
     val novexConfigurationJson: StateFlow<String> = _novexConfigurationJson.asStateFlow()
