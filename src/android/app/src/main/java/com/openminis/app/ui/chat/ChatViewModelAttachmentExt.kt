@@ -410,6 +410,48 @@ internal suspend fun ChatViewModel.prepareUserAttachments(
         }
     }
 
+    // [T-doc-tiered-delivery] 文档投递分级：正文小→全量内联（不看工具链脸色）；
+    // 正文大→物化为会话资料卡（目录常驻+章节关键词注入+读卡回读），转卡失败
+    // 或会话未采用新卡体系时回落原回执路径。卡编号按快照校验派生，重发幂等。
+    metas.forEachIndexed { index, meta ->
+        val snapshot = meta.documentSnapshot ?: return@forEachIndexed
+        // 空/损坏/截断快照没有可投递正文，保持原回执语义。
+        if (snapshot.status != novex.core.NovexDocumentStatus.READY) return@forEachIndexed
+        val totalChars = snapshot.blocks.sumOf { it.text.length }
+        if (totalChars <= com.openminis.app.cards.NovexDocumentAttachmentCard.INLINE_CHAR_LIMIT) {
+            metas[index] = meta.copy(documentDelivery = NovexDocumentDelivery.INLINE)
+            return@forEachIndexed
+        }
+        val rootId = runCatching {
+            val id = com.openminis.app.cards.NovexDocumentAttachmentCard.materialize(integratedCards.store, snapshot)
+            novexSettingsStore.update { configuration ->
+                // 未采用新卡体系的会话不强挂——新建绑定会把旧会话切到新卡架构，
+                // 让存量酒馆世界书静默停注。保持 RECEIPT 路径原行为。
+                val binding = com.openminis.app.cards.CardBinding.decode(configuration.cardBindingJson)
+                    ?: error("会话未采用卡片体系，资料卡无法挂载")
+                if (binding.backgrounds.none { it.rootId == id }) {
+                    val newBackgrounds = binding.backgrounds + novex.runtime.SourceSelection(id)
+                    configuration.copy(
+                        cardBindingJson = binding.copy(
+                            backgrounds = newBackgrounds,
+                            managed = binding.managed + novex.runtime.ManagementTarget(id),
+                            // 重指纹化保留开局关闸：游戏卡已激活模块仍由历史承载，
+                            // 新挂资料卡的模块按各自 use 规则走材料流，不重复注入。
+                            activatedKey = binding.activatedKey?.let {
+                                com.openminis.app.cards.CardBinding(binding.primary, newBackgrounds).encode()
+                            },
+                        ).encode(),
+                    )
+                } else configuration
+            }
+            id
+        }.getOrElse { failure ->
+            AppLogger.warning(ChatViewModel.TAG, "novex_document_card file=${snapshot.title} reason=${failure.message}")
+            return@forEachIndexed
+        }
+        metas[index] = meta.copy(documentDelivery = NovexDocumentDelivery.CARD, documentCardRootId = rootId)
+    }
+
     val sourceCollection = batchOutcomes.takeIf { it.isNotEmpty() }?.let { outcomes ->
         val activeBranchAnchor = activeBranchPathIds.lastOrNull() ?: "root"
         val scopeRef = novexHashedRef(
