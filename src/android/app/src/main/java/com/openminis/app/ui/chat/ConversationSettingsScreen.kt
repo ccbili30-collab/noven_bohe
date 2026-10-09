@@ -531,7 +531,7 @@ fun ConversationSettingsScreen(
 
         if (settingsPage == "manage") NovexEditorSection(
             header = "可管理的内容",
-            footer = "修改按本对话的工具权限执行。",
+            footer = "管理范围内的内容可被本对话读取；标为「只读」的仅作参考资料，不能被修改——点进条目可切换为可编辑。想让某张卡只当背景而不进管理目录，请到「背景设定」里挂载。",
         ) {
             val managedRows = (draft.configuration.managedSubjects + ownedOptions.map {
                 novex.core.ManagedSubject(it.address, ManagedAccess.EDIT)
@@ -541,7 +541,7 @@ fun ConversationSettingsScreen(
                 ConversationSubjectRow(
                     labels[subject.subject]?.label ?: subject.subject.fallbackLabel(),
                     "${labels[subject.subject]?.kindLabel ?: subject.subject.kind.displayName()} · " +
-                        if (subject.access == ManagedAccess.EDIT) "可编辑" else "只读",
+                        if (subject.access == ManagedAccess.EDIT) "可编辑" else "只读 · 参考资料",
                     onClick = { managedAction = subject.subject },
                     onRemove = if (subject.subject in ownedAddresses) null else ({ draft = draft.unmount(subject.subject) }),
                 )
@@ -924,17 +924,20 @@ fun ConversationSettingsScreen(
             onDismissRequest = { managedAction = null },
             actions = buildList {
                 if (current?.access != ManagedAccess.EDIT) add(
-                    NovexSelectionAction("设为可编辑", R.drawable.ic_phosphor_pencil_simple) {
+                    NovexSelectionAction("设为可编辑", R.drawable.ic_phosphor_pencil_simple,
+                        description = "允许本对话读取并修改原件") {
                         draft = draft.mount(address, ManagedAccess.EDIT)
                     },
                 )
                 if (current?.access != ManagedAccess.READ_ONLY) add(
-                    NovexSelectionAction("设为只读", R.drawable.ic_phosphor_eye) {
+                    NovexSelectionAction("设为只读", R.drawable.ic_phosphor_eye,
+                        description = "保留读取权限、禁止修改；适合仅作参考的资料") {
                         draft = draft.mount(address, ManagedAccess.READ_ONLY)
                     },
                 )
                 if (!ownedHere) add(
-                    NovexSelectionAction("移出管理范围", R.drawable.ic_phosphor_trash) {
+                    NovexSelectionAction("移出管理范围", R.drawable.ic_phosphor_trash,
+                        description = "从本对话的管理目录移除；背景挂载不受影响") {
                         draft = draft.unmount(address)
                     },
                 )

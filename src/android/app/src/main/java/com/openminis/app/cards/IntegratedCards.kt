@@ -109,6 +109,26 @@ class IntegratedCards(context:Context,
         return names
     }
     private fun policy(chat:String,readOnly:Boolean=false)=CardToolPolicy(binding(chat)?.managed?:emptySet(),if(readOnly)ToolPermission.READ_ONLY else ToolPermission.FREE)
+    /**
+     * [T-created-scope-fallback] 会话日志中已 FINISHED 的 create/create_bulk 记录
+     * 是「本会话建了什么」的持久真相——binding.managed 回写失败、丢失或被旧数据
+     * 覆盖时，这些卡天然仍在本会话读写范围内。已不存在的卡（删除/迁移）跳过。
+     * 日志随会话目录持久，重启后依然生效。
+     */
+    private fun sessionCreatedTargets(chat:String):Set<ManagementTarget> = runCatching {
+        if(chat.isBlank())return emptySet()
+        journal.entriesByChatPrefix(chat).mapNotNull {turn->
+            if(turn.state!=TurnState.FINISHED)return@mapNotNull null
+            val input=runCatching{JSONObject(journal.text(turn.input))}.getOrNull()?:return@mapNotNull null
+            when(input.optJSONObject("edit")?.optString("kind")){"create","create_bulk"->Unit;else->return@mapNotNull null}
+            val outcome=turn.outcome?.let{ref->runCatching{JSONObject(journal.text(ref))}.getOrNull()}?:return@mapNotNull null
+            if(outcome.optString("kind")!="saved")return@mapNotNull null
+            val root=outcome.optString("root").takeIf{it.isNotBlank()}?:return@mapNotNull null
+            val target=outcome.optString("target").takeIf{it.isNotBlank()}?:return@mapNotNull null
+            if(store.open(root)==null)return@mapNotNull null
+            ManagementTarget(root,target)
+        }.toSet()
+    }.getOrElse{emptySet()}
     fun review(name:String,raw:String):String {
         val args=JSONObject(raw)
         val card=if(args.has("root_id"))runCatching {ContentTargets.find(requireNotNull(store.open(args.getString("root_id"))).content,args.getString("target_id"))}.getOrNull() else null
@@ -143,7 +163,7 @@ class IntegratedCards(context:Context,
         try {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             val baseAccess=policy(chat)
-            val access=baseAccess.copy(targets=baseAccess.targets.flatMap {t->
+            val access=baseAccess.copy(targets=(baseAccess.targets+sessionCreatedTargets(chat)).flatMap {t->
                 val target=ContentTargets.find(requireNotNull(store.open(t.rootId)){"管理作品不存在"}.content,t.targetId)
                 listOf(t)+target.internalCharacters.map {ManagementTarget(t.rootId,it.id)}
             }.toSet())
@@ -162,12 +182,19 @@ class IntegratedCards(context:Context,
             run.images=images;run.created.clear()
             val created=run.created
             val result=submitWithRetry(run.coordinator,namespace,call,access,readable,stop)
-            if(created.isNotEmpty())kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable){updateBinding {old->
-                created.fold(old) {value,target->
-                    val marker="$namespace:$id:${target.targetId}"
-                    if(marker in value.createdReceipts)value else value.copy(managed=value.managed+target,createdReceipts=value.createdReceipts+marker)
+            // [T-created-scope-fallback] 卡片此时已落库；登记进会话管理范围是附属
+            // 动作，它的失败不能把已 saved 的操作报成未完成——即使登记彻底失败，
+            // 本调用与后续调用的范围判定仍有 sessionCreatedTargets（会话日志）兜底。
+            if(created.isNotEmpty())runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable){updateBinding {old->
+                    created.fold(old) {value,target->
+                        val marker="$namespace:$id:${target.targetId}"
+                        if(marker in value.createdReceipts)value else value.copy(managed=value.managed+target,createdReceipts=value.createdReceipts+marker)
+                    }
                 }
-            }
+                }
+            }.onFailure { failure ->
+                android.util.Log.w("IntegratedCards","管理范围登记失败（卡已保存，本会话按创建记录仍可读写）: ${failure.message}")
             }
             if(result is CardToolResult.Saved){materialCache=null;imageCache=null}
             return ToolExecutionResult(CardToolProtocol.result(result),result is CardToolResult.Saved,toolTitle=review(name,args).lineSequence().take(3).joinToString(" · ").take(160))
@@ -246,9 +273,12 @@ class IntegratedCards(context:Context,
     suspend fun candidates(chat:String,request:String,input:String,history:List<LLMMessage>,budget:Int,
         count:(String)->Int,allowDeferred:Boolean=true,choose:suspend (String)->String):List<NovexContextCandidate> {
         val binding=binding(chat)?:return emptyList()
+        // [T-created-scope-fallback] 管理目录与范围判定同用一份合并集：binding.managed
+        // 之外，会话日志里已 saved 的建卡记录也算本会话可管对象（回写失败兜底）。
+        val managedScope=binding.managed+sessionCreatedTargets(chat)
         // An empty persisted binding still selects the new card architecture. It
         // must not fall back to legacy cards, nor inject an empty card directory.
-        if(binding.primary==null && binding.backgrounds.isEmpty() && binding.managed.isEmpty()) {
+        if(binding.primary==null && binding.backgrounds.isEmpty() && managedScope.isEmpty()) {
             materialCache=null
             imageCache=null
             return emptyList()
@@ -306,12 +336,12 @@ class IntegratedCards(context:Context,
             val instruction=if(card.kind==CardKind.WORLD)"本对话使用世界《${card.name}》，可以叙述世界并扮演其中不同人物；不要替用户决定行动。" else "本对话主要与角色《${card.name}》互动，以该角色作为主要回答身份。"
             result+=NovexContextCandidate("new-card-identity","当前互动对象",instruction,ContextSourceKind.ANSWER_IDENTITY,alwaysInclude=true)
         }
-        val directory=JSONArray(binding.managed.map {t->
+        val directory=JSONArray(managedScope.map {t->
             val target=ContentTargets.find(requireNotNull(store.open(t.rootId)){"管理作品不存在"}.content,t.targetId)
             JSONObject().put("root_id",t.rootId).put("target_id",t.targetId).put("name",target.name)
                 .put("characters",JSONArray(target.internalCharacters.map {JSONObject().put("target_id",it.id).put("name",it.name)}))
         })
-        if(binding.managed.isNotEmpty())result+=NovexContextCandidate("new-card-management","卡片管理范围","管理目录只允许编辑，不改变回答身份，不代表正文已注入。编辑前调用 read_card（读取卡片）取得最新结构和版本，按需 read_text_block（分段读取正文）；只有实际 saved（保存）回执才表示完成。\n$directory",ContextSourceKind.TOOL_DEFINITION,alwaysInclude=true)
+        if(managedScope.isNotEmpty())result+=NovexContextCandidate("new-card-management","卡片管理范围","管理目录只允许编辑，不改变回答身份，不代表正文已注入。编辑前调用 read_card（读取卡片）取得最新结构和版本，按需 read_text_block（分段读取正文）；只有实际 saved（保存）回执才表示完成。\n$directory",ContextSourceKind.TOOL_DEFINITION,alwaysInclude=true)
         val headerCost=result.sumOf {count(it.content)}
         val selected=BudgetedMaterials(store).read(draft,(budget-headerCost-2048).coerceAtLeast(0),count,allowDeferred)
         val deferred=JSONArray()

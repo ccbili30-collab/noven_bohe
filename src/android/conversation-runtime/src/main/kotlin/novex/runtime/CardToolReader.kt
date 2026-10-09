@@ -24,7 +24,13 @@ class CardToolReader(private val store:CardStore,private val maximumPage:Int=819
         val extra=when(call.name){"read_card"->emptySet();"read_card_image"->setOf("draft_version","resource_id");"read_text_block"->setOf("draft_version","module_id","block_id","offset","count");else->error("未提供的读取工具")}
         require(args.keys().asSequence().toSet()==base+extra){"读取字段缺失或包含未知字段"}
         (base+extra-setOf("offset","count")).forEach { require(args.get(it) is String) }
-        val target=ManagementTarget(args.getString("root_id"),args.getString("target_id"));require(target in policy.targets){"对象不在当前管理范围"}
+        val target=ManagementTarget(args.getString("root_id"),args.getString("target_id"))
+        // [T-created-scope-fallback] 判定失败时给出该作品在范围内的合法目标：
+        // 模型把模块编号当 target_id 传是可自愈的常见错，报出候选编号让它下轮直接改对。
+        require(target in policy.targets){
+            val siblings=policy.targets.filter{it.rootId==target.rootId}.map{it.targetId}
+            "对象不在当前管理范围"+if(siblings.isNotEmpty())"；该作品的可用目标：${siblings.joinToString(", ")}" else ""
+        }
         val source=snapshot(target)
         val result=JSONObject().put("status","read").put("root_id",target.rootId).put("target_id",target.targetId)
             .put("page_limit",maximumPage).put("draft_version",source.version).put("has_draft",source.hasDraft).put("root_change_source",source.source.name).put("image_sent",false)
