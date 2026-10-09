@@ -4467,6 +4467,12 @@ class ChatViewModel(
             chatSkinJson = appliedSkinJson,
             conversationPrompt = _conversationPrompt.value ?: inheritedEditablePrompt(),
             imageStylePrompt = _imageStylePrompt.value.ifBlank { null },
+            // 防御：物化行时带上当前槽位——正常已由 settings 的 update 写盘，
+            // 这里是给"行已建而 update 未跑"的边角兜底，避免列生出来就 NULL。
+            perTurnPrompt = _perTurnPrompt.value.ifBlank { null },
+            textStylePrompt = _textStylePrompt.value.ifBlank { null },
+            runtimeDiceEnabled = if (_diceInjectionEnabled.value) 1 else 0,
+            runtimeLedgerEnabled = if (_ledgerInjectionEnabled.value) 1 else 0,
             rolePresentationEnabled = _immersiveProfile.value.rolePresentationEnabled ||
                 _immersiveProfile.value.character != null,
             assistantDisplayName = _immersiveProfile.value.assistantDisplayName,
