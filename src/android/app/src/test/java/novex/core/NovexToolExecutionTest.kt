@@ -71,10 +71,10 @@ class NovexToolExecutionTest {
             assertFalse(NovexActiveToolAuthorization.allows("other"))
             calls++; ToolExecutionResult("已保存", true)
         }
-        assertFalse(first.execute(op, { NovexExecutionMode.READ_ONLY }, effect).success)
+        assertFalse(first.execute(op, { NovexExecutionMode.READ_ONLY }, effect = effect).success)
         assertEquals(0, calls)
-        assertTrue(first.execute(op, { NovexExecutionMode.FREE }, effect).success)
-        assertTrue(engine().execute(op, { NovexExecutionMode.FREE }, effect).success)
+        assertTrue(first.execute(op, { NovexExecutionMode.FREE }, effect = effect).success)
+        assertTrue(engine().execute(op, { NovexExecutionMode.FREE }, effect = effect).success)
         assertEquals(1, calls)
         assertFalse(NovexActiveToolAuthorization.allows("chat"))
     }
