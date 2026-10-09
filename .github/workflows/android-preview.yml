@@ -36,7 +36,8 @@ jobs:
            inputs.package_channel == 'stable' &&
            startsWith(github.ref, 'refs/heads/release/')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Gitee 镜像上传慢，单资产最多 2400s×3 次重试，需要足够余量。
+    timeout-minutes: 120
 
     steps:
       - name: Check out source

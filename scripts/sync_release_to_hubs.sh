@@ -87,10 +87,19 @@ for asset in "${ASSETS[@]}"; do
     echo "gitee hub: asset $name 已存在，跳过"
     continue
   fi
-  attach_resp="$(curl -s --max-time 600 -X POST "${GITEE_API}/releases/${release_id}/attach_files" \
-    -F "access_token=${GITEE_TOKEN}" -F "file=@${asset}")"
-  if ! printf '%s' "$attach_resp" | grep -q '"id"'; then
-    echo "gitee 附件上传失败 ${name}：$(printf '%s' "$attach_resp" | head -c 300)" >&2
+  # GitHub runner → Gitee 上行经常只有百 KB 级，单资产给足 2400s 并允许重试。
+  uploaded=""
+  for attempt in 1 2 3; do
+    attach_resp="$(curl -s --max-time 2400 -X POST "${GITEE_API}/releases/${release_id}/attach_files" \
+      -F "access_token=${GITEE_TOKEN}" -F "file=@${asset}")"
+    if printf '%s' "$attach_resp" | grep -q '"id"'; then
+      uploaded=1
+      break
+    fi
+    echo "gitee 附件上传第 ${attempt} 次未成功 ${name}：$(printf '%s' "$attach_resp" | head -c 200)" >&2
+  done
+  if [ -z "$uploaded" ]; then
+    echo "gitee 附件上传失败 ${name}（3 次尝试均超时/被拒）" >&2
     exit 1
   fi
   echo "gitee hub: 已上传 ${name}"
