@@ -108,7 +108,7 @@ done
 # update.json：更新本通道的 lane。下载地址指向上传的附件。
 first_asset_name="$(basename "${ASSETS[0]}")"
 download_url="https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/releases/download/${TAG}/${first_asset_name}"
-notes_oneline="$(head -c 400 "$NOTES_FILE" | tr '\n' ' ')"
+notes_oneline="$(head -c 400 "$NOTES_FILE" | LC_ALL=C tr '\n' ' ')"
 current_json="$(gitee_api "${GITEE_API}/contents/update.json?access_token=${GITEE_TOKEN}" \
   | python3 -c 'import base64,json,sys; print(base64.b64decode(json.load(sys.stdin)["content"]).decode())')"
 sha="$(gitee_api "${GITEE_API}/contents/update.json?access_token=${GITEE_TOKEN}" \
