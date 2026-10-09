@@ -184,7 +184,7 @@ class NovexToolExecution(private val journal: NovexOperationJournal) {
             // A free call cannot silently inherit approval after switching to approval mode.
             if (mode() == NovexExecutionMode.APPROVAL && journal.read(operation.id)?.status != NovexOperationStatus.APPROVED) {
                 lock.withLock { active.remove(operation.id) }
-                return execute(operation, mode, effect)
+                return execute(operation, mode, readOnlyCause, effect)
             }
             lock.withLock { journal.save(NovexOperationRecord(operation, NovexOperationStatus.RUNNING)) }
             val result = NovexActiveToolAuthorization.during(operation, mode, effect)

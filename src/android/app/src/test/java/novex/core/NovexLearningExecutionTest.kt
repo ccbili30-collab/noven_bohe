@@ -41,10 +41,10 @@ class NovexLearningExecutionTest {
             scheduled++
             ToolExecutionResult("整理任务已保存并启动", true, toolTitle = "启动资料整理")
         }
-        assertFalse(gate.execute(operation, { NovexExecutionMode.READ_ONLY }, effect).success)
+        assertFalse(gate.execute(operation, { NovexExecutionMode.READ_ONLY }, effect = effect).success)
         assertEquals(0, scheduled)
         assertNull(repo.find(ref)?.task)
-        val waiting = async(start = CoroutineStart.UNDISPATCHED) { gate.execute(operation, { NovexExecutionMode.APPROVAL }, effect) }
+        val waiting = async(start = CoroutineStart.UNDISPATCHED) { gate.execute(operation, { NovexExecutionMode.APPROVAL }, effect = effect) }
         assertEquals(operation.id, gate.pending.value.single().id)
         assertTrue(gate.pending.value.single().reviewDetails.contains("180000"))
         assertNull(repo.find(ref)?.task)
@@ -52,7 +52,7 @@ class NovexLearningExecutionTest {
         assertTrue(waiting.await().success)
         assertEquals(1, scheduled)
         assertTrue(gate.pending.value.isEmpty())
-        assertTrue(NovexToolExecution(journal).execute(operation, { NovexExecutionMode.FREE }, effect).success)
+        assertTrue(NovexToolExecution(journal).execute(operation, { NovexExecutionMode.FREE }, effect = effect).success)
         assertEquals(1, scheduled)
         assertEquals(1, NovexLearningExecutionPlans.exportPlans(File(files.root, "plans"), "chat").size)
         assertTrue(NovexLearningExecutionPlans.exportPlans(File(files.root, "plans"), "other").isEmpty())
