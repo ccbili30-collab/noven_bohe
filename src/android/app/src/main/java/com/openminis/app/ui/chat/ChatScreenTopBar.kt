@@ -256,6 +256,8 @@ internal fun ChatTopBar(
     onOpenModelPicker: () -> Unit,
     onOpenThinkingSheet: () -> Unit,
     returnFromConversation: () -> Unit,
+    /** 舞台全屏中：返回键变成「缩小」——点击缩小回会话而非退出。 */
+    stageOpen: Boolean = false,
     sideParentId: String?,
     onOpenSideDelete: () -> Unit,
     chromeCollapsed: Boolean,
@@ -541,7 +543,11 @@ internal fun ChatTopBar(
                     // content[1]：返回键
                     Box {
                         IconButton(onClick = returnFromConversation) {
-                            Icon(novex.android.ui.NovexIcons.ArrowBack, contentDescription = "Back")
+                            Icon(
+                                if (stageOpen) novex.android.ui.NovexIcons.CloseFullscreen
+                                else novex.android.ui.NovexIcons.ArrowBack,
+                                contentDescription = if (stageOpen) "缩小舞台" else "Back",
+                            )
                         }
                     }
                     // content[2]：动作簇（模型 pill / DeepSeek 时钟 / ⋯；侧边页为导出+删除）

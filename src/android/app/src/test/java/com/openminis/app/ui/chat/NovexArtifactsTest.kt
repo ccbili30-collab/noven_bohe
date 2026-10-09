@@ -288,6 +288,80 @@ OLD {{hp}}
     }
 
     @Test
+    fun `fullscreen flag follows display meta and tavern compat default`() {
+        // 显式声明优先；缺省时 compat:tavern 的整页资产一律全屏，原生件内联。
+        assertTrue(parseNovexDef("""{"id":"a","kind":"html","display":"fullscreen"}
+<div/>""")!!.fullscreen)
+        assertTrue(parseNovexDef("""{"id":"b","kind":"html","compat":"tavern"}
+<div/>""")!!.fullscreen)
+        assertTrue(!parseNovexDef("""{"id":"c","kind":"html"}
+<div/>""")!!.fullscreen)
+        // display:"inline" 可显式关掉酒馆件的全屏默认。
+        assertTrue(!parseNovexDef("""{"id":"d","kind":"html","compat":"tavern","display":"inline"}
+<div/>""")!!.fullscreen)
+    }
+
+    @Test
+    fun `fullscreen anchor marks first use, later uses become entries`() {
+        val scene = collectNovexArtifactScene(
+            listOf(
+                msg(
+                    """
+                    ```novex-def
+                    {"id":"stage","kind":"html","display":"fullscreen"}
+                    <div>{{v}}</div>
+                    ```
+                    ```novex-use
+                    {"id":"stage","v":1}
+                    ```
+                    """.trimIndent(),
+                ),
+                msg(
+                    """
+                    中段
+                    ```novex-use
+                    {"id":"stage","v":2}
+                    ```
+                    """.trimIndent(),
+                ),
+            ),
+        )
+        val anchor = scene.fullscreenAnchors.getValue("stage")
+        assertEquals("""{"id":"stage","v":1}""", anchor.code)
+        assertEquals(mapOf("v" to "2"), scene.latestUseData.getValue("stage"))
+        // 非全屏件不产生锚点；用户消息里的 use 不参与锚定。
+        val plain = collectNovexArtifactScene(
+            listOf(
+                msg("""```novex-def
+{"id":"x","kind":"html"}
+<div/>
+```"""),
+                msg("""```novex-use
+{"id":"x"}
+```"""),
+            ),
+        )
+        assertTrue(plain.fullscreenAnchors.isEmpty())
+    }
+
+    @Test
+    fun `autoMarker fullscreen def anchors on the appended marker use`() {
+        val defs = collectDefsFromText(
+            """```novex-def
+{"id":"pg","kind":"html","compat":"tavern","marker":"<Pg/>","autoMarker":true}
+<div>page</div>
+```""",
+        ).associateBy { it.id }
+        val scene = collectNovexArtifactScene(
+            listOf(msg("正文。", role = "assistant")),
+            seedDefs = defs,
+        )
+        // autoMarker 在整条消息末尾补出的 use 即锚点——与显示期展开产物同码。
+        val anchor = scene.fullscreenAnchors.getValue("pg")
+        assertEquals("""{"id":"pg"}""", anchor.code)
+    }
+
+    @Test
     fun `marker wrapped in a code fence is unwrapped then expanded`() {
         val defs = mapOf("status" to NovexArtifactDef(
             id = "status", kind = "html", name = null, defaultSlot = null,

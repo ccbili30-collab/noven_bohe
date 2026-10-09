@@ -1,15 +1,26 @@
 package com.openminis.app.ui.chat
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import novex.android.ui.NovexIcons
 import org.json.JSONObject
 
 // 前端件机制：```novex-def 注册"前端件"（模板只出现一次，随消息持久化），
@@ -60,6 +71,11 @@ internal data class NovexArtifactDef(
     /** 模板来自导入的酒馆前端资产：岛渲染时注入 tavern-compat 适配层
      *  （getVariables→NOVEN_FRAME.state、vendor 的 jQuery/lodash）。 */
     val tavernCompat: Boolean = false,
+    /** display:"fullscreen" 声明整页舞台：消息流里只有首次 use 渲真岛
+     *  （点击放大进舞台），其余 use 一律渲轻量入口卡——整页前端件不再
+     *  每轮内联重复渲染。缺省规则：compat:tavern 的资产本就是整页，一律
+     *  全屏；display:"inline" 可显式关掉。 */
+    val fullscreen: Boolean = false,
 )
 
 /** 一次调用：目标 id + 本轮数据（slot 字段已退役，仅存解析兼容）。 */
@@ -68,9 +84,16 @@ internal data class NovexArtifactUse(
     val data: Map<String, String>,
 )
 
+/** 全屏件「首次 use」锚点：仅这一处渲真岛（点击放大），其余 use 渲入口卡。 */
+internal data class NovexFullscreenAnchor(val messageId: String, val code: String)
+
 /** 会话级场景：defs 注册表（seed 在前，消息内同名 def 覆盖）。 */
 internal class NovexArtifactScene(
     val defs: Map<String, NovexArtifactDef>,
+    /** defId → 全屏件首次 use 的位置（锚点处渲真岛，其余渲入口卡）。 */
+    val fullscreenAnchors: Map<String, NovexFullscreenAnchor> = emptyMap(),
+    /** defId → 最近一次 use 数据：舞台打开后用最新一轮数据投影。 */
+    val latestUseData: Map<String, Map<String, String>> = emptyMap(),
 ) {
     companion object {
         val EMPTY = NovexArtifactScene(emptyMap())
@@ -79,6 +102,13 @@ internal class NovexArtifactScene(
 
 internal val LocalNovexArtifactDefs =
     compositionLocalOf<Map<String, NovexArtifactDef>> { emptyMap() }
+
+internal val LocalNovexFullscreenAnchors =
+    compositionLocalOf<Map<String, NovexFullscreenAnchor>> { emptyMap() }
+
+/** 舞台宿主入口：ChatScreen 提供；为 null 时入口卡渲染成不可点。 */
+internal val LocalNovexStageOpener =
+    compositionLocalOf<((NovexArtifactDef) -> Unit)?> { null }
 
 // ─── 解析 ───────────────────────────────────────────────────────────────────
 
@@ -118,6 +148,11 @@ internal fun parseNovexDef(code: String): NovexArtifactDef? {
         marker = meta.optString("marker").trim().ifEmpty { null },
         autoMarker = meta.optBoolean("autoMarker", false),
         tavernCompat = meta.optString("compat") == "tavern",
+        fullscreen = when (meta.optString("display").trim().lowercase()) {
+            "fullscreen" -> true
+            "inline" -> false
+            else -> meta.optString("compat") == "tavern"
+        },
     )
 }
 
@@ -171,7 +206,32 @@ internal fun collectNovexArtifactScene(
             }
         }
     }
-    return NovexArtifactScene(defs)
+    // 全屏件第二遍扫描：按显示期同一份变换（剥 MVU + 标记展开 + 文末
+    // autoMarker 补插）定位每个全屏件的首次 use——锚点处渲真岛、其余 use
+    // 渲入口卡；顺带记录每个件的最新一轮数据供舞台投影。仅在有全屏件时
+    // 付这条 O(全文) 扫描的成本。
+    if (defs.values.none { it.fullscreen }) return NovexArtifactScene(defs)
+    val anchors = LinkedHashMap<String, NovexFullscreenAnchor>()
+    val latestData = LinkedHashMap<String, Map<String, String>>()
+    for (msg in messages) {
+        if (msg.role != "assistant") continue
+        val display = expandNovexMarkers(
+            novex.core.tavern.MvuStateProtocol.stripBlocks(msg.content),
+            defs,
+            appendAutoMarkers = true,
+        )
+        for (m in artifactFenceRegex.findAll(display)) {
+            if (m.groupValues[1].lowercase() != NOVEX_USE_LANGUAGE) continue
+            val code = m.groupValues[2].trim()
+            val use = parseNovexUse(code) ?: continue
+            if (defs[use.id]?.fullscreen != true) continue
+            anchors.putIfAbsent(use.id, NovexFullscreenAnchor(msg.id, code))
+            if (use.data.isNotEmpty() || use.id !in latestData) {
+                latestData[use.id] = use.data
+            }
+        }
+    }
+    return NovexArtifactScene(defs, anchors, latestData)
 }
 
 /**
@@ -273,7 +333,76 @@ internal fun RenderNovexUse(code: String) {
         )
         return
     }
+    if (def.fullscreen) {
+        // 全屏件：锚点（首次 use）渲真岛供点击放大，其余 use 渲入口卡——
+        // 整页前端件不再每轮内联重复渲。
+        val anchor = LocalNovexFullscreenAnchors.current[use.id]
+        val isAnchor = anchor != null &&
+            anchor.messageId == LocalShardId.current?.messageId &&
+            anchor.code == code.trim()
+        if (isAnchor) NovexStagePreview(def, use.data) else NovexStageEntryCard(def)
+        return
+    }
     RenderNovexArtifact(def, use.data)
+}
+
+/** 全屏件首次出现的内联预览：渲真岛，点击整块放大进舞台（顶栏输入框原位，
+ *  只换消息区）。预览不吃岛交互——整页件在方块高度里没有可用交互面。 */
+@Composable
+private fun NovexStagePreview(def: NovexArtifactDef, data: Map<String, String>) {
+    val opener = LocalNovexStageOpener.current
+    Box(Modifier.fillMaxWidth()) {
+        RenderNovexArtifact(def, data)
+        if (opener != null) {
+            Box(Modifier.matchParentSize().clickable { opener(def) })
+            Text(
+                text = "点击放大",
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.85f),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.32f))
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
+    }
+}
+
+/** 全屏件的后续入口卡：轻量行，不再起 WebView。点击回到舞台。 */
+@Composable
+private fun NovexStageEntryCard(def: NovexArtifactDef) {
+    val opener = LocalNovexStageOpener.current
+    val colors = currentMdColors()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.codeBg)
+            .clickable(enabled = opener != null) { opener?.invoke(def) }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Icon(
+            imageVector = NovexIcons.Fullscreen,
+            contentDescription = null,
+            tint = colors.blockquote,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = def.name ?: def.id,
+            fontSize = 12.sp,
+            color = colors.text,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+        )
+        Text(
+            text = "打开舞台",
+            fontSize = 11.sp,
+            color = colors.link,
+        )
+    }
 }
 
 /** def 块在消息流里的样子：一枚低调注册提示，模板本身不展示。 */

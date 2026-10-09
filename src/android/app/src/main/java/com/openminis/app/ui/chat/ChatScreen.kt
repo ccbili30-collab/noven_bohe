@@ -513,8 +513,15 @@ fun ChatScreen(
         com.openminis.app.crash.ProcessExitEvidence.record(context, "chat.return-request streaming=$isStreaming")
         if (onBackReturnsToList) viewModel.returnToConversationList(onBack) else onBack()
     }
+    // 全屏舞台：display:"fullscreen"/compat:tavern 前端件点开后，消息区
+    // 换常驻岛（顶栏/输入框原位）。缩小回会话时岛 1dp 保活不重启页面。
+    var stageDefId by remember(sessionId) { mutableStateOf<String?>(null) }
+    var stageVisible by remember(sessionId) { mutableStateOf(false) }
     NovexGameEntryDialog(gameEntryState, viewModel::selectGameEntryPlayer, viewModel::retryGameEntry, returnFromConversation)
-    androidx.activity.compose.BackHandler(onBack = returnFromConversation)
+    androidx.activity.compose.BackHandler(onBack = {
+        // 全屏态的返回=缩小回会话；缩小后手势恢复退出会话。
+        if (stageVisible) stageVisible = false else returnFromConversation()
+    })
     androidx.compose.runtime.DisposableEffect(sessionId) {
         com.openminis.app.crash.ProcessExitEvidence.record(context, "chat.mount")
         viewModel.markConversationVisible()
@@ -1754,6 +1761,11 @@ fun ChatScreen(
             },
         ),
         LocalNovexArtifactDefs provides novexArtifactScene.defs,
+        LocalNovexFullscreenAnchors provides novexArtifactScene.fullscreenAnchors,
+        LocalNovexStageOpener provides { def: NovexArtifactDef ->
+            stageDefId = def.id
+            stageVisible = true
+        },
     ) {
     val immersiveBackground = immersiveProfile.backgroundPath
         ?.let { java.io.File(it) }
@@ -1792,7 +1804,10 @@ fun ChatScreen(
                 modelName = modelName,
                 onOpenModelPicker = { showModelPicker = true },
                 onOpenThinkingSheet = { showThinkingLevelSheet = true },
-                returnFromConversation = returnFromConversation,
+                stageOpen = stageVisible,
+                returnFromConversation = {
+                    if (stageVisible) stageVisible = false else returnFromConversation()
+                },
                 sideParentId = sideParentId,
                 onOpenSideDelete = { showSideDeleteDialog = true },
                 chromeCollapsed = chromeCollapsed,
@@ -1979,9 +1994,32 @@ fun ChatScreen(
                 // 一张满幅界面岛——消息流经 NOVEN_FRAME.messages 推给岛自绘
                 // （弹幕/书信/终端等形态）。原生转录只是被盖住不是被替换，
                 // 右下角「消息」浮钮随时切回。
+                // 全屏舞台：display:"fullscreen"/compat:tavern 的件被点开后，
+                // 转录区整换成舞台岛（单例 WebView）；缩小回会话时岛在 1dp
+                // 里保活，DOM/JS 状态存续，再进全屏不重载页面。
+                val stageDef = stageDefId?.let { novexArtifactScene.defs[it] }
+                val stageHtml = stageDef?.let { def ->
+                    remember(def.template, novexArtifactScene.latestUseData) {
+                        substituteNovexArtifact(
+                            def.template,
+                            novexArtifactScene.latestUseData[def.id].orEmpty(),
+                        )
+                    }
+                }
                 val skinOverlayHtml = immersiveProfile.skin?.overlay
                 var peekNativeTranscript by remember(sessionId) { mutableStateOf(false) }
-                if (skinOverlayHtml != null && !peekNativeTranscript) {
+                if (stageDef != null && !stageVisible && stageHtml != null) {
+                    // 保活位：缩小中的舞台岛缩到 1dp 角落——留在组合里
+                    // WebView 不销毁，JS/DOM 状态保住。
+                    Box(Modifier.size(1.dp).alpha(0f)) {
+                        HtmlIsland(html = stageHtml, fillParent = true, tavernCompat = stageDef.tavernCompat)
+                    }
+                }
+                if (stageDef != null && stageVisible && stageHtml != null) {
+                    Box(Modifier.fillMaxSize()) {
+                        HtmlIsland(html = stageHtml, fillParent = true, tavernCompat = stageDef.tavernCompat)
+                    }
+                } else if (skinOverlayHtml != null && !peekNativeTranscript) {
                     Box(Modifier.fillMaxSize()) {
                         HtmlIsland(html = skinOverlayHtml, fillParent = true)
                         Text(
@@ -2062,6 +2100,22 @@ fun ChatScreen(
                             .padding(horizontal = 10.dp, vertical = 5.dp),
                     )
                 }
+                }
+                // 缩小中的舞台：左下浮钮随时切回全屏岛（每轮新 use 还会在
+                // 消息流里追加入口卡，这里是常驻恢复位）。
+                if (stageDef != null && !stageVisible) {
+                    Text(
+                        text = "舞台「${stageDef.name ?: stageDef.id}」",
+                        fontSize = 11.sp,
+                        color = ChatColors.primaryText.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(ChatColors.secondaryBg.copy(alpha = 0.85f))
+                            .clickable { stageVisible = true }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
                 }
                 // above the LazyColumn (top-center), animates in once the
             }
