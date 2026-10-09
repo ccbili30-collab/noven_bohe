@@ -35,6 +35,14 @@ class TurnJournal(root:Path) {
             .map {JSONObject(Utf8Files.read(it))}.filter {it.getString("chat")==chat}
             .map {requireNotNull(load(chat,it.getString("id")))}.collect(java.util.stream.Collectors.toList())}
     }
+    /** [T-created-scope-fallback] 会话级枚举：工具命名空间为 "${chat.length}:$chat+reply"，
+     *  同一裸会话 id 的记录散布在多个命名空间下，按确定前缀收集全部回合。 */
+    fun entriesByChatPrefix(chat:String):List<StoredTurn> = locked {
+        val prefix="${chat.length}:$chat"
+        Files.list(root).use {paths->paths.filter {it.fileName.toString().startsWith("turn-") && it.fileName.toString().endsWith(".json")}
+            .map {JSONObject(Utf8Files.read(it))}.filter {it.getString("chat").startsWith(prefix)}
+            .map {turn->requireNotNull(load(turn.getString("chat"),turn.getString("id")))}.collect(java.util.stream.Collectors.toList())}
+    }
     fun read(chat:String,id:String):StoredTurn?=locked { load(chat,id) }
     fun open(ref:ContentRef):java.io.InputStream=contents.open(ref)
     fun text(ref:ContentRef)=contents.open(ref).bufferedReader(Charsets.UTF_8).use { it.readText() }
