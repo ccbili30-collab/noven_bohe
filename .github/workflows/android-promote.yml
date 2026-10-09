@@ -25,7 +25,8 @@ jobs:
   promote:
     name: Verify and promote tested artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Gitee 附件上传从 GitHub runner 走很慢，镜像步需要足够余量。
+    timeout-minutes: 90
 
     steps:
       - name: Check out release controller
