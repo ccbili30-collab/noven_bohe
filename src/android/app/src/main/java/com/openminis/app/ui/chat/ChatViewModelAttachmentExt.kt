@@ -413,6 +413,10 @@ internal suspend fun ChatViewModel.prepareUserAttachments(
     // [T-doc-tiered-delivery] 文档投递分级：正文小→全量内联（不看工具链脸色）；
     // 正文大→物化为会话资料卡（目录常驻+章节关键词注入+读卡回读），转卡失败
     // 或会话未采用新卡体系时回落原回执路径。卡编号按快照校验派生，重发幂等。
+    // 未采用卡片体系的会话先判定再物化——否则每次重试都会在库里留孤儿卡。
+    val cardDeliveryAllowed = runCatching {
+        com.openminis.app.cards.CardBinding.decode(currentNovexConfiguration().cardBindingJson) != null
+    }.getOrDefault(false)
     metas.forEachIndexed { index, meta ->
         val snapshot = meta.documentSnapshot ?: return@forEachIndexed
         // 空/损坏/截断快照没有可投递正文，保持原回执语义。
@@ -422,6 +426,7 @@ internal suspend fun ChatViewModel.prepareUserAttachments(
             metas[index] = meta.copy(documentDelivery = NovexDocumentDelivery.INLINE)
             return@forEachIndexed
         }
+        if (!cardDeliveryAllowed) return@forEachIndexed
         val rootId = runCatching {
             val id = com.openminis.app.cards.NovexDocumentAttachmentCard.materialize(integratedCards.store, snapshot)
             novexSettingsStore.update { configuration ->

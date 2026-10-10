@@ -29,7 +29,17 @@ class CardToolReader(private val store:CardStore,private val maximumPage:Int=819
         // 模型把模块编号当 target_id 传是可自愈的常见错，报出候选编号让它下轮直接改对。
         require(target in policy.targets){
             val siblings=policy.targets.filter{it.rootId==target.rootId}.map{it.targetId}
-            "对象不在当前管理范围"+if(siblings.isNotEmpty())"；该作品的可用目标：${siblings.joinToString(", ")}" else ""
+            if(siblings.isNotEmpty())"对象不在当前管理范围；该作品的可用目标：${siblings.joinToString(", ")}"
+            else{
+                // [T-scope-error] 完全传错 root 时列出范围内全部合法作品——
+                // 弱模型抄错编号后需要看到正确值才能自愈，而不是反复瞎猜。
+                val legal=policy.targets.groupBy{it.rootId}.entries.take(8).map{(root,targets)->
+                    val name=runCatching{store.open(root)?.content?.name}.getOrNull()?.takeIf(String::isNotBlank)
+                    (if(name!=null)"$name（$root）" else root)+
+                        if(targets.size>1)"，目标：${targets.joinToString(","){it.targetId}}" else ""
+                }
+                "对象不在当前管理范围"+if(legal.isNotEmpty())"；当前可读作品：${legal.joinToString("；")}" else ""
+            }
         }
         val source=snapshot(target)
         val result=JSONObject().put("status","read").put("root_id",target.rootId).put("target_id",target.targetId)
