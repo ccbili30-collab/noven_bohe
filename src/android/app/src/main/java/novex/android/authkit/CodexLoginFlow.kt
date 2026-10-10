@@ -207,11 +207,11 @@ class CodexLoginFlow(appContext: Context, instanceId: String) :
             val responseBody = resp.body?.string() ?: ""
             RunLog.info(
                 CATEGORY,
-                "token exchange response: ${resp.code} bodyLen=${responseBody.length} body[0..500]=${responseBody.take(500)}",
+                "token exchange response: ${resp.code} bodyLen=${responseBody.length} body=${OAuthWire.redactForLog(responseBody)}",
             )
             if (resp.code !in 200..299) {
                 RunLog.error(CATEGORY, "token exchange non-2xx: ${resp.code}")
-                throw IllegalStateException("Token exchange failed (${resp.code}): $responseBody")
+                throw IllegalStateException("Token exchange failed (${resp.code}): ${OAuthWire.redactForLog(responseBody)}")
             }
 
             val json = JSONObject(responseBody)
