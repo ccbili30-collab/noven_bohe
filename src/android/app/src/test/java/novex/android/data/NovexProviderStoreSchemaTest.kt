@@ -65,7 +65,7 @@ class NovexProviderStoreSchemaTest {
 
     @Test
     fun databaseVersionAndFileRemainPinned() {
-        assertEquals(5, database.openHelper.readableDatabase.version)
+        assertEquals(6, database.openHelper.readableDatabase.version)
         assertEquals("provider.db", NovexProviderDatabase.DB_NAME)
     }
 

@@ -56,7 +56,7 @@ class NovexChatDaoSchemaTest {
 
     @Test
     fun databaseVersionAndFileRemainPinned() {
-        assertEquals(40, database.openHelper.readableDatabase.version)
+        assertEquals(41, database.openHelper.readableDatabase.version)
         assertEquals("minis.db", NovexMainDatabase.DB_NAME)
     }
 

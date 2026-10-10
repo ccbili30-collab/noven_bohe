@@ -13,6 +13,7 @@ import novex.android.data.MIGRATION_36_37
 import novex.android.data.MIGRATION_37_38
 import novex.android.data.MIGRATION_38_39
 import novex.android.data.MIGRATION_39_40
+import novex.android.data.MIGRATION_40_41
 
 import android.app.Application
 import androidx.room.Room
@@ -194,7 +195,7 @@ class NovexCharacterVersionRelationPersistenceTest {
     @Test
     fun `migration adds relationship storage without inventing stages for existing variants`() = runBlocking {
         fun open() = Room.databaseBuilder(RuntimeEnvironment.getApplication(), NovexMainDatabase::class.java,
-            File(files.root, "migration.db").absolutePath).addMigrations(MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_39_40).allowMainThreadQueries().build()
+            File(files.root, "migration.db").absolutePath).addMigrations(MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41).allowMainThreadQueries().build()
         var database = open()
         try {
             val workspace = NovexWorkspaceFactory.create(database, File(files.root, "media"))
