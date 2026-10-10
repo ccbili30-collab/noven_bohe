@@ -80,13 +80,9 @@ class NovexProviderStoreSchemaTest {
             ),
             columnNames("provider_instances"),
         )
-        assertEquals(
-            listOf(
-                "id", "provider_instance_id", "label", "scope_kind", "scope_pattern",
-                "wire_format_json", "reasoning_echo_json", "sort_order",
-            ),
-            columnNames("provider_thinking_rules"),
-        )
+        // [T-dead-code-sweep] provider_thinking_rules 实体已删 + v6 迁移
+        // DROP TABLE——钉面改为断言表不存在。
+        assertTrue(columnNames("provider_thinking_rules").isEmpty())
         assertEquals(listOf("key", "value"), columnNames("provider_config_meta"))
         assertEquals(listOf("kind", "target_id", "sort_order"), columnNames("provider_agent_loop_ids"))
     }
@@ -162,5 +158,5 @@ class NovexProviderStoreSchemaTest {
     }
     // [P3.3 裁军] thinkingRulesRoundTripInOrderAndReorderAtomically（自定义
     // 思考规则的写/读/重排 DAO 回路测试）随 CUSTOM 写路径退役删除；
-    // provider_thinking_rules 表与列由本文件的 schema 钉面继续保留。
+    // [T-dead-code-sweep] provider_thinking_rules 表随后由 v6 迁移 DROP。
 }

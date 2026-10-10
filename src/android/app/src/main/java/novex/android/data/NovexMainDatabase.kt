@@ -67,7 +67,6 @@ import com.openminis.app.data.interactivefiction.InteractiveFictionProjectEntity
         SessionRow::class,
         MessageRow::class,
         CompactMarkerRow::class,
-        WebShortcutRow::class,
         SessionFolderRow::class,
         WorldEntity::class,
         CharacterEntity::class,
@@ -94,7 +93,7 @@ import com.openminis.app.data.interactivefiction.InteractiveFictionProjectEntity
         GameRevisionRow::class,
         CardDirectoryRow::class,
     ],
-    version = 40,
+    version = 41,
     exportSchema = false,
 )
 @TypeConverters(
@@ -105,7 +104,6 @@ import com.openminis.app.data.interactivefiction.InteractiveFictionProjectEntity
 )
 abstract class NovexMainDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
-    abstract fun webShortcutDao(): WebShortcutDao
     abstract fun characterCatalogDao(): CharacterCatalogDao
     abstract fun contentModuleDao(): ContentModuleDao
     abstract fun mediaAssetDao(): MediaAssetDao

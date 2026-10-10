@@ -2103,21 +2103,13 @@ internal suspend fun ChatViewModel.executeAuthorizedTool(
                 .fold({ ToolExecutionResult(it, true, toolTitle = if (name.startsWith("search")) "搜索对话历史" else "读取历史原文") },
                     { ToolExecutionResult(it.message ?: "历史读取失败", false, toolTitle = "读取对话历史") })
         }
-        FileReadTool.NAME -> {
-            val result = FileReadTool.execute(argsJson, activeSessionId, context)
-            // Record skill usage when SKILL.md under /var/minis/skills/<id>/ is read.
-            if (result.success) {
-                runCatching {
-                    val readPath = JSONObject(argsJson).optString("path", "")
-                    if (readPath.isNotEmpty()) {
-                        skillRepository?.skillIdFromPath(readPath)?.let { sid ->
-                            skillRepository.recordSkillUse(sid)
-                        }
-                    }
-                }
-            }
-            result
-        }
+        // [T-dead-code-sweep] file_read 已退役不进目录；此处只兜历史回放或
+        // 模型幻觉调用，对齐 shell_execute/browser_use 明确拒绝而不是执行。
+        // FileReadTool 本体保留——SkillReadTool 仍复用其挂载解析。
+        FileReadTool.NAME -> com.openminis.app.tools.ToolExecutionResult(
+            output = "file_read is no longer available on this device. Use document_read, workspace_read, or skill_read instead.",
+            success = false,
+        )
         // 技能按需加载的窄面入口：只放行 /var/minis/skills/ 前缀（通用
         // file_read 已退役不进 schema），执行复用 FileReadTool 的挂载解析。
         SkillReadTool.NAME -> {
@@ -2134,12 +2126,13 @@ internal suspend fun ChatViewModel.executeAuthorizedTool(
             }
             result
         }
-        FileWriteTool.NAME -> FileWriteTool.execute(argsJson, activeSessionId, context).also {
-            if (it.success) maybeReloadSkillsForPath(argsJson)
-        }
-        FileEditTool.NAME -> FileEditTool.execute(argsJson, activeSessionId, context).also {
-            if (it.success) maybeReloadSkillsForPath(argsJson)
-        }
+        // [T-dead-code-sweep] file_write/file_edit 已退役不进目录；此前
+        // 幻觉调用仍真实落盘（评审 P1-3），改为明确拒绝。
+        FileWriteTool.NAME,
+        FileEditTool.NAME -> com.openminis.app.tools.ToolExecutionResult(
+            output = "${name} is no longer available on this device. Use workspace_write or workspace_edit instead.",
+            success = false,
+        )
         // T178: pass sessionId + context so read_image routes through
         // resolveSessionHostPath like file_read/write/edit do — without
         // these, the tool consults the global last-writer-wins

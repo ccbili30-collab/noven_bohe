@@ -16,14 +16,9 @@ class NovexRoleCapabilitiesTest {
             interactiveFictionActive = true, documentsAvailable = true,
             sourceCollectionsAvailable = true, workspaceAvailable = true,
         ).mapTo(linkedSetOf()) { it.name }
-        val character = CharacterCard(id = "c1", name = "艾琳", createdAt = 1, updatedAt = 1)
         assertTrue("novex_propose_content_changes" in available)
         assertTrue("workspace_write" in available)
         assertTrue("register_controls" in available)
-        assertEquals(available, CharacterToolPolicy.allowedToolNames(character, available))
-        assertEquals(available, CharacterToolPolicy.allowedToolNames(
-            character.copy(allowedTools = listOf("shell_execute", "generate_image")), available,
-        ))
         assertFalse("shell_execute" in available)
         assertFalse("generate_image" in available)
         assertFalse("novex_apply_memory_changes" in available)
