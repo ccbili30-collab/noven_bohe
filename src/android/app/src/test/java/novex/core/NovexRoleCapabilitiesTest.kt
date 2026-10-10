@@ -3,7 +3,6 @@ package novex.core
 import com.openminis.app.agent.buildNovexToolWorldSection
 import com.openminis.app.data.character.CharacterCard
 import com.openminis.app.data.character.CharacterSystemPromptComposer
-import com.openminis.app.data.character.CharacterToolPolicy
 import com.openminis.app.tools.AgentTools
 import org.junit.Assert.*
 import org.junit.Test
