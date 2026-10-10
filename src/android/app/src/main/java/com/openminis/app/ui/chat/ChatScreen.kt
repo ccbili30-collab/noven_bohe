@@ -355,6 +355,8 @@ fun ChatScreen(
      *  management screen — wired to the "Edit" button on the model picker's
      *  Model Groups section header. */
     onModelGroupsClick: () -> Unit = {},
+    /** 空会话引导位的说明书入口——跳到设置 → 文档里的分章阅读器。 */
+    onOpenManual: () -> Unit = {},
     /** 侧边对话（2026-09-14 决策 12）：点书签或新建后全屏进入该侧边会话；
      *  调用方负责导航（Routes.chat(sideId)），返回键自然回到主线。 */
     onOpenSideSession: (sessionId: String) -> Unit = {},
@@ -2068,6 +2070,7 @@ fun ChatScreen(
                     scrollToLatestOnce = scrollToLatestOnce,
                     onOpenCreatedCard = onOpenCreatedCard,
                     onPreviewAttachment = onPreviewAttachment,
+                    onOpenManual = onOpenManual,
                 )
 
                 // 浮动工具条哨兵 + 上/下回合 FAB → ChatTranscriptOverlay.kt

@@ -71,6 +71,7 @@ import com.openminis.app.ui.components.openExternalUrl
 import novex.android.ui.NovexSettingsRow
 import novex.android.ui.NovexSettingsScaffold
 import novex.android.ui.NovexSettingsSection
+import novex.android.ui.NovexSettingsVectorRow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +103,7 @@ fun SettingsScreen(
     onAboutClick: () -> Unit = {},
     onFeedbackClick: () -> Unit = {},
     onCreativeLibraryClick: () -> Unit = {},
+    onManualClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     NovexSettingsScaffold(title = stringResource(R.string.settings_title), onBack = onBack) {
@@ -121,6 +123,15 @@ fun SettingsScreen(
                 subtitle = "集中查看对话生成的文档、图片、地图和卡片",
                 showDivider = false,
                 onClick = onCreativeLibraryClick,
+            )
+        }
+        NovexSettingsSection(title = "文档") {
+            NovexSettingsVectorRow(
+                icon = novex.android.ui.NovexIcons.Book,
+                title = "说明书",
+                subtitle = "Novex 全部能力说明，按章阅读；也可以对 AI 说「读说明书教我用 XX」",
+                showDivider = false,
+                onClick = onManualClick,
             )
         }
         NovexSettingsSection(

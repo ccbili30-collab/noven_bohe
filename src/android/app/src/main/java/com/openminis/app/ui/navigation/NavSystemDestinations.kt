@@ -161,6 +161,13 @@ internal fun NavGraphBuilder.registerSystemDestinations(deps: NavDeps) {
             )
         }
 
+        // 说明书（设置 → 文档）：与捆绑技能 novex-manual 同源的分章阅读器。
+        composable(Routes.MANUAL) {
+            com.openminis.app.ui.settings.NovexManualScreen(
+                onBack = { navController.safePopBackStack() },
+            )
+        }
+
         composable(Routes.SKILLS) {
             if (skillRepository != null) {
                 SkillsManagementScreen(
