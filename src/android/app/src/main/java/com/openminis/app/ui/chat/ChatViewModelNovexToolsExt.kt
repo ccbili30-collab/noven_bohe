@@ -632,20 +632,6 @@ internal suspend fun ChatViewModel.routeReadImageResult(base:ToolExecutionResult
     )
 }
 
-/**
- * Mirror of iOS AIChatViewModel post-tool hook (Agent/Chat/AIChatViewModel.swift:5387 / :5408):
- * when the agent writes or edits a SKILL.md inside a `/skills/` directory
- * we ask SkillRepository to re-scan disk so the new skill is visible
- * immediately, without waiting for app restart.
- */
-internal fun ChatViewModel.maybeReloadSkillsForPath(argsJson: String) {
-    runCatching {
-        val path = JSONObject(argsJson).optString("path", "")
-        if (path.contains("/skills/") && path.endsWith("SKILL.md")) {
-            skillRepository?.reloadFromDisk()
-        }
-    }
-}
 
 internal suspend fun ChatViewModel.executeGenerateImageTool(argsJson: String): ToolExecutionResult {
     val args = runCatching { JSONObject(argsJson) }.getOrElse {

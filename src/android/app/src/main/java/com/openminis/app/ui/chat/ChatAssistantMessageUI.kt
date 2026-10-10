@@ -58,7 +58,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import novex.android.data.model.ThinkingLevel
 import com.openminis.app.data.character.effectiveAssistantAvatarPath
 import com.openminis.app.data.character.effectiveAssistantName
 import com.openminis.app.data.character.usesRolePresentation
@@ -230,109 +229,6 @@ private fun LegacyCharacterAssistantBubble(content: @Composable () -> Unit) {
     }
 }
 
-@Composable
-internal fun AssistantMessageView(message: ChatMessage, onRetry: (() -> Unit)? = null) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-    ) {
-        AssistantHeader()
-
-        // Render blocks in original order — text, thinking, and tool calls interleaved
-        // exactly as they arrived in the stream (each assistant turn may contain multiple
-        // text ↔ tool_use transitions, which must be preserved for coherent reading).
-        val toolPillBlocks = message.toolBlocks.filter { it.kind == "tool_use" }
-        val lastThinkingId = message.toolBlocks.lastOrNull { it.kind == "thinking" }?.id
-        // [T-android-thinking-auto-collapse] Mirror the FlatChatItem path's
-        // `isLastBlockOverall` so the legacy renderer's ThinkingBlock also
-        // flips !isStreaming when a sibling block arrives (id of the last
-        // block of ANY kind in the message). See ChatFlatItems builder.
-        val lastBlockIdOverall = message.toolBlocks.lastOrNull()?.id
-        // Backward compat: if there are no text blocks but message.content is non-empty
-        // (e.g. legacy sessions saved before the text-block migration), fall back to
-        // rendering message.content after all tool blocks.
-        val hasAnyTextBlock = message.toolBlocks.any { it.kind == "text" }
-        val lastTextBlockIndex = message.toolBlocks.indexOfLast { it.kind == "text" }
-        message.toolBlocks.forEachIndexed { index, block ->
-            when (block.kind) {
-                "thinking" -> {
-                    // T300: same per-message thinking-level gate as the
-                    // FlatChatItem path. AssistantMessageView is currently
-                    // unreferenced (legacy pre-FlatChatItem code) but the
-                    // gate stays here so any future re-introduction
-                    // doesn't silently bring back the always-render bug.
-                    val effectiveLevel = message.thinkingLevel
-                        ?: novex.android.data.model.ThinkingLevel.MEDIUM
-                    if (effectiveLevel.isEnabled) {
-                        // [T-android-thinking-auto-collapse] Stream signal
-                        // requires THIS block to be the trailing block of
-                        // any kind, not just the last thinking — see
-                        // FlatChatItem path + iOS ThinkingBlockView parity.
-                        val isTrailingThinking = block.id == lastBlockIdOverall
-                        ThinkingBlock(
-                            block,
-                            isStreaming = isTrailingThinking && message.isStreaming,
-                            isLast = block.id == lastThinkingId,
-                        )
-                    }
-                }
-                "info" -> {
-                    FallbackInfoBlock(block)
-                }
-                "text" -> {
-                    if (block.content.isNotEmpty()) {
-                        val isLastTextBlock = index == lastTextBlockIndex
-                        val streaming = message.isStreaming && isLastTextBlock
-                        // T-android-gc-storm-issue17: defensive guard on the legacy
-                        // pre-FlatChatItem path too.
-                        LargeContentGuard(
-                            content = block.content,
-                            isStreaming = streaming,
-                            stableKey = "legacy-text:${message.id}:${block.id}",
-                        ) {
-                            StreamingMarkdownText(
-                                content = block.content,
-                                // Only the trailing text block is "still streaming"; earlier
-                                // text blocks (before a tool call) are frozen.
-                                isStreaming = streaming,
-                            )
-                        }
-                    }
-                }
-                else -> {
-                    // tool_use
-                    ToolCallPill(block, allToolBlocks = toolPillBlocks)
-                }
-            }
-        }
-
-        // Typing indicator when streaming with no content yet (info-only blocks don't count)
-        val hasRealBlocks = message.toolBlocks.any { it.kind != "info" }
-        if (message.isStreaming && message.content.isEmpty() && !hasRealBlocks) {
-            TypingIndicator()
-        }
-
-        // Legacy fallback: render message.content when no text blocks exist (old sessions).
-        if (!hasAnyTextBlock && message.content.isNotEmpty()) {
-            LargeContentGuard(
-                content = message.content,
-                isStreaming = message.isStreaming,
-                stableKey = "legacy-fallback:${message.id}",
-            ) {
-                StreamingMarkdownText(
-                    content = message.content,
-                    isStreaming = message.isStreaming,
-                )
-            }
-        }
-
-        // Inline error banner (iOS: red exclamation + error text + Retry button)
-        if (message.error != null) {
-            InlineErrorBanner(error = message.error, onRetry = onRetry)
-        }
-    }
-}
 
 /**
  * Wraps a per-message LazyColumn item, registering its bounds (in window

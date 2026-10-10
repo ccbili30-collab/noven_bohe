@@ -12,7 +12,6 @@ data class ThinkingContract(
     val kind: Kind,
     val scope: Scope,
     val wireFormat: ThinkingWireFormat?,
-    val reasoningEcho: ReasoningEchoPolicy? = null,
     val label: String,
     val id: String = "",
 ) {

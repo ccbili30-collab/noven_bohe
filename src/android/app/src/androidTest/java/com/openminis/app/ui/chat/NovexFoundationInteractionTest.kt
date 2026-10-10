@@ -8,12 +8,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.openminis.app.MinisApp
 import novex.core.*
-import com.openminis.app.ui.settings.CatalogWorldDetailScreen
 import com.openminis.app.ui.theme.MinisTheme
 import java.io.File
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -40,39 +37,6 @@ class NovexFoundationInteractionTest {
         image.recycle()
     }
 
-    @Test fun worldContentAndRelationsAreSeparateAndEmptyWorldCanStartNovaConversation() {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as MinisApp
-        runBlocking { app.startupCoordinator.awaitMinimum().getOrThrow() }
-        val world = runBlocking { app.novexWorkspace.apply(NovexCommand.CreateWorld("验收世界", "原始世界正文", now = 1)).requireWorld() }
-        var started = false
-        var persona: String? = "unset"
-        try {
-            ui.setContent {
-                MinisTheme(darkTheme = false) {
-                    CatalogWorldDetailScreen(world.id, emptyList(), onBack = {}, onEditWorld = {}, onHelpCreate = {},
-                        onEditPersona = { error("带世界背景对话不得强制创建玩家身份") }, onCreateCharacter = { error("不得强制创建角色") },
-                        onOpenCharacter = {}, onEditCharacterVersion = { _, _ -> }, onOpenSession = {},
-                        onStartWorldNovax = { started = true; persona = it },
-                        onStartCharacterChat = { _, _ -> error("不得默认扮演角色") }, onOpenModule = {})
-                }
-            }
-            ui.waitUntil(15_000) { ui.onAllNodesWithText("原始世界正文").fetchSemanticsNodes().isNotEmpty() }
-            ui.onNodeWithText("玩家身份").assertDoesNotExist()
-            ui.onNodeWithText("导出诺文世界卡").assertDoesNotExist()
-            screenshot("world-content")
-            ui.onNodeWithText("关系与使用").performTouchInput { click() }
-            ui.onNodeWithText("原始世界正文").assertDoesNotExist()
-            ui.onNodeWithText("玩家身份").assertExists()
-            screenshot("world-relations")
-            ui.onNodeWithText("管理", useUnmergedTree = true).performTouchInput { click() }
-            ui.onNodeWithText("导出诺文世界卡").assertExists()
-            ui.onNodeWithText("玩家身份").assertDoesNotExist()
-            ui.onNodeWithText("内容", useUnmergedTree = true).performTouchInput { click() }
-            ui.onNodeWithText("原始世界正文").assertExists()
-            ui.onNodeWithText("开始对话").performTouchInput { click() }
-            ui.runOnIdle { assertTrue(started); assertNull(persona) }
-        } finally { runBlocking { app.novexWorkspace.apply(NovexCommand.DeleteWorld(world.id)) } }
-    }
 
     @Test fun approvalSelectionNeverExecutesUntilExplicitConfirmation() {
         var visible by mutableStateOf(true)

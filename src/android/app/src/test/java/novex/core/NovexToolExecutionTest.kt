@@ -67,8 +67,6 @@ class NovexToolExecutionTest {
         val first = engine()
         val op = operation()
         val effect: suspend () -> ToolExecutionResult = {
-            assertTrue(NovexActiveToolAuthorization.allows("chat"))
-            assertFalse(NovexActiveToolAuthorization.allows("other"))
             calls++; ToolExecutionResult("已保存", true)
         }
         assertFalse(first.execute(op, { NovexExecutionMode.READ_ONLY }, effect = effect).success)
@@ -76,7 +74,6 @@ class NovexToolExecutionTest {
         assertTrue(first.execute(op, { NovexExecutionMode.FREE }, effect = effect).success)
         assertTrue(engine().execute(op, { NovexExecutionMode.FREE }, effect = effect).success)
         assertEquals(1, calls)
-        assertFalse(NovexActiveToolAuthorization.allows("chat"))
     }
 
     @Test fun `approval belongs to exact operation and another conversation remains waiting`() = runBlocking {

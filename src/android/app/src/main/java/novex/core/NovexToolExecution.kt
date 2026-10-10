@@ -187,7 +187,9 @@ class NovexToolExecution(private val journal: NovexOperationJournal) {
                 return execute(operation, mode, readOnlyCause, effect)
             }
             lock.withLock { journal.save(NovexOperationRecord(operation, NovexOperationStatus.RUNNING)) }
-            val result = NovexActiveToolAuthorization.during(operation, mode, effect)
+            // [T-dead-code-sweep] NovexActiveToolAuthorization 授权对象
+            // 无消费方（allows() 仅测试引用）已删除——执行直接落 effect。
+            val result = effect()
             lock.withLock { journal.save(NovexOperationRecord(operation,
                 if (result.success) NovexOperationStatus.SUCCEEDED else NovexOperationStatus.FAILED, result)) }
             return result

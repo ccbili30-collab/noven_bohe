@@ -13,7 +13,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.InteractionSource
@@ -26,7 +25,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -47,8 +45,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.node.DrawModifierNode
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -56,7 +52,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.openminis.app.ui.theme.ChatColors
 import kotlinx.coroutines.launch
-import novex.android.data.model.ThinkingLevel
 import novex.android.ui.NovexIcons
 
 // ─── 附件片 ─────────────────────────────────────────────────────────────────
@@ -333,111 +328,3 @@ internal fun ComposerGlyphButton(
     }
 }
 
-@Composable
-internal fun InputCircleButton(
-    onClick: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(38.dp)
-            .background(ChatColors.inputIconBg, CircleShape)
-            .border(0.5.dp, ChatColors.inputIconBorder, CircleShape)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
-    }
-}
-
-// [P3.3 裁军] MicButton（语音/键盘切换按钮）随语音输入退役删除。
-
-// ─── 思考档位选择器 ──────────────────────────────────────────────────────────
-
-private val ClampOrange = Color(0xFFFF9500)
-
-/**
- * `/thinking` 行右侧的内联分段选择器。对齐 iOS thinkingLevelPicker：
- * 当前档画实色胶囊；存储档超出当前模型上限时钳位高亮最高可用档（橙底
- * + 上箭头），否则按蓝底高亮。
- *
- * [T-android-thinking-level-arch] `availableLevels` 是当前模型实际可达的
- * 档集（OFF + effectiveMaxThinkingLevel 以内），行可横滑让 GPT-5.6 的
- * MAX/ULTRA 不挤爆窄输入栏。
- */
-@Composable
-internal fun ThinkingLevelPicker(
-    current: ThinkingLevel,
-    availableLevels: List<ThinkingLevel>,
-    onSelect: (ThinkingLevel) -> Unit,
-) {
-    val context = LocalContext.current
-    // 钳位态：持久化的档比当前模型能到的还高（如存了 ULTRA 后切到封顶
-    // XHIGH 的 DeepSeek）。此时 current 不在 availableLevels，若无补偿
-    // 整行无选中态像"思考已关"。对齐 iOS：最高可用档橙色高亮+上箭头，
-    // 表达"你的设置更高，这个模型到这里封顶"。
-    val maxAvailable = availableLevels.lastOrNull { it != ThinkingLevel.OFF }
-    val isClamped = current.isEnabled && maxAvailable != null && current.rank > maxAvailable.rank
-
-    Row(
-        modifier = Modifier
-            .background(ChatColors.secondaryText.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
-            .clip(RoundedCornerShape(6.dp))
-            .horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        availableLevels.forEach { level ->
-            val clamped = isClamped && level == maxAvailable
-            ThinkingCapsule(
-                label = level.localizedName(context),
-                selected = level == current,
-                clamped = clamped,
-                // [T-android-thinking-level-arch] 点已高亮的胶囊（选中或钳位
-                // 高亮）= 关思考；否则选所点档。
-                onTap = { onSelect(if (level == current || clamped) ThinkingLevel.OFF else level) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ThinkingCapsule(
-    label: String,
-    selected: Boolean,
-    clamped: Boolean,
-    onTap: () -> Unit,
-) {
-    val highlighted = selected || clamped
-    // [T-android-thinking-picker-ui] 钳位档橙、正常选中蓝（ChatColors.thinking
-    // 主题自适应的 system blue，对齐 iOS Color.blue）。旧实现用
-    // ChatColors.sendButton（浅色黑/深色白），选中态读作未选中。
-    val bg = when {
-        clamped -> ClampOrange.copy(alpha = 0.75f)
-        highlighted -> ChatColors.thinking
-        else -> Color.Transparent
-    }
-    val fg = if (highlighted) Color.White else ChatColors.secondaryText
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .background(bg)
-            .clickable(onClick = onTap)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-    ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Normal,
-            color = fg,
-        )
-        if (clamped) {
-            Icon(
-                imageVector = NovexIcons.KeyboardArrowUp,
-                contentDescription = null,
-                tint = fg,
-                modifier = Modifier.size(12.dp),
-            )
-        }
-    }
-}

@@ -179,21 +179,6 @@ class CharacterPromptComposerTest {
         val available = com.openminis.app.tools.AgentTools.makeAgentTools(
             documentsAvailable = true, workspaceAvailable = true,
         ).mapTo(linkedSetOf()) { it.name }
-        val closed = CharacterCard(id = "closed", name = "艾琳", createdAt = 1, updatedAt = 1)
-        val enabled = closed.copy(
-            id = "enabled",
-            allowedTools = listOf("present_choices", "generate_image", "shell_execute"),
-        )
-
-        assertEquals(
-            available,
-            CharacterToolPolicy.allowedToolNames(closed, available),
-        )
-        assertEquals(
-            available,
-            CharacterToolPolicy.allowedToolNames(enabled, available),
-        )
-        assertEquals(available, CharacterToolPolicy.allowedToolNames(null, available))
         assertFalse("shell_execute" in available)
         assertFalse("generate_image" in available)
     }
