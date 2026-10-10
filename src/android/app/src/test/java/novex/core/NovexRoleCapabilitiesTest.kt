@@ -25,10 +25,18 @@ class NovexRoleCapabilitiesTest {
 
     @Test
     fun `both personas receive the application card creation and source structure protocol`() {
-        // [T-prompt-truth] 指南门控已改按现役目录：makeAgentTools 目录里仍带
-        // novex_* 旧名（legacy 过滤在 ChatViewModel.agentTools），但卡片段只在
-        // 现役名在场时输出——测试集合补齐整合卡工具名才走得到该分支。
-        val tools = AgentTools.makeAgentTools().mapTo(linkedSetOf()) { it.name } +
+        // [T-prompt-truth] 测试集合模拟生产语义：makeAgentTools 目录仍带
+        // novex_* 旧名，legacy 过滤在 ChatViewModel.agentTools 层——角色提示词
+        // 会把整个集合原样列入"本次只允许使用这些工具"，所以必须用同一口径
+        // 扣掉 legacy 名，否则死名会经原样清单泄漏进提示词。
+        val legacy = com.openminis.app.tools.NovexCardFileTools.names +
+            com.openminis.app.tools.NovexManagementTools.definitions().map { it.name } +
+            com.openminis.app.tools.NovexWorldbookTools.names +
+            setOf(com.openminis.app.tools.NovexConversationActionTools.START_GAME,
+                com.openminis.app.tools.NovexConversationActionTools.SELECT_IDENTITY,
+                "end_interactive_fiction")
+        val tools = AgentTools.makeAgentTools().mapTo(linkedSetOf()) { it.name }
+            .filterTo(linkedSetOf()) { it !in legacy } +
             setOf("create_card", "create_card_bulk", "read_card", "read_text_block")
         val role = CharacterCard(id = "c1", name = "艾琳", createdAt = 1, updatedAt = 1)
         val prompts = listOf(
