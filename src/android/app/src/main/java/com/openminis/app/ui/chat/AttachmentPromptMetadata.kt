@@ -75,7 +75,7 @@ internal fun buildUserAttachedFilesPrompt(
                     append(escapeXmlAttribute(meta.documentCardRootId.orEmpty()))
                     append("\" title=\"")
                     append(escapeXmlAttribute(snapshot.title))
-                    append("\">\n附件文档已物化为本会话资料卡：目录常驻，章节按关键词自动出现，也可用读卡工具精确回读。预览：\n")
+                    append("\">\n附件文档已物化为本会话资料卡：目录常驻，章节按关键词自动出现。精确回读用 read_card / read_text_block，其 root_id 与 target_id 均填上方 card 值。预览：\n")
                     append(sanitizeDocumentInline(com.openminis.app.cards.NovexDocumentAttachmentCard.previewText(snapshot)))
                     append("\n</novex-document-card>")
                 }
@@ -98,12 +98,10 @@ private val NOVEX_DOCUMENT_REF_PATTERN = Regex(
 )
 
 /** Recovers capability state from a persisted receipt without trusting arbitrary paths. */
-internal fun novexDocumentRefsInPrompt(prompt: String): Set<String> {
-    if (!prompt.contains("<novex-document-receipts>")) return emptySet()
-    return NOVEX_DOCUMENT_REF_PATTERN.findAll(prompt)
+internal fun novexDocumentRefsInPrompt(prompt: String): Set<String> =
+    NOVEX_DOCUMENT_REF_PATTERN.findAll(prompt)
         .map { match -> match.groupValues[1].lowercase() }
         .toSet()
-}
 
 /** Recovers only validated branch-scoped source collection capabilities. */
 internal fun novexSourceCollectionRefsInPrompt(prompt: String): Set<String> =

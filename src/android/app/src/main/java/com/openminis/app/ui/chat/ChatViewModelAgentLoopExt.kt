@@ -1996,7 +1996,87 @@ internal suspend fun ChatViewModel.executeTool(
     return novexToolExecution.execute(operation, { currentNovexConfiguration().executionMode },
         { if (currentNovexConfiguration().unreadableConfiguration != null) "对话设置数据未能恢复，原数据已保留，暂不能修改"
           else null }) {
-        executeAuthorizedTool(name, argsJson, toolId, toolBlocks, assistantId, currentText, turnMessageId, requestMessageId)
+        executeAuthorizedTool(name, resolveNovexToolArguments(name, argsJson, turnMessageId), toolId, toolBlocks, assistantId, currentText, turnMessageId, requestMessageId)
+    }
+}
+
+/**
+ * [T-alias-resolver] 工具执行前的参数容错解析：把可唯一判定的错抄编号
+ * （全零占位、UUID 段抄坏的工作区引用、latest/占位草稿版本等）在会话范围
+ * 内解析回真实编号。解析不动原样放行；任何失败都不影响工具调用本身。
+ */
+private suspend fun ChatViewModel.resolveNovexToolArguments(name: String, argsJson: String, turnMessageId: String): String {
+    // read_card 不收 draft_version，注入反而触发"未知字段"；其余卡工具都需要。
+    val injectDraft = name in integratedCards.names() && name != "read_card"
+    if (!injectDraft && !com.openminis.app.tools.NovexToolArgResolver.hasResolvableParams(argsJson)) return argsJson
+    return withContext(Dispatchers.IO) {
+        runCatching {
+            val workspaceScope = novex.core.NovexConversationWorkspaceScope(
+                conversationId = activeSessionId,
+                visibleBranchIds = activeBranchPathIds,
+                writeBranchId = turnMessageId,
+            )
+            com.openminis.app.tools.NovexToolArgResolver.resolve(argsJson,
+                injectDraftVersion = injectDraft,
+                scope = com.openminis.app.tools.NovexToolArgResolver.Scope(
+                    scopeRoots = {
+                        integratedCards.resolutionTargets(activeSessionId)
+                            .map { it.first }.distinct()
+                            .map { root ->
+                                com.openminis.app.tools.NovexToolArgResolver.Candidate(
+                                    id = root,
+                                    label = runCatching { integratedCards.store.open(root)?.content?.name }
+                                        .getOrNull()?.takeIf(String::isNotBlank),
+                                )
+                            }
+                    },
+                    scopeTargets = {
+                        integratedCards.resolutionTargets(activeSessionId).map { (root, target, name) ->
+                            com.openminis.app.tools.NovexToolArgResolver.Candidate(id = target, label = name, group = root)
+                        }
+                    },
+                    libraryCards = {
+                        integratedCards.resolutionLibraryCards().map { (id, name) ->
+                            com.openminis.app.tools.NovexToolArgResolver.Candidate(id = id, label = name)
+                        }
+                    },
+                    documents = {
+                        activeNovexDocumentRefs.map { ref ->
+                            com.openminis.app.tools.NovexToolArgResolver.Candidate(
+                                id = ref,
+                                label = runCatching {
+                                    novexDocumentRepository.find(novex.core.NovexResourceRef(ref))?.title
+                                }.getOrNull()?.takeIf(String::isNotBlank),
+                            )
+                        }
+                    },
+                    collections = {
+                        activeNovexSourceCollectionRefs.map {
+                            com.openminis.app.tools.NovexToolArgResolver.Candidate(id = it)
+                        }
+                    },
+                    workspaceRefs = {
+                        runCatching { novexConversationWorkspaceStore.inspect(workspaceScope).entries }
+                            .getOrDefault(emptyList()).map { entry ->
+                                com.openminis.app.tools.NovexToolArgResolver.Candidate(
+                                    id = entry.workspaceRef.value,
+                                    label = entry.workspaceRef.relativePath,
+                                )
+                            }
+                    },
+                    draftToken = { root -> integratedCards.resolutionDraftToken(activeSessionId, root) },
+                    modules = { root, target ->
+                        integratedCards.resolutionModules(root, target).map { (id, name) ->
+                            com.openminis.app.tools.NovexToolArgResolver.Candidate(id = id, label = name)
+                        }
+                    },
+                    blocks = { root, target, module ->
+                        integratedCards.resolutionBlocks(root, target, module).map {
+                            com.openminis.app.tools.NovexToolArgResolver.Candidate(id = it)
+                        }
+                    },
+                ))
+        }.getOrDefault(argsJson)
     }
 }
 
@@ -2117,8 +2197,36 @@ internal suspend fun ChatViewModel.executeAuthorizedTool(
         NovexDocumentToolRouter.DOCUMENT_INSPECT,
         NovexDocumentToolRouter.DOCUMENT_READ,
         -> recordNovexFileRead(novexDocumentAgentTools.execute(name, argsJson), requestMessageId, turnMessageId)
-        NovexLearningToolRouter.LEARNING_PREPARE,
-        NovexLearningToolRouter.LEARNING_START -> novexLearningAgentTools.execute(name, argsJson)
+        NovexLearningToolRouter.LEARNING_PREPARE -> novexLearningAgentTools.execute(name, argsJson)
+        NovexLearningToolRouter.LEARNING_START -> {
+            // [T-learning-consent] 启动通道不再直接执行：模型请求一律落成
+            // 原生确认框（确认后后台跑，进度走非阻断状态条）。计划无效时给
+            // 出明确指引，不让模型盲目重试。
+            val args = runCatching { JSONObject(argsJson) }.getOrNull()
+            val ref = args?.optString("collection_ref").orEmpty()
+            val preflightId = args?.optString("preflight_id").orEmpty()
+            val snapshot = if (ref.isNotBlank() && preflightId.isNotBlank()) {
+                withContext(Dispatchers.IO) {
+                    novexLearningPlans.pending(activeSessionId, NovexResourceRef(ref), preflightId) {
+                        it.value in activeNovexSourceCollectionRefs
+                    }
+                }
+            } else null
+            if (snapshot != null) {
+                _pendingNovexLearningPreflight.value = snapshot
+                ToolExecutionResult(
+                    output = "已请求用户在界面确认这份整理计划。用户确认后任务在后台运行，进度可在资料详情中查看；不要假设笔记已经生成，也不要重复发起启动请求。若用户暂不确认，继续用现有上下文完成当前任务。",
+                    success = true,
+                    toolTitle = "请求确认整理计划",
+                )
+            } else {
+                ToolExecutionResult(
+                    output = "这份整理计划不存在或已失效；资料整理只能由用户在界面确认后启动，模型不能自行开始。如需通读资料，改用 document_read / workspace_read 直接读取，或请用户在资料详情中发起整理。",
+                    success = false,
+                    toolTitle = "资料整理需要用户确认",
+                )
+            }
+        }
         NovexLearningToolRouter.LEARNING_READ -> recordNovexFileRead(novexLearningAgentTools.execute(name, argsJson), requestMessageId, turnMessageId)
         in novex.core.NovexConversationWorkspaceToolRouter.TOOL_NAMES -> {
             val scope = novex.core.NovexConversationWorkspaceScope(

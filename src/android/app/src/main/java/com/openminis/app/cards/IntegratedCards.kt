@@ -129,6 +129,48 @@ class IntegratedCards(context:Context,
             ManagementTarget(root,target)
         }.toSet()
     }.getOrElse{emptySet()}
+    /**
+     * [T-alias-resolver] 参数解析层的范围候选与会话级查询。
+     * 与 execute() 内的可读集合同源：管理范围+会话创建日志+绑定（主/背景）卡，
+     * 含内部角色目标；打不开的根跳过而不是抛错——解析层只服务"能不能对上号"。
+     */
+    fun resolutionTargets(chat:String):List<Triple<String,String,String?>> {
+        val bound=binding(chat)
+        val managed=(bound?.managed?:emptySet())+sessionCreatedTargets(chat)
+        val adopted=bound?.let{listOfNotNull(it.primary)+it.backgrounds}.orEmpty()
+        val pairs=(managed.map{it.rootId to it.targetId}+adopted.map{it.rootId to it.targetId}).distinct()
+        return pairs.flatMap{(rootId,targetId)->
+            val content=runCatching{store.open(rootId)?.content}.getOrNull()?:return@flatMap emptyList()
+            val target=runCatching{ContentTargets.find(content,targetId)}.getOrNull()?:return@flatMap emptyList()
+            (listOf(target.id)+target.internalCharacters.map{it.id}).map{tid->
+                Triple(rootId,tid,target.name.takeIf(String::isNotBlank))
+            }
+        }.distinct()
+    }
+    /** 全库卡候选（应用层 card_id/world_id/subject_id 参数的解析池）。 */
+    fun resolutionLibraryCards():List<Pair<String,String?>> =
+        runCatching{store.list()}.getOrDefault(emptyList()).map{it.id to it.name.takeIf(String::isNotBlank)}
+    /**
+     * 当前版本令牌，与 CardToolReader 的版本语义一致：managed/会话创建范围内
+     * 的卡用草稿版本（无草稿回落 saved），仅背景/主卡读取用 saved:<revision>。
+     */
+    fun resolutionDraftToken(chat:String,rootId:String):String? = runCatching{
+        val bound=binding(chat)
+        val managedRoots=((bound?.managed?:emptySet())+sessionCreatedTargets(chat)).map{it.rootId}.toSet()
+        val draftVersion=if(rootId in managedRoots)CardDrafts(store).read(rootId)?.version else null
+        draftVersion?:store.open(rootId)?.revision?.let{"saved:$it"}
+    }.getOrNull()
+    /** 目标（缺省取根卡）的模块候选：编号+名称。 */
+    fun resolutionModules(rootId:String,targetId:String?):List<Pair<String,String?>> = runCatching{
+        val content=store.open(rootId)?.content?:return emptyList()
+        val target=targetId?.let{runCatching{ContentTargets.find(content,it)}.getOrNull()}?:content
+        target.modules.flattenModules().map{it.id to it.name.takeIf(String::isNotBlank)}
+    }.getOrDefault(emptyList())
+    fun resolutionBlocks(rootId:String,targetId:String?,moduleId:String):List<String> = runCatching{
+        val content=store.open(rootId)?.content?:return emptyList()
+        val target=targetId?.let{runCatching{ContentTargets.find(content,it)}.getOrNull()}?:content
+        target.modules.flattenModules().firstOrNull{it.id==moduleId}?.blocks?.map{it.id}?:emptyList()
+    }.getOrDefault(emptyList())
     fun review(name:String,raw:String):String {
         val args=JSONObject(raw)
         val card=if(args.has("root_id"))runCatching {ContentTargets.find(requireNotNull(store.open(args.getString("root_id"))).content,args.getString("target_id"))}.getOrNull() else null

@@ -417,6 +417,13 @@ fun ChatViewModel.previewLatestNovexLearningResponse() {
     }
 }
 
+/** [T-learning-banner] 收起状态条只隐藏投影，任务继续后台跑——关闭≠暂停。 */
+fun ChatViewModel.hideNovexLearningTask() {
+    val task = _novexLearningTask.value ?: return
+    _novexLearningTaskHidden.value =
+        _novexLearningTaskHidden.value + "${task.collectionRef.value}:${task.preflightId}"
+}
+
 fun ChatViewModel.dismissNovexLearningTaskNotice() {
     val status = _novexLearningTask.value?.status ?: return
     if (status in setOf(
@@ -442,7 +449,13 @@ internal suspend fun ChatViewModel.runNovexLearning(initial: NovexLearningState,
             reviewer = providerNovexLearningReviewer(provider, requireNotNull(initial.task).preflight),
             saveCheckpoint = { checkpoint ->
                 novexLearningRepository.save(checkpoint)
-                binding?.let { projection.publish(checkpoint, it.scope, it.originals) }
+                // [T-publish-degrade] 工作区投影是二级产物：发布失败只降级为
+                // 告警，任务记录已落库、通读照常继续——不能把可恢复的镜像故障
+                // 当成通读失败去暂停任务。
+                binding?.let { value ->
+                    runCatching { projection.publish(checkpoint, value.scope, value.originals) }
+                        .onFailure { Log.w("NovexLearning", "工作区发布失败（任务进度已保存，整理继续）: ${it.message}") }
+                }
                 if (checkpoint.collection.ref.value in activeNovexSourceCollectionRefs) {
                     _novexLearningTask.value = checkpoint.task
                     _novexLearningStatus.value = checkpoint.task?.status
@@ -450,8 +463,12 @@ internal suspend fun ChatViewModel.runNovexLearning(initial: NovexLearningState,
             },
         )
         runner.run(initial)
-        binding?.let { com.openminis.app.data.creative.WorkspaceCreativeArtifactBridge(novexConversationWorkspaceStore,
-            novexApplication().creativeArtifactRepository).reconcile(it.scope) }
+        binding?.let { value ->
+            runCatching {
+                com.openminis.app.data.creative.WorkspaceCreativeArtifactBridge(novexConversationWorkspaceStore,
+                    novexApplication().creativeArtifactRepository).reconcile(value.scope)
+            }.onFailure { Log.w("NovexLearning", "成果登记同步失败（任务已完成，可在资料详情重试）: ${it.message}") }
+        }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (failure: Exception) {

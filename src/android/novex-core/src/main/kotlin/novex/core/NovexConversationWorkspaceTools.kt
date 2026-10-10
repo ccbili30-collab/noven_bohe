@@ -48,7 +48,13 @@ data class NovexWorkspaceEditRequest(
     val replacement: String,
 ) {
     init {
-        require(expectedSha256.matches(Regex("[0-9a-fA-F]{64}"))) { "编辑前校验值必须是 SHA-256" }
+        // [T-lenient-sha] 弱模型复述 64 位校验值不可靠：接受 "latest"（对当前
+        // 文件直接执行）或 ≥8 位前缀，实际比对在 workspaceEdit 内对现值做。
+        // 并发保护语义不变——前缀不匹配或文件已变仍走冲突分支。
+        require(
+            expectedSha256.equals("latest", ignoreCase = true) ||
+                expectedSha256.matches(Regex("[0-9a-fA-F]{8,64}")),
+        ) { "编辑前校验值必须是 SHA-256（可用 latest 或前 8 位以上前缀）" }
         require(startChar >= 0 && endChar >= startChar) { "编辑字符范围无效" }
     }
 }
@@ -249,7 +255,11 @@ class NovexConversationWorkspaceTools(
                 affectedRefs = listOfNotNull(entry.workspaceRef.asResourceRef(), entry.artifactRef),
             )
         }
-        if (!entry.sha256.equals(request.expectedSha256, ignoreCase = true)) {
+        // [T-lenient-sha] latest 表示"对当前文件直接改"；前缀命中即视为同一
+        // 版本（模型只抄得动前几位），失配仍走原冲突路径。
+        val shaMatches = request.expectedSha256.equals("latest", ignoreCase = true) ||
+            entry.sha256.startsWith(request.expectedSha256, ignoreCase = true)
+        if (!shaMatches) {
             return editConflict(entry)
         }
         return runCatching {

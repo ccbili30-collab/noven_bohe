@@ -250,6 +250,10 @@ class ChatCompletionCall(private val endpoint: ModelEndpoint,private val timeout
             return decode(response)
         } catch(failure:SocketTimeoutException) { return if(cancelled.get()) ModelResult.Cancelled else ModelResult.TimedOut
         } catch(failure:java.io.IOException) { return if(cancelled.get()) ModelResult.Cancelled else ModelResult.NetworkFailure
+        // [T-cancel-race] JDK 竞态：cancel() 的 disconnect() 与 getResponseCode()/
+        // inputStream 并发时 HttpURLConnection 内部会抛 NPE 而非 IOException——
+        // 已取消时按 Cancelled 收敛；未取消的运行时异常仍原样抛出。
+        } catch(failure:RuntimeException) { if(cancelled.get()) return ModelResult.Cancelled; throw failure
         } finally { active=null;connection?.disconnect() }
     }
 
@@ -316,6 +320,7 @@ class ChatCompletionCall(private val endpoint: ModelEndpoint,private val timeout
             }
         } catch(failure:SocketTimeoutException) { return if(cancelled.get()) StreamResult.Cancelled else StreamResult.TimedOut
         } catch(failure:java.io.IOException) { return if(cancelled.get()) StreamResult.Cancelled else StreamResult.NetworkFailure
+        } catch(failure:RuntimeException) { if(cancelled.get()) return StreamResult.Cancelled; throw failure
         } finally { active=null;connection?.disconnect() }
     }
 

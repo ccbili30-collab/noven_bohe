@@ -1146,6 +1146,13 @@ class ChatViewModel(
     val novexLearningStatus: StateFlow<NovexLearningTaskStatus?> = _novexLearningStatus.asStateFlow()
     internal val _novexLearningTask = MutableStateFlow<NovexLearningTaskState?>(null)
     val novexLearningTask: StateFlow<NovexLearningTaskState?> = _novexLearningTask.asStateFlow()
+    /**
+     * [T-learning-banner] 用户收起过的执行中任务 key（collectionRef:preflightId）。
+     * 只控制状态条显隐，不触碰任务本身——收起≠暂停；非执行态（暂停/终态/
+     * 待决策）不受隐藏影响，仍会提示。
+     */
+    internal val _novexLearningTaskHidden = MutableStateFlow<Set<String>>(emptySet())
+    val novexLearningTaskHidden: StateFlow<Set<String>> = _novexLearningTaskHidden.asStateFlow()
     internal val _novexLearningError = MutableStateFlow<String?>(null)
     val novexLearningError: StateFlow<String?> = _novexLearningError.asStateFlow()
     internal val _novexLearningResponsePreview = MutableStateFlow<String?>(null)
@@ -4178,7 +4185,21 @@ class ChatViewModel(
                     ),
                 )
             },
-        )
+        ).let { merged ->
+            // [T-binding-preserve] cardBindingJson 由卡工具运行时维护、设置表单
+            // 不管辖；空白重建或旧快照提交都可能不带它——落盘前把运行时绑定
+            // 补回，避免保存一次设置就丢掉整份卡片关联。
+            val incoming = runCatching {
+                novex.core.NovexConversationConfigurationCodec.decode(merged.novexConfigurationJson, activeSessionId)
+            }.getOrNull()
+            val current = currentNovexConfiguration().cardBindingJson
+            // 不可读配置持有原文快照（unreadableConfiguration），绝不能重编码丢原文。
+            if (incoming != null && incoming.unreadableConfiguration == null &&
+                incoming.cardBindingJson == null && current != null) {
+                merged.copy(novexConfigurationJson = novex.core.NovexConversationConfigurationCodec.encode(
+                    incoming.copy(cardBindingJson = current)))
+            } else merged
+        }
         // [净眼 P3-1 同款纪律] 不得在 update 前同步置位内存态——update 的
         // before=current() 会读到已改的新值使 committed==before 短路跳过
         // 落盘（内存有 DB 无，重启即丢：每轮注入/文风只改快照字段时必中）。
