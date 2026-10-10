@@ -25,7 +25,11 @@ class NovexRoleCapabilitiesTest {
 
     @Test
     fun `both personas receive the application card creation and source structure protocol`() {
-        val tools = AgentTools.makeAgentTools().mapTo(linkedSetOf()) { it.name }
+        // [T-prompt-truth] 指南门控已改按现役目录：makeAgentTools 目录里仍带
+        // novex_* 旧名（legacy 过滤在 ChatViewModel.agentTools），但卡片段只在
+        // 现役名在场时输出——测试集合补齐整合卡工具名才走得到该分支。
+        val tools = AgentTools.makeAgentTools().mapTo(linkedSetOf()) { it.name } +
+            setOf("create_card", "create_card_bulk", "read_card", "read_text_block")
         val role = CharacterCard(id = "c1", name = "艾琳", createdAt = 1, updatedAt = 1)
         val prompts = listOf(
             buildNovexToolWorldSection("session", "", tools),
@@ -36,9 +40,10 @@ class NovexRoleCapabilitiesTest {
             assertTrue(prompt.contains("章节、主题与条目"))
             assertTrue(prompt.contains("外部卡原文导入可以保留一个完整原文模块并直接使用"))
             assertFalse(prompt.contains("不得把整份资料塞进一个模块"))
-            assertTrue(prompt.contains("novex_update_card"))
+            assertTrue(prompt.contains("create_card_bulk"))
             assertTrue(prompt.contains("点击确认执行才提交本次"))
-            assertTrue(prompt.contains("content_example"))
+            assertFalse(prompt.contains("novex_update_card"))
+            assertFalse(prompt.contains("content_example"))
             assertTrue(prompt.contains("保存后重新读取"))
         }
     }
