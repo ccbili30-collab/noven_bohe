@@ -253,4 +253,58 @@ class InteractiveFictionRuntimeTest {
         source = source,
         actionKey = id,
     )
+
+    @Test
+    fun artifactDefsFollowTheActiveBranchAndDeepestRegistrationWins() {
+        var config = NovexConversationConfiguration.empty("chat-1").snapshot
+        config = ConversationArtifactRegistration.registerDefs(
+            config, listOf(artifactDef("panel", template = "v1", branchId = "reply-a")),
+        )
+        // 同 id 在更深的后代分支上覆盖——"改"就是靠后的分支再注册一次。
+        config = ConversationArtifactRegistration.registerDefs(
+            config, listOf(artifactDef("panel", template = "v2", branchId = "reply-a-child")),
+        )
+        // 兄弟分支上的注册互不见面。
+        config = ConversationArtifactRegistration.registerDefs(
+            config, listOf(artifactDef("other", template = "x", branchId = "reply-b")),
+        )
+
+        val onA = InteractiveFictionRuntime.resolveArtifactDefs(
+            config, listOf("user", "reply-a", "user-2", "reply-a-child"),
+        )
+        assertEquals("v2", onA.single { it.id == "panel" }.template)
+        assertEquals(setOf("panel"), onA.map { it.id }.toSet())
+
+        // 切回旧分支：v2 不在路径上，v1 仍生效——分支级模板版本。
+        val onOldA = InteractiveFictionRuntime.resolveArtifactDefs(config, listOf("user", "reply-a"))
+        assertEquals("v1", onOldA.single().template)
+
+        // 重试分叉后的新分支：分叉点之前的注册跟随，兄弟 reply-b 的不在。
+        val onRetry = InteractiveFictionRuntime.resolveArtifactDefs(
+            config, listOf("user", "reply-a", "user-2", "reply-a-retry"),
+        )
+        assertEquals("v1", onRetry.single().template)
+    }
+
+    @Test
+    fun artifactDefRegistrationReplacesSameBranchUpsert() {
+        var config = NovexConversationConfiguration.empty("chat-1").snapshot
+        config = ConversationArtifactRegistration.registerDefs(
+            config, listOf(artifactDef("panel", template = "v1", branchId = "reply-a")),
+        )
+        config = ConversationArtifactRegistration.registerDefs(
+            config, listOf(artifactDef("panel", template = "v1-fix", branchId = "reply-a")),
+        )
+        assertEquals(1, config.artifactDefs.size)
+        assertEquals("v1-fix", config.artifactDefs.single().template)
+    }
+
+    private fun artifactDef(
+        id: String,
+        template: String,
+        branchId: String,
+        kind: String = "html",
+    ) = ConversationArtifactDefinition(
+        id = id, kind = kind, template = template, branchId = branchId,
+    )
 }

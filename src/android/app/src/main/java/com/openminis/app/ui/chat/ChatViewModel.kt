@@ -919,6 +919,10 @@ class ChatViewModel(
     internal val _forceScrollToBottom = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val forceScrollToBottom: SharedFlow<Unit> = _forceScrollToBottom.asSharedFlow()
 
+    /** 分支切换后的视口锚：要停在视野里的消息行 id（见 BranchAnchorNavigation）。 */
+    internal val _transcriptAnchorMessageId = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val transcriptAnchorMessageId: SharedFlow<String> = _transcriptAnchorMessageId.asSharedFlow()
+
     /**
      * Identity of the user row that was just accepted into the visible
      * transcript. The screen waits for this exact row to be flattened before
@@ -4974,14 +4978,59 @@ class ChatViewModel(
     }
 
     /** [feat/ui-rikkahub] Retry the turn that produced an assistant reply —
-     * walks back to the reply's preceding user message and retries from
-     * there, so the old reply stays as a sibling branch. */
+     * resolves the request through the persisted parent chain, so the old
+     * reply stays as a sibling branch. */
     fun retryFromAssistantMessage(assistantMessageId: String) {
         val messages = _messages.value
         val index = messages.indexOfFirst { it.id == assistantMessageId }
         if (index < 0) return
-        val userId = messages.subList(0, index).lastOrNull { it.role == "user" }?.id ?: return
-        retryFromMessage(userId)
+        viewModelScope.launch {
+            // 靶点走 DB 父链：被按回复的行沿 parent_message_id 回溯到真正的
+            // 用户请求行——扫可见列表会被隐藏的 toolResult 行与分支导航后的
+            // 尾巴状态带偏（对话包实测：尾部重试错挂回开局回合）。
+            val userId = resolveTurnRequestRowId(assistantMessageId, messages)
+                ?: messages.subList(0, index).lastOrNull { it.role == "user" }?.id
+            userId?.let { retryFromMessage(it) }
+        }
+    }
+
+    /** 沿持久化父链定位生成该回复的用户请求行：跳过 toolResult 等不可见行。 */
+    private suspend fun resolveTurnRequestRowId(
+        assistantMessageId: String,
+        messages: List<ChatMessage>,
+    ): String? {
+        // 合并气泡的 id 是末行行 id，sourceDbIds 带全部来源行——从最深处
+        // 逐一起点回溯，命中第一个真实用户请求行即停。
+        val startIds = (messages.firstOrNull { it.id == assistantMessageId }
+            ?.sourceDbIds.orEmpty().asReversed() + assistantMessageId).distinct()
+        for (startId in startIds) {
+            var row = withContext(Dispatchers.IO) { chatRepository.findMessageById(startId) }
+            var hops = 0
+            while (row != null && hops < 64) {
+                if (isPersistedUserRequest(row)) return row.id
+                val parentId = row.parentMessageId ?: break
+                row = withContext(Dispatchers.IO) { chatRepository.findMessageById(parentId) }
+                hops++
+            }
+        }
+        return null
+    }
+
+    /** 持久化行是"真实用户请求"还是工具回路行：role=user 且带可见内容。 */
+    private fun isPersistedUserRequest(row: novex.android.data.chat.MessageRow): Boolean {
+        if (row.role != "user") return false
+        val parts = runCatching { org.json.JSONArray(row.partsJson) }.getOrNull() ?: return false
+        for (i in 0 until parts.length()) {
+            val part = parts.optJSONObject(i) ?: continue
+            when (part.optString("type")) {
+                "toolResult", "toolUse", "uiToolUse" -> continue
+                "text" -> {
+                    if (stripSystemReminders(part.optString("value")).isNotBlank()) return true
+                }
+                else -> return true // mediaRef 等真实附件
+            }
+        }
+        return false
     }
 
     /** Retry from a user turn by retaining its existing reply as a sibling. */
@@ -5072,11 +5121,22 @@ class ChatViewModel(
             conversationBranchMutex.lock()
             try {
                 withContext(Dispatchers.IO) { novexLearningSession.pauseActive() }
+                // 切换前记住被切行的父行——切后用同槽位的新行做视口锚。
+                val oldParentId = withContext(Dispatchers.IO) {
+                    chatRepository.findMessageById(messageId)?.parentMessageId
+                }
                 val conversation = withContext(Dispatchers.IO) {
                     chatRepository.switchMessageSibling(sid, messageId, delta)
                 }
                 installActiveConversation(conversation)
                 _canResume.value = false
+                // 视口锚：落在同槽位的新兄弟行上（父行兜底）——尾巴整个换掉
+                // 时按 index 兜底会把用户甩到列表尾（对话包实测"切换后跳到
+                // 最新位置"）；锚回切换点才符合直觉。
+                _transcriptAnchorMessageId.tryEmit(
+                    conversation.activeMessages.firstOrNull { it.parentMessageId == oldParentId }?.id
+                        ?: oldParentId ?: messageId,
+                )
             } catch (error: Exception) {
                 AppLogger.error(
                     TAG_STREAM,
@@ -5108,6 +5168,12 @@ class ChatViewModel(
                 }
                 installActiveConversation(conversation)
                 _canResume.value = false
+                // 视口锚：新进路径的子行——用户在叶子位点了"后续分支"，视野
+                // 跟着新内容而不是被甩到列表尾；无子行时锚住父行不动。
+                _transcriptAnchorMessageId.tryEmit(
+                    conversation.activeMessages.firstOrNull { it.parentMessageId == parentId }?.id
+                        ?: parentId,
+                )
             } catch (error: Exception) {
                 AppLogger.error(
                     TAG_STREAM,

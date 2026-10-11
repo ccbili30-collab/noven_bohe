@@ -394,7 +394,39 @@ internal suspend fun ChatViewModel.persistAssistantTurn(
     )
     recordActiveBranchMessage(entity.id)
     applyMvuStateFromParts(parts, messageId)
+    registerArtifactDefsFromParts(parts, messageId)
     return entity.id
+}
+
+/**
+ * ```novex-def 的真持久层：助手回合落库时把正文里的 def 围栏抽进会话
+ * 注册表（branchId = 本回复消息 id）。注册失败安静跳过，不打断持久化——
+ * 消息扫描层仍能在本轮渲染出这件，只是不持久。
+ */
+private suspend fun ChatViewModel.registerArtifactDefsFromParts(parts: List<AgentContentPart>, messageId: String) {
+    val defs = parts.filterIsInstance<AgentContentPart.Text>()
+        .flatMap { collectDefsFromText(it.text) }
+    if (defs.isEmpty()) return
+    runCatching {
+        novexSettingsStore.update { configuration ->
+            novex.core.ConversationArtifactRegistration.registerDefs(
+                configuration,
+                defs.map { def ->
+                    novex.core.ConversationArtifactDefinition(
+                        id = def.id,
+                        kind = def.kind,
+                        template = def.template,
+                        name = def.name,
+                        marker = def.marker,
+                        autoMarker = def.autoMarker,
+                        tavernCompat = def.tavernCompat,
+                        fullscreen = def.fullscreen,
+                        branchId = messageId,
+                    )
+                },
+            )
+        }
+    }
 }
 
 /**

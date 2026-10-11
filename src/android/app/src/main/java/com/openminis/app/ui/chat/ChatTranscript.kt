@@ -1090,6 +1090,38 @@ internal fun rememberTranscriptRows(
                         Int.MAX_VALUE / 4,
                     )
                 }
+                // 分支切换视口锚：ViewModel 在切换后发来要停驻的行 id（同槽位
+                // 新行/新进子行）。列表重建后滚回它——不锚的话 LazyColumn 按
+                // index 兜底把用户甩到新尾巴（"切换后跳到最新位置"）。
+                var branchAnchorNavigation by remember(sessionId) {
+                    mutableStateOf(BranchAnchorNavigation())
+                }
+                LaunchedEffect(sessionId) {
+                    viewModel.transcriptAnchorMessageId.collect { anchorId ->
+                        branchAnchorNavigation = branchAnchorNavigation.awaiting(
+                            anchorId, System.currentTimeMillis(),
+                        )
+                    }
+                }
+                LaunchedEffect(flatItems, hasOlderMessages, branchAnchorNavigation.pendingAnchorMessageId) {
+                    val (flatIndex, nextState) = branchAnchorNavigation.resolve(
+                        transcriptRowsForLayout(flatItems), System.currentTimeMillis(),
+                    )
+                    branchAnchorNavigation = nextState
+                    val targetIndex = flatIndex ?: return@LaunchedEffect
+                    val dragBeforeFrame = lastUserDragAtMs
+                    withFrameNanos { }
+                    if (lastUserDragAtMs != dragBeforeFrame) return@LaunchedEffect
+                    // 锚点行已在视野内就不动——用户切换时看到什么就留在什么。
+                    val anchorKey = transcriptRowsForLayout(flatItems).getOrNull(targetIndex)?.key
+                        ?: return@LaunchedEffect
+                    if (listState.layoutInfo.visibleItemsInfo.any { it.key == anchorKey }) return@LaunchedEffect
+                    tracedScrollToItem(
+                        "branch-switch-anchor",
+                        targetIndex + if (hasOlderMessages) 1 else 0,
+                        Int.MAX_VALUE / 4,
+                    )
+                }
                 LaunchedEffect(listState, transcriptFollowState.isFollowingLatest) {
                     if (!transcriptFollowState.isFollowingLatest) return@LaunchedEffect
                     snapshotFlow {

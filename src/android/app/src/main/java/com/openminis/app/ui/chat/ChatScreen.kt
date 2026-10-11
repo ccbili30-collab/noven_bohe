@@ -1656,13 +1656,35 @@ fun ChatScreen(
         }
     }
 
-    // 前端件场景：从转录消息里扫 ```novex-def 围栏建注册表（解析在后台
-    // 线程，经 CompositionLocal 供消息流内 use 块就地投影——件总在它写
-    // 的位置渲染，不再有顶/底钉位）。卡预铺 defs 在前，消息内同名 def
-    // 可覆盖（运行中重新注册即生效）。
-    val novexArtifactScene by produceState(NovexArtifactScene.EMPTY, transcriptMessages, cardArtifactDefs) {
+    // 前端件场景三层：卡预铺 defs → 会话注册表（真持久层，按活动路径解析，
+    // 重试/编辑分叉后祖先注册仍在）→ 消息内 def（最新覆盖，含在飞的流式
+    // 回复）。注册表为空的旧会话行为与改造前完全一致。
+    val configurationJson by viewModel.novexConfigurationJson.collectAsState()
+    val registryArtifactDefs = remember(configurationJson, transcriptMessages) {
+        val configuration = runCatching {
+            novex.core.NovexConversationConfigurationCodec.decode(configurationJson, sessionId)
+        }.getOrNull() ?: return@remember emptyMap<String, NovexArtifactDef>()
+        // 合并气泡只有末行 id——中间迭代行注册的 def 靠 sourceDbIds 展开才
+        // 在路径上（def 的 branchId = 注册行的 DB id）。
+        val pathIds = transcriptMessages.flatMap { it.sourceDbIds.ifEmpty { listOf(it.id) } }
+        novex.core.InteractiveFictionRuntime.resolveArtifactDefs(configuration, pathIds)
+            .associate { def ->
+                def.id to NovexArtifactDef(
+                    id = def.id,
+                    kind = def.kind,
+                    name = def.name,
+                    defaultSlot = null,
+                    template = def.template,
+                    marker = def.marker,
+                    autoMarker = def.autoMarker,
+                    tavernCompat = def.tavernCompat,
+                    fullscreen = def.fullscreen,
+                )
+            }
+    }
+    val novexArtifactScene by produceState(NovexArtifactScene.EMPTY, transcriptMessages, cardArtifactDefs, registryArtifactDefs) {
         value = withContext(Dispatchers.Default) {
-            collectNovexArtifactScene(transcriptMessages, seedDefs = cardArtifactDefs)
+            collectNovexArtifactScene(transcriptMessages, seedDefs = cardArtifactDefs + registryArtifactDefs)
         }
     }
 

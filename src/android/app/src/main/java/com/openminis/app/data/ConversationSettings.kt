@@ -78,6 +78,29 @@ fun perTurnInjectionContent(perTurnPrompt: String?): String? {
     return "<每轮注入>\n（用户保存的常设指令，每轮生效，优先于系统默认习惯与世界模板未明确规定的部分。）\n$text\n</每轮注入>"
 }
 
+/** 注册表摘要注入的行数/展示名上限——注册表可能带几十件，提示词只给索引。 */
+private const val MAX_ARTIFACT_REGISTRY_INJECTION_ITEMS = 16
+private const val MAX_ARTIFACT_REGISTRY_NAME_CHARS = 40
+
+/**
+ * 已注册前端件清单（持久注册表沿活动路径解析后的视图）。模型必须看得见
+ * 注册表才会发 novex-use 引用，而不是每轮重新发明一套模板——注册件只报
+ * 索引（id+名字+类型），模板本体不注入。
+ */
+fun artifactRegistryInjectionContent(
+    defs: List<novex.core.ConversationArtifactDefinition>,
+): String? {
+    if (defs.isEmpty()) return null
+    val lines = defs.take(MAX_ARTIFACT_REGISTRY_INJECTION_ITEMS).joinToString("\n") { def ->
+        val label = def.name?.take(MAX_ARTIFACT_REGISTRY_NAME_CHARS)?.let { "（$it）" }.orEmpty()
+        "- ${def.id}$label · ${def.kind}"
+    }
+    val overflow = if (defs.size > MAX_ARTIFACT_REGISTRY_INJECTION_ITEMS) {
+        "\n- ……另有 ${defs.size - MAX_ARTIFACT_REGISTRY_INJECTION_ITEMS} 件"
+    } else ""
+    return "<已注册前端件>\n（这些界面模板已注册、随会话持久化；更新其内容只需发 ```novex-use 数据块按 id 引用，不要重新写 ```novex-def，想改模板时才用同 id 再 def 覆盖。）\n$lines$overflow\n</已注册前端件>"
+}
+
 /**
  * Appends the per-turn instruction to the LAST user message of the request copy —
  * post-history placement keeps it close to the newest turn without a separate
@@ -151,6 +174,7 @@ fun appendRuntimeInjections(
     ledgerEnabled: Boolean,
     diceRolls: List<Int>,
     textStylePrompt: String? = null,
+    artifactDefs: List<novex.core.ConversationArtifactDefinition> = emptyList(),
 ): List<LLMMessage> {
     val blocks = buildList {
         if (diceEnabled || ledgerEnabled) {
@@ -158,6 +182,7 @@ fun appendRuntimeInjections(
         }
         if (diceEnabled) add(diceInjectionContent(diceRolls))
         add(textStyleInjectionContent(textStylePrompt))
+        add(artifactRegistryInjectionContent(artifactDefs))
         add(perTurnInjectionContent(perTurnPrompt))
     }
     return appendInjectionBlocks(history, blocks.filterNotNull())

@@ -33,6 +33,7 @@ object NovexConversationConfigurationCodec {
         }))
         put("playthroughStates", JSONArray(snapshot.playthroughStates.values.map(PlaythroughState::toJson)))
         put("controls", JSONArray(snapshot.controls.map(ConversationControlDefinition::toJson)))
+        put("artifactDefs", JSONArray(snapshot.artifactDefs.map(ConversationArtifactDefinition::toJson)))
     }.toString()
 
     fun decode(raw: String?, conversationId: String): NovexConversationConfigurationSnapshot {
@@ -94,6 +95,9 @@ object NovexConversationConfigurationCodec {
                     .map(JSONObject::toPlaythroughState)
                     .associateBy(PlaythroughState::branchId),
                 controls = root.optJSONArray("controls").objects().map(JSONObject::toControl),
+                artifactDefs = root.optJSONArray("artifactDefs").objects().mapNotNull { value ->
+                    runCatching { value.toArtifactDef() }.getOrNull()
+                },
             )
             NovexConversationConfiguration.open(
                 snapshot.copy(conversationId = conversationId),
@@ -227,6 +231,29 @@ private fun JSONObject.toControl() = ConversationControlDefinition(
     payloadJson = optString("payloadJson", "{}"),
     enabled = optBoolean("enabled", true),
     branchId = optString("branchId").ifBlank { null },
+)
+
+private fun ConversationArtifactDefinition.toJson() = JSONObject()
+    .put("id", id)
+    .put("kind", kind)
+    .put("template", template)
+    .put("name", name)
+    .put("marker", marker)
+    .put("autoMarker", autoMarker)
+    .put("tavernCompat", tavernCompat)
+    .put("fullscreen", fullscreen)
+    .put("branchId", branchId)
+
+private fun JSONObject.toArtifactDef() = ConversationArtifactDefinition(
+    id = getString("id"),
+    kind = optString("kind").trim().lowercase().ifEmpty { "html" },
+    template = optString("template"),
+    name = optString("name").trim().ifBlank { null },
+    marker = optString("marker").trim().ifBlank { null },
+    autoMarker = optBoolean("autoMarker", false),
+    tavernCompat = optBoolean("tavernCompat", false),
+    fullscreen = optBoolean("fullscreen", false),
+    branchId = getString("branchId"),
 )
 
 private fun JSONArray?.objects(): List<JSONObject> = if (this == null) {

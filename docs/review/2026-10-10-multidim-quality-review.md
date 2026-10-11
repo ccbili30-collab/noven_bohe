@@ -19,7 +19,8 @@
 
 ## 1. P0（4 条）
 
-### P0-1｜D1 安全｜Codex OAuth 令牌明文进日志，且可随崩溃分享流出设备【亲验】
+### P0-1｜D1 安全｜Codex OAuth 令牌明文进日志，且可随崩溃分享流出设备【亲验】【已降级为潜伏项，见补记】
+> **复核补记（2026-10-10，产品方指出后亲验）**：产品当前不提供 OAuth 登录入口——`startBrowserLogin`/`exchangeCode` 在全部主源码零调用点（不只 Codex，五家登录流的浏览器入口一起无入口）；authkit 存活面仅剩 `isAuthenticated`/`validAccessToken`/`logout` 与导入导出，token 只能经 provider JSON 导入或手工 bearer 进入。裸日志位于 exchange 函数，刷新路径走基类 `sanitizeBody` 脱敏，不会被现存路径触达。**定性由「活体泄露」改为「死机械里的地雷」**：一旦未来接回登录入口（或有人复用 CodexLoginFlow 的客户端代码）即激活。处置建议相应改为二选一拍板：产品不再要 OAuth 登录 → 连同五家登录流一起退役入账（保留 vault/刷新/导出）；还要 → 先修脱敏再留。P0 实存数由此为 3+1。
 - 现象：token 交换成功时把响应体前 500 字符原样写进 RunLog（含完整 `access_token`/`refresh_token`/`id_token`）。
 - 证据：`app/src/main/java/novex/android/authkit/CodexLoginFlow.kt:208-211`（`body[0..500]=${responseBody.take(500)}`）；`:214` 异常消息同样带原始 responseBody。泄露链三段：`logkit/RunLog.kt:161-172`（无条件进 logcat + 开关开启时落 `filesDir/logs/minis-*.log`）→ `crashguard/CrashShareFlow.kt:179-203`（近 3 天日志列为可勾选分享项）→ `:306-321`（zip 经 FileProvider 外发）。
 - 根因：`OAuthWire.redactForLog`（`OAuthWire.kt:35-40`）已为此而生，但 Codex 线新建 `proxyAwareClient` 绕开统一纪律，顺手绕开了脱敏；无人强制成功路径走它。

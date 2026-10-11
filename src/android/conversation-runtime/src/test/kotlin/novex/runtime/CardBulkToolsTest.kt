@@ -103,4 +103,16 @@ class CardBulkToolsTest {
         assertEquals(listOf("文游规则"), keywords.words)
         assertEquals(true, keywords.caseSensitive)
     }
+
+    /** 对话包实测回归：规范值 "automatic" 曾被子串替换改成 "automaticmatic"
+     *  后拒执——read_card 回显与 schema 教的都是这个字面值，模型照填必炸。 */
+    @Test fun ruleLenientAcceptsCanonicalAutomatic() {
+        assertEquals(null, ModuleOptionsProtocol.decodeLenient("""{"kind":"automatic"}"""))
+        assertEquals(null, ModuleOptionsProtocol.decodeLenient("""{"kind":"Automatic"}"""))
+        assertEquals(null, ModuleOptionsProtocol.decodeLenient("""{"kind":"auto"}"""))
+        assertEquals(ModuleUse.Manual, ModuleOptionsProtocol.decodeLenient("""{"kind":"manual"}"""))
+        assertEquals(ModuleUse.Always, ModuleOptionsProtocol.decodeLenient("""{"kind":"always_carry"}"""))
+        runCatching { ModuleOptionsProtocol.decodeLenient("""{"kind":"per_turn"}""") }
+            .onSuccess { error("per_turn 是 routing 不是 kind，必须拒") }
+    }
 }
