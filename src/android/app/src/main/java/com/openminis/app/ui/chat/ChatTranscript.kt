@@ -270,6 +270,7 @@ internal fun ChatTranscript(
     scrollToLatestOnce: suspend (TranscriptViewportMove) -> Unit,
     onOpenCreatedCard: (String, String) -> Unit,
     onPreviewAttachment: (com.openminis.app.ui.sandbox.FileItem) -> Unit,
+    onOpenManual: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -734,6 +735,17 @@ internal fun ChatTranscript(
                                     textAlign = TextAlign.Center,
                                 )
                             }
+                            Spacer(Modifier.height(20.dp))
+                            Text(
+                                text = "先看看能做什么 · 说明书 →",
+                                color = ChatColors.link,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(onClick = onOpenManual)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            )
                         }
                     }
                 }

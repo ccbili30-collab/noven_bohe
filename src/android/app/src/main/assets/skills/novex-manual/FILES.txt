@@ -1,3 +1,14 @@
 # Novex 说明书 —— Novex 内置技能
 SKILL.md
+quickstart.md
 whats-new.md
+chat-reply.md
+islands.md
+frontend-widgets.md
+skins.md
+cards.md
+workspace-and-import.md
+identity.md
+web.md
+skills.md
+troubleshooting.md

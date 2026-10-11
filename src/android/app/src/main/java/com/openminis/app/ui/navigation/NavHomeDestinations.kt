@@ -177,6 +177,9 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 onSettings = {
                     navController.safeNavigate(Routes.conversationSettings(sessionId))
                 },
+                onOpenManual = {
+                    navController.safeNavigate(Routes.MANUAL)
+                },
                 // 侧边对话（2026-09-14 决策 12）：书签点按/新建后全屏进入该侧边
                 // 会话（复用同一个 Chat 界面），返回键自然回到主线。
                 onOpenSideSession = { sideId ->
@@ -271,6 +274,7 @@ internal fun NavGraphBuilder.registerHomeDestinations(deps: NavDeps) {
                 onImageGenerationClick = { navController.safeNavigate(Routes.IMAGE_GENERATION_SETTINGS) },
                 onWebAccessClick = { navController.safeNavigate(Routes.WEB_ACCESS_SETTINGS) },
                 onSkillsClick = { navController.safeNavigate(Routes.SKILLS) },
+                onManualClick = { navController.safeNavigate(Routes.MANUAL) },
                 onSoulClick = { navController.safeNavigate(Routes.SOUL) },
                 onUsageClick = { navController.safeNavigate(Routes.USAGE_STATS) },
                 onAppearanceClick = { navController.safeNavigate(Routes.APPEARANCE) },
