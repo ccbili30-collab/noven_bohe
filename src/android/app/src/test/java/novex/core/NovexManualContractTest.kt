@@ -54,9 +54,12 @@ class NovexManualContractTest {
 
     @Test
     fun `index chapter map covers every chapter`() {
+        // 只认章节地图表格行（| `file.md` | ... |）——正文里的示例路径不算登记。
         val index = file("SKILL.md").readText()
-        val row = Regex("`([^`]+\\.md)`")
-        val mapped = row.findAll(index).map { it.groupValues[1] }.toSet()
+        val row = Regex("^\\|\\s*`([^`]+\\.md)`\\s*\\|")
+        val mapped = index.lineSequence()
+            .mapNotNull { row.find(it.trim())?.groupValues?.get(1) }
+            .toSet()
         for (name in manifestFiles().filter { it != "SKILL.md" }) {
             assertTrue("chapter '$name' not registered in SKILL.md chapter map", mapped.contains(name))
         }
