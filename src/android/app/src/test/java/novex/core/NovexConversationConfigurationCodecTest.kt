@@ -98,6 +98,22 @@ class NovexConversationConfigurationCodecTest {
     }
 
     @Test
+    fun artifactDefsRoundTripThroughCodec() {
+        val snapshot = NovexConversationConfiguration.empty("chat-1").snapshot.copy(
+            artifactDefs = listOf(
+                ConversationArtifactDefinition(
+                    id = "panel", kind = "html", template = "<b>{{hp}}</b>",
+                    name = "状态面板", branchId = "reply-a", fullscreen = true,
+                ),
+            ),
+        )
+        val restored = NovexConversationConfigurationCodec.decode(
+            NovexConversationConfigurationCodec.encode(snapshot), "chat-1",
+        )
+        assertEquals(snapshot.artifactDefs, restored.artifactDefs)
+    }
+
+    @Test
     fun emptyLegacyValueIsNewButBrokenDataIsPreservedReadOnly() {
         val empty = NovexConversationConfigurationCodec.decode(null, "chat-legacy")
         val broken = NovexConversationConfigurationCodec.decode("{broken", "chat-legacy")

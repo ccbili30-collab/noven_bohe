@@ -167,6 +167,30 @@ data class CompletedPlaythrough(
     val playthroughId: String = "",
 )
 
+/**
+ * 已注册前端件（```novex-def 的真持久层）。模板随注册表存——
+ * [branchId] 是发出该 def 的回复消息 id：解析沿活动路径回溯，
+ * 分叉继承祖先注册，兄弟分支互不见面。同 id 后者在路径上覆盖
+ * 前者——"改"就是再发一次同 id 的 def。
+ */
+data class ConversationArtifactDefinition(
+    val id: String,
+    val kind: String,
+    val template: String,
+    val name: String? = null,
+    val marker: String? = null,
+    val autoMarker: Boolean = false,
+    val tavernCompat: Boolean = false,
+    val fullscreen: Boolean = false,
+    val branchId: String,
+) {
+    init {
+        require(id.isNotBlank()) { "前端件编号不能为空" }
+        require(kind in setOf("html", "math", "table")) { "前端件类型必须是 html/math/table" }
+        require(branchId.isNotBlank()) { "前端件分支编号不能为空" }
+    }
+}
+
 data class NovexConversationConfigurationSnapshot(
     val conversationId: String,
     val answerIdentity: AnswerIdentity = AnswerIdentity.Nova,
@@ -180,6 +204,7 @@ data class NovexConversationConfigurationSnapshot(
     val preGamePlayerIdentity: ConversationPlayerIdentity? = null,
     val completedPlaythroughs: List<CompletedPlaythrough> = emptyList(),
     val activePlaythroughId: String? = null,
+    val artifactDefs: List<ConversationArtifactDefinition> = emptyList(),
     val adoptedContexts: List<NovexAdoptedContext> = emptyList(),
     val preGameAdoptedIdentity: NovexAdoptedContext? = null,
     val disabledSettings: Set<NovexReferenceTarget> = emptySet(),
@@ -198,7 +223,7 @@ data class NovexConversationConfigurationSnapshot(
         get() = cardBindingJson != null || answerIdentity != AnswerIdentity.Nova || playerIdentity != null ||
             backgroundSettings.isNotEmpty() || managedSubjects.isNotEmpty() ||
             activeInteractiveFiction != null || completedPlaythroughs.isNotEmpty() ||
-            playthroughStates.isNotEmpty() || controls.isNotEmpty() || disabledSettings.isNotEmpty() ||
+            playthroughStates.isNotEmpty() || controls.isNotEmpty() || artifactDefs.isNotEmpty() || disabledSettings.isNotEmpty() ||
             executionMode != NovexExecutionMode.DEFAULT || contextLimitTokens != NovexConversationContextLimit.MINIMUM
 }
 

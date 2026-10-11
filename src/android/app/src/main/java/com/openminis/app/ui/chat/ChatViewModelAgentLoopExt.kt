@@ -606,6 +606,12 @@ internal suspend fun ChatViewModel.runAgentLoopBody(
                                 _ledgerInjectionEnabled.value,
                                 diceRolls,
                                 _textStylePrompt.value,
+                                // 前端件注册表沿路径解析（含在飞回合已注册的件）
+                                // ——模型看得见注册表才会引用，而不是重新发明。
+                                novex.core.InteractiveFictionRuntime.resolveArtifactDefs(
+                                    currentNovexConfiguration(),
+                                    activeBranchPathIds + turnMessageId,
+                                ),
                             )
                         },
                     ),

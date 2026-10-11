@@ -57,7 +57,7 @@
 | 键 | 结构 |
 |---|---|
 | `avatarFrame` | `{"color","width"}` 原生圆环 + 可选 `"img"` 方形饰件图叠在头像上 |
-| `topBar` / `composer` | `{"fill","texture","hairline":{"color","width","edge":"top\|bottom"}}`——暗底+边缘细线是经典打法 |
+| `topBar` / `composer` | `{"fill","texture","hairline":{"color","width","edge":"top\|bottom"}}`——暗底＋边缘细线是常见做法 |
 | `input` | `{"bg","border","text"}` 输入框底/描边/字色 |
 | `topSubtitle` | 皮肤顶栏副标（有顶栏皮肤时顶栏切"头像+名+副标"排布） |
 | `background` | `{"img","scrim"}`——scrim 是暗化罩层色，保氛围压文字对比 |
@@ -72,7 +72,7 @@
 
 ## 整页皮肤（overlay HTML）
 
-`overlay` 非空 → 转录区整盖成一张满幅界面岛，原生消息流仍在底下（右下角「消息」浮钮随时切回，编辑/分支/复制不受影响）。岛经 `window.NOVEN_FRAME` 拿数据，比气泡岛多一个 `messages`：最近 30 条 `[{role,name,text,streaming}]`，新消息经 `noven:frame` 事件推进来。弹幕、书信、终端、报纸等"换骨"形态全走这条路——overlay 只做呈现，不改消息本体。overlay 里禁 `position:fixed`/`100vh` 的约束在满幅模式下取消（它就是一屏），其余沙箱红线不变。
+`overlay` 非空 → 转录区整盖成一张满幅界面岛，原生消息流仍在底下（右下角「消息」浮钮随时切回，编辑/分支/复制不受影响）。岛经 `window.NOVEN_FRAME` 拿数据，比气泡岛多一个 `messages`：最近 30 条 `[{role,name,text,streaming}]`，新消息经 `noven:frame` 事件推进来。弹幕、书信、终端、报纸等把整页改造成另一种形态的皮肤全走这条路——overlay 只做呈现，不改消息本体。overlay 里禁 `position:fixed`/`100vh` 的约束在满幅模式下取消（它就是一屏），其余沙箱红线不变。
 
 ## 数学渲染前端（math kind 复习）
 

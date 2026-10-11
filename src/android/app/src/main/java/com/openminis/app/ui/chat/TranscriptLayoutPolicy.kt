@@ -46,6 +46,34 @@ internal data class SubmittedTurnNavigationResolution(
     val nextState: SubmittedTurnNavigation,
 )
 
+/**
+ * 分支切换的视口锚：切换把尾巴换掉时 LazyColumn 的 key 锚失活、按 index
+ * 兜底直接落到列表尾——用户看到的是"跳到最新位置"。改为记下切换目标行，
+ * 列表重建后滚回它（已在视野内则不动）。pending 保留到命中或超时。
+ */
+internal data class BranchAnchorNavigation(
+    val pendingAnchorMessageId: String? = null,
+    val requestedAtMs: Long = 0L,
+) {
+    fun awaiting(messageId: String, nowMs: Long): BranchAnchorNavigation =
+        copy(pendingAnchorMessageId = messageId, requestedAtMs = nowMs)
+
+    fun resolve(items: List<FlatChatItem>, nowMs: Long): Pair<Int?, BranchAnchorNavigation> {
+        val id = pendingAnchorMessageId ?: return null to this
+        if (nowMs - requestedAtMs > STALE_MS) return null to copy(pendingAnchorMessageId = null)
+        // ownerMessageId 只管助手名下的项；锚点也可能是用户行（切的是
+        // 用户气泡的分支时），UserBubble 单独匹配。
+        val idx = items.indexOfLast { item ->
+            item.ownerMessageId == id ||
+                (item as? FlatChatItem.UserBubble)?.message?.id == id ||
+                (item as? FlatChatItem.UserBubble)?.message?.sourceDbIds?.contains(id) == true
+        }
+        return if (idx >= 0) idx to copy(pendingAnchorMessageId = null) else null to this
+    }
+
+    private companion object { const val STALE_MS = 2_000L }
+}
+
 internal enum class TranscriptViewportMove {
     SessionOpened,
     UserSentMessage,
