@@ -259,7 +259,9 @@ fun ChatViewModel.closeNovexConversationExport() {
 }
 
 fun ChatViewModel.prepareNovexConversationExport() {
-    if (com.openminis.app.BuildConfig.UPDATE_CHANNEL != "preview") return
+    // 导出对话包对全部通道开放（用户决策 2026-09-15）：正式版用户反馈
+    // 问题时也要能提供诊断导出。旧的 preview-only 门是半拆残留——菜单
+    // 早已全通道显示，点下静默 return 等于死按钮（4.0.4 正式版实发）。
     if(_isStreaming.value) {
         _novexConversationExport.value = com.openminis.app.share.NovexConversationExportState(error = "当前回答尚未完成，请等待保存后再导出。不会自动终止回答。")
         return
