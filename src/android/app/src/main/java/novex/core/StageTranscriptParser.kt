@@ -151,7 +151,7 @@ object StageTranscriptParser {
             "",
         ).trim()
 
-    /** 安全子集：先全量转义，再认 **粗体**/*斜体*/换行三种标记。 */
+    /** 安全子集：先全量转义，再认双星粗体、单星斜体、换行三种标记。 */
     internal fun toSafeHtml(text: String): String {
         val esc = text
             .replace("&", "&amp;")
