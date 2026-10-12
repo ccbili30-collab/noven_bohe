@@ -83,7 +83,6 @@ internal fun ChatTranscriptRow(
     selectionController: SelectionController,
     panelExpansionState: PanelExpansionState,
     perTurnPrompt: String = "",
-    bubbleGroupPos: SkinGroupPos = SkinGroupPos.SOLO,
     onAction: (ChatTranscriptAction) -> Unit,
 ) {
     val context = LocalContext.current
@@ -164,7 +163,7 @@ internal fun ChatTranscriptRow(
             markdown = item.messageMarkdown,
         ) {
             Column {
-            CharacterAssistantBubble(item.isStreaming, bubbleGroupPos) {
+            CharacterAssistantBubble {
             // T-android-gc-storm-issue17: collapse oversized frozen
             // assistant text before feeding the markdown parser, which
             // is the GC-storm hotspot for legacy sessions.
@@ -198,7 +197,7 @@ internal fun ChatTranscriptRow(
             markdown = item.messageMarkdown,
         ) {
             Column {
-            CharacterAssistantBubble(item.messageIsStreaming, bubbleGroupPos) {
+            CharacterAssistantBubble {
             LargeContentGuard(
                 content = item.rawText,
                 isStreaming = item.isStreaming,

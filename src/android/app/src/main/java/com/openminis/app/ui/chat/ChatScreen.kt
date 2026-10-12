@@ -45,7 +45,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.openminis.app.cards.isFrontendModule
-import com.openminis.app.cards.isSkinModule
 import novex.content.flattenModules
 import novex.core.ConversationControlBehavior
 import novex.core.NovexLearningControl
@@ -1680,8 +1679,8 @@ fun ChatScreen(
     // 卡级前端件预铺：绑定卡（主卡+背景卡）里带 novex-frontend 标签的模块，
     // 其正文中的 ```novex-def 定义在会话开始即注册——玩家开局就能被
     // novex-use 调用，模型不必现场重写模板。
-    val cardArtifacts by produceState<Pair<Map<String, NovexArtifactDef>, String?>>(
-        emptyMap<String, NovexArtifactDef>() to null, sessionId,
+    val cardArtifactDefs by produceState<Map<String, NovexArtifactDef>>(
+        emptyMap(), sessionId,
     ) {
         viewModel.novexConfigurationJson.collect { raw ->
             value = withContext(Dispatchers.IO) {
@@ -1689,10 +1688,9 @@ fun ChatScreen(
                     val binding = novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
                         ?.cardBindingJson
                         ?.let(com.openminis.app.cards.CardBinding::decode)
-                        ?: return@withContext (emptyMap<String, NovexArtifactDef>() to null)
+                        ?: return@withContext emptyMap()
                     val pages = novex.storage.TextPages(viewModel.integratedCards.store.contents)
                     val defs = LinkedHashMap<String, NovexArtifactDef>()
-                    var skinJson: String? = null
                     (listOfNotNull(binding.primary) + binding.backgrounds).forEach { sel ->
                         val doc = runCatching { viewModel.integratedCards.store.open(sel.rootId) }
                             .getOrNull()
@@ -1708,36 +1706,11 @@ fun ChatScreen(
                                     collectDefsFromText(text).forEach { defs[it.id] = it }
                                 }
                             }
-                            if (module.isSkinModule()) {
-                                // 卡皮肤模块：正文首个 ```novex-skin 围栏即皮肤 JSON；
-                                // 没带围栏时整段当 JSON 容错。
-                                texts.forEach { text ->
-                                    skinJson = skinJson
-                                        ?: latestNovexSkinFence(text)?.trim()
-                                        ?: text.trim().takeIf { it.startsWith("{") }
-                                }
-                            }
                         }
                     }
-                    defs.toMap() to skinJson
-                }.getOrDefault(emptyMap<String, NovexArtifactDef>() to null)
+                    defs.toMap()
+                }.getOrDefault(emptyMap())
             }
-        }
-    }
-    val cardArtifactDefs = cardArtifacts.first
-
-    // 皮肤由卡片模块播种或电脑端管理；消息里的 ```novex-skin 围栏不再
-    // 驱动换装（只渲染一枚低调提示 chip，见 RenderNovexSkinChip）。
-    // 卡皮肤播种：会话尚无皮肤时应用绑定卡的 novex-skin 模块。
-    // 每会话只播一次（seeded 标记）——用户手动卸肤后不重新压上。
-    var cardSkinSeeded by remember(sessionId) { mutableStateOf(false) }
-    LaunchedEffect(cardArtifacts.second) {
-        val skinJson = cardArtifacts.second
-        if (!cardSkinSeeded && skinJson != null && immersiveProfile.skin == null) {
-            cardSkinSeeded = true
-            viewModel.applyChatSkin(skinJson)
-        } else if (skinJson != null) {
-            cardSkinSeeded = true
         }
     }
 
@@ -2090,31 +2063,9 @@ fun ChatScreen(
         }
     }
 
-    // 皮肤 accent/输入区色：覆盖 palette 的强调语义位（链接/发送键/思考态）
-    // 与输入框底色/描边/文字色——会话级换色，不动主题本身。底图皮肤在场且
-    // 未声明 inputBg 时输入框半透，让横幅透上来。
-    val skinAccent = parseSkinColor(immersiveProfile.skin?.accent)
-    val skinInputBg = parseSkinColor(immersiveProfile.skin?.inputBg)
-    val skinInputBorder = parseSkinColor(immersiveProfile.skin?.inputBorder)
-    val skinInputText = parseSkinColor(immersiveProfile.skin?.inputText)
-    val skinHasComposer = immersiveProfile.skin?.composer != null
     val chatPalette = com.openminis.app.ui.theme.LocalChatPalette.current
-    val skinnedPalette = remember(
-        chatPalette, skinAccent, skinInputBg, skinInputBorder, skinInputText, skinHasComposer,
-    ) {
-        chatPalette.copy(
-            accent = skinAccent ?: chatPalette.accent,
-            link = skinAccent ?: chatPalette.link,
-            thinking = skinAccent ?: chatPalette.thinking,
-            inputBg = skinInputBg
-                ?: if (skinHasComposer) chatPalette.inputBg.copy(alpha = 0.78f)
-                else chatPalette.inputBg,
-            inputText = skinInputText ?: chatPalette.inputText,
-            inputBorder = skinInputBorder ?: chatPalette.inputBorder,
-        )
-    }
     CompositionLocalProvider(
-        com.openminis.app.ui.theme.LocalChatPalette provides skinnedPalette,
+        com.openminis.app.ui.theme.LocalChatPalette provides chatPalette,
         LocalMarkdownFontScale provides markdownFontScale,
         LocalToolPreviewEnabled provides toolPreviewEnabled,
         LocalMarkdownUrlClickHandler provides urlClickHandler,
@@ -2247,14 +2198,9 @@ fun ChatScreen(
         modifier = if (immersiveBackground != null) {
             Modifier.paint(immersiveBackgroundPainter, contentScale = ContentScale.Crop)
         } else Modifier,
-        // 皮肤声明的背景走暗化罩层（保留氛围纹样的可读性），用户自选
-        // 壁纸仍走 80% 主题色罩——两条可读性策略分开。
+        // 用户自选壁纸走 80% 主题色罩保证可读性。
         containerColor = if (immersiveBackground != null) {
-            // 皮肤声明的 scrim 罩层色（缺省黑 38%）；用户自选壁纸仍走 80% 主题罩。
-            immersiveProfile.skin?.background?.let {
-                parseSkinColor(it.scrim)
-                    ?: androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.38f)
-            } ?: ChatColors.background.copy(alpha = 0.80f)
+            ChatColors.background.copy(alpha = 0.80f)
         } else ChatColors.background,
         contentWindowInsets = WindowInsets(0),
         // [feat/ui-rikkahub] 非对称三段式顶栏 → ChatScreenTopBar.kt（ChatTopBar）。
@@ -2466,10 +2412,6 @@ fun ChatScreen(
                 // with a 3-button popup (Copy / Copy Markdown / Copy Rich
                 // Text); the latter two read from the bounds registry which
                 // each AssistantMessageView updates via onGloballyPositioned.
-                // 皮肤覆盖层：skin.overlay 声明了整页 HTML 时，转录区整盖成
-                // 一张满幅界面岛——消息流经 NOVEN_FRAME.messages 推给岛自绘
-                // （弹幕/书信/终端等形态）。原生转录只是被盖住不是被替换，
-                // 右下角「消息」浮钮随时切回。
                 // 全屏舞台：display:"fullscreen"/compat:tavern 的件被点开后，
                 // 转录区整换成舞台岛。注意：全屏位与 1dp 位是两个 call
                 // site→两个 WebView 实例，缩小/放大都会重建页面（既有
@@ -2477,8 +2419,6 @@ fun ChatScreen(
                 // 在页内；协议本来就是这么设计的）。
                 val stageDef = stageDefId?.let { stageDefs[it] }
                 val stageHtml = stageSubstitutedHtml
-                val skinOverlayHtml = immersiveProfile.skin?.overlay
-                var peekNativeTranscript by remember(sessionId) { mutableStateOf(false) }
                 if (stageDef != null && !stageVisible && stageHtml != null) {
                     // 缩小位：舞台不可见时岛缩到 1dp 角落待命（与全屏位
                     // 非同一 WebView，作用是让关闭后岛仍在组合里、下次
@@ -2490,22 +2430,6 @@ fun ChatScreen(
                 if (stageDef != null && stageVisible && stageHtml != null) {
                     Box(Modifier.fillMaxSize()) {
                         HtmlIsland(html = stageHtml, fillParent = true, tavernCompat = stageDef.tavernCompat)
-                    }
-                } else if (skinOverlayHtml != null && !peekNativeTranscript) {
-                    Box(Modifier.fillMaxSize()) {
-                        HtmlIsland(html = skinOverlayHtml, fillParent = true)
-                        Text(
-                            text = "消息",
-                            fontSize = 11.sp,
-                            color = ChatColors.primaryText.copy(alpha = 0.8f),
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(8.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(ChatColors.secondaryBg.copy(alpha = 0.85f))
-                                .clickable { peekNativeTranscript = true }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                        )
                     }
                 } else {
                 // 转录区（SelectionContainer + LazyColumn + 选区手柄）→
@@ -2557,21 +2481,6 @@ fun ChatScreen(
                     scrollToLatestOnce = scrollToLatestOnce,
                     scrollToTopOnce = { tracedScrollToItem("FAB-stretch-top", 0, 0) },
                 )
-                // 覆盖层皮肤在场但用户正在看原生消息：给一个回皮肤层的浮钮。
-                if (skinOverlayHtml != null && peekNativeTranscript) {
-                    Text(
-                        text = "皮肤层",
-                        fontSize = 11.sp,
-                        color = ChatColors.primaryText.copy(alpha = 0.8f),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(ChatColors.secondaryBg.copy(alpha = 0.85f))
-                            .clickable { peekNativeTranscript = false }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                    )
-                }
                 }
                 // 缩小中的舞台：左下浮钮随时切回全屏岛（每轮新 use 还会在
                 // 消息流里追加入口卡，这里是常驻恢复位）。
@@ -2610,22 +2519,10 @@ fun ChatScreen(
             // ─── Input area → ChatComposerSection.kt（@/斜杠菜单、附件条、
             // ContextMeter、发送键与上滑手势、Move-to 胶囊角标）。交互状态经
             // composerEnv 与本函数共享。
-            // 皮肤底栏：fill/texture/hairline 令牌画在输入区底下，
-            // 输入框/按钮悬浮其上（触摸区不变）。
-            val skinComposerBar = immersiveProfile.skin?.composer
-            val skinComposerTexture = rememberSkinBitmap(
-                skinComposerBar?.texture?.img?.let {
-                    immersiveProfile.skin?.resolveAssetPath(it)
-                },
-                sessionId,
-            )
             // input:"own" 舞台激活时隐藏原生输入栏（v0.3 B2）：作品自画
             // 输入层；缩小/退出舞台此条件即失效、原生输入栏立即回来。
             if (!stageOwnInputActive) {
-            Box(Modifier.fillMaxWidth().then(
-                skinComposerBar?.let { Modifier.skinBar(it, skinComposerTexture) }
-                    ?: Modifier
-            )) {
+            Box(Modifier.fillMaxWidth()) {
             ChatComposerSection(
                 viewModel = viewModel,
                 env = composerEnv,

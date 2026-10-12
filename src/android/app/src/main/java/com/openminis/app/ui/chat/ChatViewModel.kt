@@ -4231,44 +4231,6 @@ class ChatViewModel(
         }
     }
 
-    /**
-     * 应用/清除会话皮肤包。skinJson 为 null 或 {"clear":true}/空 → 卸肤。
-     * 草稿会话只更新内存档案，落库由 ensureSession 的 createSession 承担。
-     * @return true 应用成功（含合法的清除）；false = JSON 无法解析。
-     */
-    /** 当前皮肤包的原始 JSON——持久化逐字保留，不靠模型层再序列化。 */
-    internal var appliedSkinJson: String? = null
-
-    fun applyChatSkin(skinJson: String?): Boolean {
-        val effective: com.openminis.app.data.character.ChatSkin?
-        if (skinJson.isNullOrBlank()) {
-            effective = null
-        } else {
-            val obj = runCatching { org.json.JSONObject(skinJson.trim()) }.getOrNull()
-                ?: return false
-            // {"clear":true} 与空对象 {} 都卸肤。
-            effective = if (obj.optBoolean("clear")) null
-                else com.openminis.app.data.character.ChatSkin.fromJson(obj)
-        }
-        _immersiveProfile.value = _immersiveProfile.value.copy(skin = effective)
-        appliedSkinJson = if (effective != null) skinJson else null
-        // 皮肤带背景图 → 一并换壁纸（base 归一后再走 minis:// 解析为宿主路径）。
-        // 卸肤不回滚壁纸——背景本身是独立设置项，由会话设置继续管理。
-        effective?.let { skin ->
-            skin.resolveAssetPath(skin.background?.img)?.let { ref ->
-                resolveMdMediaFile(context.applicationContext, ref, realSessionId.ifEmpty { null })
-                    ?.let { setImmersiveBackground(it.absolutePath) }
-            }
-        }
-        val sid = realSessionId
-        if (sid.isNotEmpty()) {
-            viewModelScope.launch {
-                chatRepository.setChatSkin(sid, appliedSkinJson)
-            }
-        }
-        return true
-    }
-
     /** The real session ID (same as sessionId for existing sessions, generated on first message for drafts). */
     internal var realSessionId: String = if (isDraft) "" else sessionId
 
@@ -4489,7 +4451,6 @@ class ChatViewModel(
             worldId = _immersiveProfile.value.worldId,
             characterVersionId = _immersiveProfile.value.characterVersionId,
             chatBackgroundPath = _conversationBackgroundPathOverride.value,
-            chatSkinJson = appliedSkinJson,
             conversationPrompt = _conversationPrompt.value ?: inheritedEditablePrompt(),
             imageStylePrompt = _imageStylePrompt.value.ifBlank { null },
             // 防御：物化行时带上当前槽位——正常已由 settings 的 update 写盘，

@@ -10,7 +10,7 @@
 
 ## 卡 = 模块树
 
-模块标签：`routing`（default 开局资料包 / perTurn 每轮 / style 文风 / standby 待命）、`temporality`（constant 可重注入 / snapshot 只随开局）、`use`（触发规则）、`tags`（自由标签；`novex-frontend` = 前端件模块，`novex-skin` = 皮肤模块）。
+模块标签：`routing`（default 开局资料包 / perTurn 每轮 / style 文风 / standby 待命）、`temporality`（constant 可重注入 / snapshot 只随开局）、`use`（触发规则）、`tags`（自由标签；`novex-frontend` = 前端件模块）。
 
 - **原文导入模块**（整份外部卡原文）：不在开局包内联，逐轮按需分页——模型可 `read_text_block` 续读，`read_card` 看结构。
 - 大卡分页工具：`read_card` 读结构目录、`read_text_block` 按块读正文、`skill_read` 读技能文件。

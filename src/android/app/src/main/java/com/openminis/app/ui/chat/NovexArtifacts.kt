@@ -275,21 +275,6 @@ internal fun expandNovexMarkers(
     return if (touched) out else text
 }
 
-// ─── 皮肤围栏 ────────────────────────────────────────────────────────────────
-//
-// ```novex-skin 块：正文是皮肤 JSON（ChatSkin），最新一块生效；
-// {"clear":true} 或空正文 = 卸掉皮肤。解析本身在 ChatSkin（data.character），
-// 这里只负责围栏定位。
-
-private val skinFenceRegex = Regex(
-    "```\\s*novex-skin[^\\n`]*\\n(.*?)```",
-    setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
-)
-
-/** 文本里最新的皮肤围栏正文（null = 无皮肤块）。卡皮肤模块播种用。 */
-internal fun latestNovexSkinFence(text: String): String? =
-    skinFenceRegex.findAll(text).lastOrNull()?.groupValues?.get(1)
-
 // 协议围栏（def/use/skin）不属于叙事文本：气泡展示与 frame.messages 投影
 // 前先剥掉——它们走各自的控制通道，原文只该出现在编辑器/复制里。
 private val protocolFenceRegex = Regex(
@@ -426,14 +411,14 @@ internal fun RenderNovexDefChip(code: String) {
 }
 
 /**
- * novex-skin 块在消息流里的样子：一行低调提示。皮肤改由卡片模块/电脑端
- * 管理，消息里的皮肤围栏只被识别、不再驱动换装——历史上该围栏生效的
- * 会话皮肤已持久化在会话配置里，不因这里的新语义被撤销。
+ * novex-skin 块在消息流里的样子：一行低调提示。皮肤功能已退役（满幅
+ * 界面由 novex-def 舞台件接替），旧消息里的皮肤围栏只被识别展示，
+ * 不再驱动任何换装。
  */
 @Composable
 internal fun RenderNovexSkinChip(code: String) {
     Text(
-        "皮肤围栏（皮肤由卡片或电脑端管理）",
+        "皮肤围栏（皮肤功能已下线）",
         fontSize = 11.sp,
         color = currentMdColors().blockquote,
         modifier = Modifier.padding(vertical = 2.dp),

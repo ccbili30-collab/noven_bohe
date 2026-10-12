@@ -139,9 +139,6 @@ interface SessionWrites {
     @Query("UPDATE sessions SET chat_background_path = :backgroundPath WHERE id = :sessionId")
     suspend fun setChatWallpaper(sessionId: String, backgroundPath: String?)
 
-    @Query("UPDATE sessions SET chat_skin_json = :skinJson WHERE id = :sessionId")
-    suspend fun setChatSkin(sessionId: String, skinJson: String?)
-
     @Query(
         """
         UPDATE sessions SET
