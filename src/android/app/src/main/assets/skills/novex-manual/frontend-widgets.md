@@ -60,6 +60,7 @@
 | `card` / `session` | 卡与局身份：`card.{id,name,kind}`，`session.id` |
 | `env` | 环境：`bridgeVersion`（协议版本，当前 `2`）、`webview`（内核大版本号）、`ime.visible`/`height`（键盘） |
 | `state` / `max` | 本局状态值与上限（register_controls 那套） |
+| `scene` | 模型声明本轮叙事拍在哪个视图（**通知不是命令**——作品自行决定切视图/打角标/忽略）。模型经 state 写 `"scene"` 文本值声明；未声明不下发 |
 | `theme` | 明暗与主题色板 |
 | `transcript` | 结构化叙事流：`[{id, messageId, segment, turnId, role, kind, speaker, text, html, src, streaming}]`。**作品直接用解析好的段，不要再自己解析正文或协议围栏** |
 | `cast` | 名册 `[{id,name,avatar,color}]`——avatar 是资源 id，经 `asset()` 取地址 |
@@ -67,16 +68,17 @@
 | `deltas` | 档案增量流 `[{seq,messageId,envelope}]`：按 seq 顺序重放物化；envelope 自带操作动词（`replace`/`delta`/`insert`/`remove`/`move`），宿主不猜语义 |
 | `archive` | 物化快照（可丢弃缓存）；当前恒 `{}`，以 `deltas` 重放为准 |
 | `assets` | 资源 id → 平台地址映射；页内取地址一律 `NOVEN_FRAME.asset(id)` |
-| `reason` | 本帧来由：`init`/`turn`/`query`/`branch`/`ime`/`send`。`branch` = 路径换了（重试/切分支），丢弃本地物化按新 `deltas` 重放 |
+| `reason` | 本帧来由：`init`/`turn`/`query`/`branch`/`ime`/`send`/`compose`。`branch` = 路径换了（重试/切分支），丢弃本地物化按新 `deltas` 重放 |
 | `turn` | 回合状态：`streaming`、`queued` |
 | `sendResult` | send 回执 `{result,why}`：`accepted`/`queued`/`dropped`；dropped 的 why：`rate`/`gesture`/`not-own`/`length` |
+| `composeResult` | compose 回执 `{result,why}`：`filled`/`dropped`；dropped 的 why：`own`（own 输入模式无草稿框）/`not-stage`（非舞台调用） |
 | `messages` | 旧投影，已弃用——新作品用 `transcript` |
 
 ### 出站（作品 → 宿主）
 
 - `NOVEN_FRAME.send(text)`：发一条玩家输入。**只认真实触摸**：脚本定时/自动发会被门控丢回 `dropped/gesture`；一次触摸只放行一发；最短间隔 1 秒；最长 8000 字。
-- `NOVEN_FRAME.compose(text)`：往原生草稿框填字（own 输入模式下已隐藏，不要用）。
-- `NOVEN_FRAME.query(domain, entity)`：静默查证——宿主让同模型换查证角色后台答一轮，结果作为附属记录写进 `deltas`，以 `reason:"query"` 推帧回来；不回话进消息流。
+- `NOVEN_FRAME.compose(text)`：往原生草稿框填字。own 输入模式下草稿框不存在，会被丢弃——回执看帧 `composeResult`。
+- `NOVEN_FRAME.query(domain, entity, from?)`：静默查证——宿主让同模型换查证角色后台答一轮，结果作为附属记录写进 `deltas`，以 `reason:"query"` 推帧回来；不回话进消息流。`from` 填当前视图 id，查证模型据此知道用户站在哪个视图发问。
 - `NOVEN_FRAME.asset(id)`：资源 id 换成可用地址。
 - `NOVEN_FRAME.ready()`：首屏画完必须调一次——8 秒没 ready 宿主判作品卡死，自动退回原生对话。
 

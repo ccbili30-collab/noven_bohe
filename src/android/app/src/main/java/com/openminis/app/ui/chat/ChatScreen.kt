@@ -1849,6 +1849,11 @@ fun ChatScreen(
     // 的覆盖先到的（近似语义，协议对 reason 只要求"反映最近事件"）。
     var islandFrameReason by remember { mutableStateOf("turn") }
     var islandSendReceipt by remember(sessionId, stageDefId) { mutableStateOf<IslandSendResult?>(null) }
+    var islandComposeReceipt by remember(sessionId, stageDefId) { mutableStateOf<IslandSendResult?>(null) }
+    // frame.scene（v0.2 B4 欠账补登）：模型经 state 写 "scene" 文本值
+    // 声明本轮叙事拍在哪个视图，宿主原样透传；未声明 = null。
+    val islandScene = (playthroughState?.values?.get("scene")
+        as? novex.core.PlaythroughValue.Text)?.value
     // 舞台可开件全集：会话注册件 + 内置体检岛（S8）。不进
     // LocalNovexArtifactDefs——体检岛无 marker，本就不会内联渲染；
     // 但保持分离更干净：内联解析只看作品带的件，舞台解析才并内建件。
@@ -2032,6 +2037,7 @@ fun ChatScreen(
             // 不含序号，靠瞬态化换逐次可见）。残余边缘：200ms 窗内的
             // 连续同值 dropped 仍合并，作品显示的末态相同、可接受。
             islandSendReceipt = null
+            islandComposeReceipt = null
         }
     }
     // env.ime 节流（S5）：键盘动画逐帧改 inset——collectLatest 重启会
@@ -2164,12 +2170,15 @@ fun ChatScreen(
             imeHeightCssPx = islandImeCssPx,
             frameReason = islandFrameReason,
             sendResult = islandSendReceipt,
-            onQuery = { domain, entity, _ ->
+            composeResult = islandComposeReceipt,
+            scene = islandScene,
+            onQuery = { domain, entity, from ->
                 // v0.3 B6 静默查证轮：不进消息树的一次性调用；锚定发起时
                 // 最近一条助手消息（发起后新回合开始也锚这里）。回写成功
                 // 才推 reason:"query"——失败不回写，作品无新数据可收。
+                // from（v0.2 B4）：发问时的视图 id，进查证提示词。
                 viewModel.runIslandQuery(
-                    domain, entity,
+                    domain, entity, from,
                     anchorMessageId = transcriptMessages
                         .lastOrNull { it.role == "assistant" }?.id,
                 ) { ok -> if (ok) islandFrameReason = "query" }
@@ -2178,13 +2187,19 @@ fun ChatScreen(
                 // compose 只填草稿不发送（v0.2 C1）：拼到现有草稿末尾。
                 // 收紧到舞台可见——消息流内联岛不给写草稿口（新增出站只
                 // 放给舞台；内联岛在此之前从无此通道，不丢能力）。
+                // own 舞台下原生输入栏已隐藏——写草稿用户看不见，作品自己
+                // 的输入层才是入口（compose 保留给未声明 own 的作品）。
+                // 被拒也给回执（composeResult/reason:"compose"）——静默
+                // 丢弃会让作品干等。
                 if (stageVisible && !stageOwnInputActive) {
-                    // own 舞台下原生输入栏已隐藏——写草稿用户看不见，
-                    // 作品自己的输入层才是入口（v0.3 B2 compose 保留给
-                    // 未声明 own 的作品）。
                     val draft = viewModel.inputText.value
                     viewModel.setInputText(if (draft.isBlank()) text else "$draft\n$text")
+                    islandComposeReceipt = IslandSendResult("filled")
+                } else {
+                    islandComposeReceipt = IslandSendResult(
+                        "dropped", if (stageOwnInputActive) "own" else "not-stage")
                 }
+                islandFrameReason = "compose"
             },
             onSend = { text, gestureMs ->
                 // v0.3 B2 门控：own + 真实触摸窗口 + 一手势一发 + 限频 +

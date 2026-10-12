@@ -8,9 +8,9 @@ import org.json.JSONObject
 // 舞台协议 v0.3 的岛帧（window.NOVEN_FRAME）与出站 URL 解析。
 // 依据：local/design/shaosong-ui/STUDIO-ALIGNMENT-v0.3.md（r2 冻结）+
 // STUDIO-ALIGNMENT-PC-v0.3.md（PC 回执）。帧字段分批落地：本批下发
-// card/session/env/state/max/theme/messages(弃用)/assets/reason/turn/
-// sendResult；deltas/archive 由 StageDeltaResolver 产出，
-// 未落地的字段不下发（不下发空数组冒充能力）。
+// card/session/env/state/max/theme/scene/messages(弃用)/assets/reason/
+// turn/sendResult/composeResult/transcript/cast/choices；deltas/archive
+// 由 StageDeltaResolver 产出，未落地的字段不下发（不下发空值冒充能力）。
 
 /** 协议版本：r2 §B3——v0.3 帧 bridgeVersion=2（体检岛按此对账）。 */
 internal const val IslandBridgeVersion = 2
@@ -168,6 +168,10 @@ internal fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colo
     }
     root.put("state", state)
     root.put("max", maxes)
+    // scene 视图通知（v0.2 B4 欠账补登）：模型经 state 通道写 "scene"
+    // 文本值声明本轮叙事拍在哪个视图（通知不是命令——作品自行决定
+    // 切视图/打角标/忽略）。未声明不下发。
+    bridge?.scene?.let { root.put("scene", it) }
     // 弃用但保留一个版本：皮肤 overlay 依赖（v0.4 由 transcript 接替）。
     runCatching { root.put("messages", org.json.JSONArray(bridge?.messagesJson ?: "[]")) }
     // transcript 叙事流（v0.3 B1）：宿主已解析的结构化段表。
@@ -208,6 +212,12 @@ internal fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colo
         .put("queued", bridge?.queuedCount ?: 0))
     bridge?.sendResult?.let { r ->
         root.put("sendResult", JSONObject()
+            .put("result", r.result)
+            .put("why", r.why ?: JSONObject.NULL))
+    }
+    // compose 回执（同 sendResult 形状）：filled / dropped(own|not-stage)。
+    bridge?.composeResult?.let { r ->
+        root.put("composeResult", JSONObject()
             .put("result", r.result)
             .put("why", r.why ?: JSONObject.NULL))
     }

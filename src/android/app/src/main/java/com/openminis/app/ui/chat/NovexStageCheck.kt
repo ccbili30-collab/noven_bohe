@@ -48,10 +48,11 @@ function paint(){
   }).join('');
   r.textContent=JSON.stringify(R,null,2);
 }
-var lastFrame=null,sendProbe='',sendTries=0;
+var lastFrame=null,sendProbe='',composeProbe='';
 function onFrame(F){
   lastFrame=F;
   if(sendProbe&&F.sendResult){add('send 回执',true,sendProbe+' → '+F.sendResult.result+'/'+(F.sendResult.why||'-'));sendProbe=''}
+  if(composeProbe&&F.composeResult){add('compose 回执',true,composeProbe+' → '+F.composeResult.result+'/'+(F.composeResult.why||'-'));composeProbe=''}
   if(F.reason==='query')add('reason:query 到达',true,'deltas='+(F.deltas||[]).length)
 }
 function runStatic(){
@@ -64,6 +65,8 @@ function runStatic(){
   add('env.webview 数值',typeof R.webview==='number','v='+R.webview);
   add('WebView ≥ 基线 '+baseline,R.webview==null?'skip':R.webview>=baseline,'v='+R.webview);
   add('reason 字段',typeof F.reason==='string','reason='+F.reason);
+  if(F.scene!=null)add('scene 视图通知',typeof F.scene==='string','v='+F.scene);
+  else add('scene 视图通知',null,'未声明（模型经 state 写 scene）');
   var t=F.transcript;
   if(Array.isArray(t)&&t.length){
     var s=t[0];
@@ -93,9 +96,13 @@ function runSend(tapped){
   var F=window.NOVEN_FRAME;if(!F||!F.send)return;
   sendProbe=tapped?'tapped':'programmatic';F.send('__stage_check_probe__');
 }
+function runCompose(){
+  var F=window.NOVEN_FRAME;if(!F||!F.compose)return;
+  composeProbe='probe';F.compose('__stage_check__');
+}
 function runQuery(){
   var F=window.NOVEN_FRAME;if(!F||!F.query)return;
-  F.query('stage-check','probe');add('query 出站',true,'等待 reason:query')
+  F.query('stage-check','probe','check-page');add('query 出站',true,'等待 reason:query')
 }
 function copyReport(){
   var t=document.getElementById('report').textContent;
@@ -105,8 +112,9 @@ function copyReport(){
 }
 window.addEventListener('noven:frame',function(){onFrame(window.NOVEN_FRAME)});
 // 无触摸的 programmatic send：手势窗拒绝 → 期望 dropped/gesture——
-// 这本身就是受测断言（非 own 之外第二道门）。
-runStatic();runSend(false);
+// 这本身就是受测断言（非 own 之外第二道门）。compose 在 own 舞台
+// 期望 dropped/own（输入栏已隐藏，草稿框不存在）。
+runStatic();runSend(false);runCompose();
 if(window.NOVEN_FRAME&&window.NOVEN_FRAME.ready)window.NOVEN_FRAME.ready();
 </script>
 """

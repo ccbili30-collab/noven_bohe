@@ -88,6 +88,11 @@ internal class HtmlIslandBridge(
     val frameReason: String = "turn",
     /** 最近一次 send 回执（形状 {result, why}，与 r2 B2 冻结一致）。 */
     val sendResult: IslandSendResult? = null,
+    /** 最近一次 compose 回执（同 sendResult 形状：filled/dropped+why）。 */
+    val composeResult: IslandSendResult? = null,
+    /** frame.scene：模型声明的本轮叙事视图 id（v0.2 B4 欠账补登，
+     *  宿主从 state 的 "scene" 文本值透传；未声明 = null 不下发）。 */
+    val scene: String? = null,
     /** cast 角色名册 JSON 数组（v0.3 B5）；null = 无角色卡不下发。 */
     val castJson: String? = null,
     val deltasJson: String? = null,
@@ -163,7 +168,7 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
         bridge?.remoteResources, bridge?.cardResourceIds,
         bridge?.webviewMajor, bridge?.turnStreaming, bridge?.queuedCount,
         bridge?.imeVisible, bridge?.imeHeightCssPx,
-        bridge?.frameReason, bridge?.sendResult,
+        bridge?.frameReason, bridge?.sendResult, bridge?.composeResult, bridge?.scene,
         bridge?.castJson, bridge?.choicesJson, bridge?.deltasJson,
     ) { buildIslandFrameJson(bridge, dark, colors) }
     val islandSessionId = bridge?.sessionId

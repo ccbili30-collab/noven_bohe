@@ -15,6 +15,8 @@ class IslandFrameTest {
     private fun bridge(
         messages: String = "[]",
         sendResult: IslandSendResult? = null,
+        composeResult: IslandSendResult? = null,
+        scene: String? = null,
         transcriptJson: String = "[]",
         castJson: String? = null,
         choicesJson: String? = null,
@@ -39,6 +41,8 @@ class IslandFrameTest {
         imeHeightCssPx = 300,
         frameReason = "turn",
         sendResult = sendResult,
+        composeResult = composeResult,
+        scene = scene,
         transcriptJson = transcriptJson,
         castJson = castJson,
         choicesJson = choicesJson,
@@ -99,6 +103,22 @@ class IslandFrameTest {
         val r = f.getJSONObject("sendResult")
         assertEquals("queued", r.getString("result"))
         assertTrue(r.isNull("why"))
+    }
+
+    @Test
+    fun `composeResult and scene ride the frame`() {
+        val f = frame(bridge(
+            composeResult = IslandSendResult("dropped", "own"),
+            scene = "court",
+        ))
+        val r = f.getJSONObject("composeResult")
+        assertEquals("dropped", r.getString("result"))
+        assertEquals("own", r.getString("why"))
+        assertEquals("court", f.getString("scene"))
+
+        val bare = frame(bridge())
+        assertFalse("scene 未声明不应下发", bare.has("scene"))
+        assertFalse("无 compose 回执不应下发", bare.has("composeResult"))
     }
 
     @Test

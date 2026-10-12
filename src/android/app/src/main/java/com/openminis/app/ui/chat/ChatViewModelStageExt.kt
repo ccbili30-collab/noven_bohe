@@ -30,6 +30,7 @@ private val islandQueryInFlight = AtomicBoolean(false)
 internal fun ChatViewModel.runIslandQuery(
     domain: String,
     entity: String,
+    from: String? = null,
     anchorMessageId: String?,
     onDone: (Boolean) -> Unit = {},
 ) {
@@ -40,7 +41,9 @@ internal fun ChatViewModel.runIslandQuery(
     // 按 envelope.data 重放。
     val prompt = buildString {
         append("你是本局资料的查证员。这是一次后台查证，不面向玩家，")
-        append("不进入对话历史。根据你掌握的本局设定回答下述查询，只回复一个 ")
+        append("不进入对话历史。根据你掌握的本局设定回答下述查询")
+        if (!from.isNullOrBlank()) append("（用户在 ").append(from).append(" 视图里发问）")
+        append("，只回复一个 ")
         append("```novex-use 围栏，内容为一个 JSON 对象，形如 ")
         append("{\"kind\":\"query-answer\",\"query\":{\"domain\":\"")
         append(domain).append("\",\"entity\":\"").append(entity)
