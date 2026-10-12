@@ -11,4 +11,5 @@ identity.md
 web.md
 skills.md
 troubleshooting.md
+design-intent.md
 whats-new.md
