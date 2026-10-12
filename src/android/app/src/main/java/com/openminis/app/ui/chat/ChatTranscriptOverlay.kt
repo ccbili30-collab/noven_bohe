@@ -23,6 +23,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.ui.input.pointer.pointerInput
@@ -462,21 +463,13 @@ private fun Modifier.stretchDragGesture(
 ): Modifier = this.pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
-        // 等"稍微按住"：按住满阈值（withTimeoutOrNull 超时返回 null）才进
-        // 拉伸态；提前抬指=交给按钮单击，提前开拖=让位给滚动，都不消费。
-        // 位移按相对落点的累计量判，慢速滑过也算开拖。
-        val heldThrough = kotlinx.coroutines.withTimeoutOrNull(STRETCH_HOLD_MS) {
-            while (true) {
-                val ev = awaitPointerEvent()
-                val ch = ev.changes.firstOrNull { it.id == down.id }
-                    ?: return@withTimeoutOrNull false
-                if (!ch.pressed) return@withTimeoutOrNull false
-                if (kotlin.math.abs(ch.position.y - down.position.y) > 20f) {
-                    return@withTimeoutOrNull false
-                }
-            }
-        }
-        if (heldThrough != null) return@awaitEachGesture
+        // 等"稍微按住"：官方长按手势到期返回 = 进拉伸态；提前抬指、被
+        // 其它手势消费、拖走出界都直接让位（单击/滚动照旧）。awaitPointerEvent
+        // 是受限挂起，不能嵌进 withTimeoutOrNull——长按等待必须用它。
+        val held = awaitLongPressOrCancellation(down.id, STRETCH_HOLD_MS)
+        if (held == null || !held.pressed || held.isConsumed ||
+            kotlin.math.abs(held.position.y - down.position.y) > STRETCH_TRIGGER_PX
+        ) return@awaitEachGesture
         // 拉伸态：消耗位移，实时回报累计量（负=上拉，正=下拉）。
         var dy = 0f
         onDelta(0f)
