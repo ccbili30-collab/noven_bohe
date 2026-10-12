@@ -118,7 +118,7 @@ class ConversationBranchUiTest {
             listOf(ChatMessage(id = "a1", role = "assistant", content = "唯一版本")),
         )
 
-        assertEquals(FlatChatItem.BranchSwitcher("a1", 0, 1), items.last())
+        assertEquals(FlatChatItem.BranchSwitcher("a1", 1, 1), items.last())
     }
 
     @Test
