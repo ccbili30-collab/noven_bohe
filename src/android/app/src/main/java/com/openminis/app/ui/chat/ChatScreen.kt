@@ -1796,13 +1796,30 @@ fun ChatScreen(
         }
     }
     // 卡收割资源：novex-asset://<资源ID> 与 url 映射命中的远程引用→本地字节。
-    val islandResources = islandCard?.resources?.associate { it.id to (it.content to it.mediaType) }
+    // 绑定卡文档集（主卡+背景卡）：资源并集与 cast 名册都从这里取。
+    // 只索引主卡的话，角色卡/世界卡内嵌角色的头像资源会 asset() 解
+    // 不到空图——头像存在角色文档自己的 resources 里。
+    val islandBoundDocs by produceState(emptyList<novex.content.ContentDocument>(), configurationJson) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val binding = novex.core.NovexConversationConfigurationCodec
+                    .decode(configurationJson, sessionId).cardBindingJson
+                    ?.let(com.openminis.app.cards.CardBinding::decode)
+                (listOfNotNull(binding?.primary) + binding?.backgrounds.orEmpty())
+                    .mapNotNull { viewModel.integratedCards.store.open(it.rootId)?.content }
+            }.getOrDefault(emptyList())
+        }
+    }
+    val islandResources = remember(islandBoundDocs) {
+        islandBoundDocs
+            .flatMap { d -> listOf(d) + d.internalCharacters }
+            .flatMap { it.resources }
+            .associate { it.id to (it.content to it.mediaType) }
+    }
     val islandResourceLoader = remember(islandResources) {
-        islandResources?.let { index ->
-            { id: String ->
-                index[id]?.let { (ref, mime) ->
-                    runCatching { viewModel.integratedCards.store.contents.open(ref) to mime }.getOrNull()
-                }
+        { id: String ->
+            islandResources[id]?.let { (ref, mime) ->
+                runCatching { viewModel.integratedCards.store.contents.open(ref) to mime }.getOrNull()
             }
         }
     }
@@ -1832,9 +1849,22 @@ fun ChatScreen(
     // 的覆盖先到的（近似语义，协议对 reason 只要求"反映最近事件"）。
     var islandFrameReason by remember { mutableStateOf("turn") }
     var islandSendReceipt by remember(sessionId, stageDefId) { mutableStateOf<IslandSendResult?>(null) }
-    // ready 按（会话, 作品, 最新 use 数据）键控：use 更新会重载页面，
-    // 新页若不 ready() 超时要重新生效（v0.3 B7）。
-    var islandReadyReceived by remember(sessionId, stageDefId, stageDefId?.let { novexArtifactScene.latestUseData[it] }) { mutableStateOf(false) }
+    // 舞台页面的替换后 HTML：ready 键与渲染共用——键必须打在"页面
+    // 实际会重载"的东西上。use 数据变了但替换产物相同→页面不重载→
+    // 不该重置 ready；数据变了页面也变了→重新武装超时。
+    val stageSubstitutedHtml = remember(stageDefId, novexArtifactScene.latestUseData) {
+        stageDefId?.let { id ->
+            novexArtifactScene.defs[id]?.let { def ->
+                substituteNovexArtifact(
+                    def.template,
+                    novexArtifactScene.latestUseData[def.id].orEmpty(),
+                )
+            }
+        }
+    }
+    // ready 按（会话, 作品, 可见性, 页面内容）键控：重开/页面重载后
+    // 新页不 ready()，8s 超时要重新生效（v0.3 B7）。
+    var islandReadyReceived by remember(sessionId, stageDefId, stageVisible, stageSubstitutedHtml) { mutableStateOf(false) }
     // #11 连续崩溃按会话键控 + 60s 窗（onCrash 处实现窗长）。
     var islandStageCrashCount by remember(sessionId) { mutableIntStateOf(0) }
     var islandStageLastCrashMs by remember(sessionId) { mutableStateOf(0L) }
@@ -1843,34 +1873,23 @@ fun ChatScreen(
     var islandLastSendAtMs by remember { mutableStateOf(0L) }
     // cast（v0.3 B5，形状冻结 [{id,name,avatar,color}]）：角色来自绑定
     // 的 CHARACTER 卡 + 世界卡内嵌角色（internalCharacters——角色在
-    // 主卡内的常规居所）。avatar 用卡的头像资源 id（asset() 可解析），
-    // color 本版恒 null。
-    val islandCastJson by produceState<String?>(null, configurationJson, islandCard) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val binding = novex.core.NovexConversationConfigurationCodec
-                    .decode(configurationJson, sessionId).cardBindingJson
-                    ?.let(com.openminis.app.cards.CardBinding::decode)
-                val sels = listOfNotNull(binding?.primary) + binding?.backgrounds.orEmpty()
-                val chars = sels.flatMap { sel ->
-                    viewModel.integratedCards.store.open(sel.rootId)?.content?.let { doc ->
-                        if (doc.kind == novex.content.CardKind.CHARACTER) listOf(doc)
-                        else doc.internalCharacters
-                    }.orEmpty()
+    // 主卡内的常规居所）。avatar 用卡的头像资源 id（已含进资源并集，
+    // asset() 可解析），color 本版恒 null。
+    val islandCastJson = remember(islandBoundDocs) {
+        islandBoundDocs.flatMap { doc ->
+            if (doc.kind == novex.content.CardKind.CHARACTER) listOf(doc)
+            else doc.internalCharacters
+        }.distinctBy { it.name }.takeIf { it.isNotEmpty() }?.let { docs ->
+            org.json.JSONArray().apply {
+                docs.forEach { d ->
+                    put(org.json.JSONObject()
+                        .put("id", d.id)
+                        .put("name", d.name)
+                        .put("avatar",
+                            d.appearance.avatarResourceId ?: org.json.JSONObject.NULL)
+                        .put("color", org.json.JSONObject.NULL))
                 }
-                chars.distinctBy { it.name }.takeIf { it.isNotEmpty() }?.let { docs ->
-                    org.json.JSONArray().apply {
-                        docs.forEach { d ->
-                            put(org.json.JSONObject()
-                                .put("id", d.id)
-                                .put("name", d.name)
-                                .put("avatar",
-                                    d.appearance.avatarResourceId ?: org.json.JSONObject.NULL)
-                                .put("color", org.json.JSONObject.NULL))
-                        }
-                    }.toString()
-                }
-            }.getOrNull()
+            }.toString()
         }
     }
     // transcript 解析挪 Default 线程：流式每 token 触发重组，40 条
@@ -2037,7 +2056,7 @@ fun ChatScreen(
             sessionId = sessionId,
             cardResourceLoader = islandResourceLoader,
             remoteResources = islandRemoteMap,
-            cardResourceIds = islandResources?.keys?.toList().orEmpty(),
+            cardResourceIds = islandResources.keys.toList(),
             messagesJson = remember(transcriptMessages, immersiveProfile.effectiveAssistantName, immersiveProfile.effectivePlayerName) {
                 // 覆盖层/岛用的最近消息投影：最近 30 条 {role,name,text}，
                 // 超长正文截断——皮肤层是呈现层不是历史档案。
@@ -2113,6 +2132,9 @@ fun ChatScreen(
             onReady = { if (stageOwnInputActive) islandReadyReceived = true },
             onCrash = {
                 if (stageVisible) {
+                    // 崩溃→自疗重载的页面要重新 ready()；重置标记让
+                    // 8s 超时重新武装（仅 own 舞台——旧件无 ready 概念）。
+                    if (stageOwnInputActive) islandReadyReceived = false
                     // "连续崩溃"按 60s 窗计：稳定运行超窗长后重新计数。
                     // 不因 ready 清零——崩溃→重载→ready→再崩的循环件
                     // 要能数到阈值退回（v0.3 B7）。
@@ -2365,14 +2387,7 @@ fun ChatScreen(
                 // 架构，DOM/JS 状态并不存续——舞台状态须来自帧，不能存
                 // 在页内；协议本来就是这么设计的）。
                 val stageDef = stageDefId?.let { novexArtifactScene.defs[it] }
-                val stageHtml = stageDef?.let { def ->
-                    remember(def.template, novexArtifactScene.latestUseData) {
-                        substituteNovexArtifact(
-                            def.template,
-                            novexArtifactScene.latestUseData[def.id].orEmpty(),
-                        )
-                    }
-                }
+                val stageHtml = stageSubstitutedHtml
                 val skinOverlayHtml = immersiveProfile.skin?.overlay
                 var peekNativeTranscript by remember(sessionId) { mutableStateOf(false) }
                 if (stageDef != null && !stageVisible && stageHtml != null) {
