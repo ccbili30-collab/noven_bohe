@@ -58,7 +58,7 @@ function runStatic(){
   var F=window.NOVEN_FRAME;
   if(!F){add('NOVEN_FRAME 存在',false);return}
   R.webview=F.env&&F.env.webview;
-  add('bridgeVersion',F.bridgeVersion===2,'v='+F.bridgeVersion);
+  add('bridgeVersion',F.env&&F.env.bridgeVersion===2,'v='+(F.env&&F.env.bridgeVersion));
   ['card','session','env','state','max','theme','transcript','turn'].forEach(function(k){
     add('帧字段 '+k,F[k]!=null)})
   add('env.webview 数值',typeof R.webview==='number','v='+R.webview);

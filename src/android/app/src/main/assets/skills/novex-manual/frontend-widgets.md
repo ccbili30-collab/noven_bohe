@@ -57,9 +57,8 @@
 
 | 字段 | 内容 |
 |---|---|
-| `bridgeVersion` | 协议版本，当前 `2` |
 | `card` / `session` | 卡与局身份：`card.{id,name,kind}`，`session.id` |
-| `env` | 环境：`webview`（内核大版本号）、`ime.visible`/`height`（键盘） |
+| `env` | 环境：`bridgeVersion`（协议版本，当前 `2`）、`webview`（内核大版本号）、`ime.visible`/`height`（键盘） |
 | `state` / `max` | 本局状态值与上限（register_controls 那套） |
 | `theme` | 明暗与主题色板 |
 | `transcript` | 结构化叙事流：`[{id, messageId, segment, turnId, role, kind, speaker, text, html, src, streaming}]`。**作品直接用解析好的段，不要再自己解析正文或协议围栏** |
