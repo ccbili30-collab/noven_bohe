@@ -58,6 +58,31 @@ class HtmlIslandDocumentTest {
     }
 
     @Test
+    fun `v0_3 helpers injected and reinstalled on frame assign`() {
+        val doc = wrapIslandDocument("<p>hi</p>", "{}")
+        // 五个 helper 的安装器必须在帧赋值之前定义、赋值之后重挂——
+        // 否则热更新整体替换 NOVEN_FRAME 时 helper 会被冲掉。
+        val installAt = doc.indexOf("window.__novenHelpers=function(F)")
+        val frameAt = doc.indexOf("window.NOVEN_FRAME=")
+        assertTrue(installAt >= 0)
+        assertTrue(installAt < frameAt)
+        assertTrue(doc.contains("window.__novenHelpers(window.NOVEN_FRAME);</script>"))
+        assertTrue(doc.contains("novex-query://"))
+        assertTrue(doc.contains("novex-compose://"))
+        assertTrue(doc.contains("novex-send://"))
+        assertTrue(doc.contains("novex-asset://"))
+        assertTrue(doc.contains("__novex_ready__"))
+    }
+
+    @Test
+    fun `frame hot update reinstalls helpers`() {
+        val js = frameUpdateJs("{\"a\":1}")
+        assertTrue(js.contains("window.NOVEN_FRAME={\"a\":1}"))
+        assertTrue(js.contains("__novenHelpers"))
+        assertTrue(js.contains("noven:frame"))
+    }
+
+    @Test
     fun `user html lands inside body`() {
         val doc = wrapIslandDocument("<div id=\"app\">x</div>", "{}")
         val bodyAt = doc.indexOf("</head><body>")

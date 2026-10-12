@@ -1776,6 +1776,8 @@ fun ChatScreen(
     // HTML 岛数据桥：卡名/卡类 + 本局状态 → window.NOVEN_FRAME。
     // playthroughState 喂给 HtmlIslandBridge 状态注入，故提升到 provider 之前收集。
     val playthroughState by viewModel.activePlaythroughState.collectAsState()
+    // 卡 rootId → frame.card.id（v0.3）：与卡文档同一次解析顺手捕获。
+    var islandCardRootId by remember { mutableStateOf<String?>(null) }
     val islandCard by produceState<novex.content.ContentDocument?>(null, sessionId) {
         viewModel.novexConfigurationJson.collect { raw ->
             value = runCatching {
@@ -1784,6 +1786,7 @@ fun ChatScreen(
                 ?.let(com.openminis.app.cards.CardBinding::decode)
                 ?.primary
                 ?.let { sel ->
+                    islandCardRootId = sel.rootId
                     withContext(Dispatchers.IO) {
                         runCatching { viewModel.integratedCards.store.open(sel.rootId) }.getOrNull()
                     }
@@ -1809,6 +1812,57 @@ fun ChatScreen(
             json.keys().asSequence().associateWith { json.getString(it) }
         }.getOrNull()
     } ?: emptyMap()
+
+    // ── 舞台协议 v0.3 帧附件与出站（IslandFrame.kt 组装进 NOVEN_FRAME）──
+    val islandDensity = LocalDensity.current
+    val islandImeCssPx = (WindowInsets.ime.getBottom(islandDensity) / islandDensity.density).toInt()
+    val islandWebViewVer = remember { islandWebViewMajor(context) }
+    val islandQueuedPrompts by viewModel.promptQueue.collectAsState()
+    // reason 是"最近事件"的短暂标记：事件置位后回 "turn"——连续事件后到
+    // 的覆盖先到的（近似语义，协议对 reason 只要求"反映最近事件"）。
+    var islandFrameReason by remember { mutableStateOf("turn") }
+    var islandSendSeq by remember { mutableIntStateOf(0) }
+    var islandSendReceipt by remember { mutableStateOf<IslandSendResult?>(null) }
+    var islandReadyReceived by remember(sessionId) { mutableStateOf(false) }
+    var islandStageCrashCount by remember { mutableIntStateOf(0) }
+    val lastIslandImeCssPx = remember { intArrayOf(-1) }
+    LaunchedEffect(islandFrameReason) {
+        if (islandFrameReason != "turn") {
+            kotlinx.coroutines.delay(200)
+            islandFrameReason = "turn"
+        }
+    }
+    LaunchedEffect(islandImeCssPx) {
+        if (lastIslandImeCssPx[0] >= 0 && lastIslandImeCssPx[0] != islandImeCssPx) {
+            islandFrameReason = "ime"
+        }
+        lastIslandImeCssPx[0] = islandImeCssPx
+    }
+    // 舞台打开：首帧标 init；WebView 低于制作基线只提示不拦截（r2 §A）。
+    LaunchedEffect(stageVisible, stageDefId) {
+        if (stageVisible && stageDefId != null) {
+            islandFrameReason = "init"
+            val major = islandWebViewVer
+            if (major != null && major < IslandWebviewBaseline) {
+                android.widget.Toast.makeText(
+                    context,
+                    "系统 WebView 过旧（$major < $IslandWebviewBaseline），作品可能显示不全",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+    // 连续崩溃逃生：岛自疗重载连续两次仍挂 → 退回原生对话（r2 B7 的
+    // 崩溃半边；ready 超时半边随 input:"own" 标记在下一批接入）。
+    LaunchedEffect(islandStageCrashCount) {
+        if (islandStageCrashCount >= 2 && stageVisible) {
+            stageVisible = false
+            islandStageCrashCount = 0
+            android.widget.Toast.makeText(
+                context, "作品连续崩溃，已切回对话", android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
 
     // 皮肤 accent/输入区色：覆盖 palette 的强调语义位（链接/发送键/思考态）
     // 与输入框底色/描边/文字色——会话级换色，不动主题本身。底图皮肤在场且
@@ -1868,6 +1922,32 @@ fun ChatScreen(
                 }
                 arr.toString()
             },
+            cardId = islandCardRootId,
+            webviewMajor = islandWebViewVer,
+            turnStreaming = isStreaming,
+            queuedCount = islandQueuedPrompts.size,
+            imeVisible = islandImeCssPx > 0,
+            imeHeightCssPx = islandImeCssPx,
+            frameReason = islandFrameReason,
+            sendResult = islandSendReceipt,
+            onQuery = { _, _, _ ->
+                // S7 静默查证轮未上线：通道已接通，查证回写在批次三落地；
+                // 此前收到 query 安静忽略（岛会等不到回包——已知未实现）。
+            },
+            onCompose = { text ->
+                // compose 只填草稿不发送（v0.2 C1）：拼到现有草稿末尾。
+                val draft = viewModel.inputText.value
+                viewModel.setInputText(if (draft.isBlank()) text else "$draft\n$text")
+            },
+            onSend = {
+                islandSendSeq++
+                // v0.3 B2 接受侧随 input:"own" 在下一批接入——当前无作品
+                // 声明 own，全部回执 dropped/not-own；回执通道先打通。
+                islandSendReceipt = IslandSendResult("dropped", "not-own", islandSendSeq)
+                islandFrameReason = "send"
+            },
+            onReady = { islandReadyReceived = true },
+            onCrash = { if (stageVisible) islandStageCrashCount++ },
         ),
         LocalNovexArtifactDefs provides novexArtifactScene.defs,
         LocalNovexFullscreenAnchors provides novexArtifactScene.fullscreenAnchors,

@@ -37,14 +37,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.net.URLDecoder
 import novex.android.ui.NovexIcons
 import novex.core.PlaythroughState
-import novex.core.PlaythroughValue
-import org.json.JSONObject
 
 // HTML 岛：消息流里的 ```html 代码块渲成活界面。
 //
@@ -71,6 +68,30 @@ internal class HtmlIslandBridge(
     val cardResourceLoader: ((String) -> Pair<java.io.InputStream, String>?)? = null,
     /** 收割期留下的 远程URL→资源ID 映射：JS 动态拼的已知素材也能本地命中。 */
     val remoteResources: Map<String, String> = emptyMap(),
+    // ─── 舞台协议 v0.3 附件字段（IslandFrame.kt 组装进 NOVEN_FRAME）───
+    /** 卡 rootId → frame.card.id。 */
+    val cardId: String? = null,
+    /** 系统 WebView 的 Chromium 主版本 → env.webview（null = 取不到）。 */
+    val webviewMajor: Int? = null,
+    /** turn.status：模型生成中 = "streaming"。 */
+    val turnStreaming: Boolean = false,
+    /** turn.queued：agent loop 运行中的排队 prompt 数。 */
+    val queuedCount: Int = 0,
+    /** env.ime：软键盘可见性与高度（CSS px）。 */
+    val imeVisible: Boolean = false,
+    val imeHeightCssPx: Int = 0,
+    /** frame.reason：宿主最近事件的短暂标记（send/ime/init 后约一帧回 "turn"）。 */
+    val frameReason: String = "turn",
+    /** 最近一次 send 回执；works 按 seq 去重。 */
+    val sendResult: IslandSendResult? = null,
+    // ─── v0.3 出站回调（URL 拦截分发，无 JS 桥）───
+    val onQuery: ((domain: String, entity: String, from: String?) -> Unit)? = null,
+    val onCompose: ((String) -> Unit)? = null,
+    val onSend: ((String) -> Unit)? = null,
+    /** ready() 经 console 信号回报（全屏作品的"已画出首屏"）。 */
+    val onReady: (() -> Unit)? = null,
+    /** 渲染进程丢失（自疗重载之外的上报通道，宿主可累计后退回）。 */
+    val onCrash: (() -> Unit)? = null,
 )
 
 internal val LocalHtmlIslandBridge = compositionLocalOf<HtmlIslandBridge?> { null }
@@ -84,6 +105,9 @@ private const val IslandResourcePrefix = "https://novex.island/var/minis/"
 private const val IslandMaxHeightDp = 520
 private const val IslandDefaultHeightDp = 160
 private const val IslandHeightSignal = "__novex_h__"
+// 作品 ready() 的回报信号：走与高度回报同一条 console 通道，不算出站
+// 权限（r2 B7——postMessage 是 PC 形态，手机用 console 信号等价物）。
+private const val IslandReadySignal = "__novex_ready__"
 
 /**
  * tavern-compat 适配资产（assets/island-compat/）：vendor 的 jQuery/lodash
@@ -141,7 +165,10 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
         measuredCssHeight = it
         if (it > 0) revealed = true
     }
-    renderer.onCrash = { reloadTick++ }
+    renderer.onCrash = {
+        reloadTick++
+        bridge?.onCrash?.invoke()
+    }
     renderer.onError = { islandError = it }
     renderer.sessionId = islandSessionId
     renderer.cardBridge = bridge
@@ -324,7 +351,19 @@ private class IslandRenderer {
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest,
-            ): Boolean = true // 链接一律吞掉——岛不允许导航出自身。
+            ): Boolean {
+                // v0.3 出站三通道（URL 拦截分发，无 JS 桥）：query 查证、
+                // compose 填草稿、send 发送。其余链接一律吞掉——岛不允
+                // 许导航出自身，未知 scheme 同样不落分发。
+                when (val outbound = parseIslandOutbound(request.url.toString())) {
+                    is IslandOutbound.Query ->
+                        cardBridge?.onQuery?.invoke(outbound.domain, outbound.entity, outbound.from)
+                    is IslandOutbound.Compose -> cardBridge?.onCompose?.invoke(outbound.text)
+                    is IslandOutbound.Send -> cardBridge?.onSend?.invoke(outbound.text)
+                    null -> Unit
+                }
+                return true
+            }
 
             override fun shouldInterceptRequest(
                 view: WebView,
@@ -385,6 +424,10 @@ private class IslandRenderer {
         webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 val text = message.message()
+                if (text.startsWith(IslandReadySignal)) {
+                    cardBridge?.onReady?.invoke()
+                    return true
+                }
                 if (text.startsWith(IslandHeightSignal)) {
                     text.removePrefix(IslandHeightSignal).toIntOrNull()?.let { onHeight?.invoke(it) }
                     // 有高度=body 已画出内容——清掉 onPageFinished 时点对
@@ -476,9 +519,18 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
     // 字节，未命中仍被拦为空响应）——真正的断网闸在 shouldInterceptRequest。
     append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' novex-asset: minis: https: http:; style-src 'unsafe-inline' novex-asset: minis: https: http:; img-src 'self' data: blob: minis: novex-res: novex-asset: https: http:; font-src data: novex-asset: https: http:; connect-src 'none'; media-src novex-asset: minis: blob: https: http:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">")
     append("<style>html,body{margin:0;padding:0;background:transparent}*{box-sizing:border-box}</style>")
+    // 岛侧 helper（v0.3）：query/compose/send 转 URL 拦截出站（沙箱无
+    // 新增攻击面）；asset() 统一资源写法；ready() 走 console 信号。
+    // 帧热更新整体替换 NOVEN_FRAME 会冲掉这些函数——installer 挂在
+    // window 上，每次赋帧后由 frameUpdateJs 重挂。
+    append("<script>window.__novenHelpers=function(F){if(!F)return;F.query=F.query||function(d,i){location.href='novex-query://'+encodeURIComponent(d)+'/'+encodeURIComponent(i)};F.compose=F.compose||function(t){location.href='novex-compose://?text='+encodeURIComponent(t==null?'':t)};F.send=F.send||function(t){location.href='novex-send://?text='+encodeURIComponent(t==null?'':t)};F.asset=F.asset||function(id){return 'novex-asset://'+encodeURIComponent(id)};F.ready=F.ready||function(){console.log('")
+    append(IslandReadySignal)
+    // → console.log('__novex_ready__') } } ; —— 括号序列分两截防拼错
+    append("')")
+    append("}};</script>")
     append("<script>window.NOVEN_FRAME=")
     append(frameJson.replace("</", "<\\/"))
-    append(";</script>")
+    append(";window.__novenHelpers(window.NOVEN_FRAME);</script>")
     // 导入资产的适配层（vendor 库+shim）：只注入 compat:tavern 的 def，
     // 在 NOVEN_FRAME 之后、页内脚本之前——脚本启动时桥和库都已就位。
     // 内嵌 JS 里的 "</script" 必须转义防提前截断标签（</ 全局转义会
@@ -501,8 +553,8 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
     append("</body></html>")
 }
 
-private fun frameUpdateJs(frameJson: String): String =
-    "window.NOVEN_FRAME=$frameJson;window.dispatchEvent(new Event('noven:frame'));void 0;"
+internal fun frameUpdateJs(frameJson: String): String =
+    "window.NOVEN_FRAME=$frameJson;window.__novenHelpers&&window.__novenHelpers(window.NOVEN_FRAME);window.dispatchEvent(new Event('noven:frame'));void 0;"
 
 // ─── 岛资源（本地图片进岛）──────────────────────────────────────────────────
 //
@@ -543,38 +595,8 @@ private fun islandResourceResponse(context: Context, url: String, sessionId: Str
     }.getOrElse { emptyIslandResponse() }
 }
 
-/** 桥载荷：卡信息 + 剧情变量扁平表（Number 另带 max 表）+ 主题色。 */
-private fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colors: MdColors): String {
-    val root = JSONObject()
-    if (bridge?.cardName != null) {
-        root.put("card", JSONObject()
-            .put("name", bridge.cardName)
-            .put("kind", bridge.cardKind.orEmpty()))
-    }
-    val state = JSONObject()
-    val maxes = JSONObject()
-    bridge?.state?.values?.forEach { (key, value) ->
-        when (value) {
-            is PlaythroughValue.Text -> state.put(key, value.value)
-            is PlaythroughValue.Flag -> state.put(key, value.value)
-            is PlaythroughValue.Number -> {
-                state.put(key, if (value.value % 1.0 == 0.0) value.value.toLong() else value.value)
-                value.max?.let { maxes.put(key, it) }
-            }
-        }
-    }
-    root.put("state", state)
-    root.put("max", maxes)
-    runCatching { root.put("messages", org.json.JSONArray(bridge?.messagesJson ?: "[]")) }
-    root.put("theme", JSONObject()
-        .put("dark", dark)
-        .put("accent", colors.link.toHexString())
-        .put("text", colors.text.toHexString())
-        .put("surface", colors.codeBg.toHexString()))
-    return root.toString()
-}
-
-private fun Color.toHexString(): String = "#%06X".format(toArgb() and 0xFFFFFF)
+// 帧组装（buildIslandFrameJson）与出站解析已迁至 IslandFrame.kt——
+// 协议字段集中在一处，纯函数可单测。
 
 // ─── 装载占位 + 绸缎展开 ────────────────────────────────────────────────────
 //
