@@ -1,0 +1,29 @@
+{
+  "name": "半角冒号台词，正文含全角冒号（前缀精确剥除）",
+  "cast": [
+    "老鬼"
+  ],
+  "input": [
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "老鬼: 他说：走吧，别等了。",
+      "streaming": false
+    }
+  ],
+  "expected": [
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "dialogue",
+      "text": "他说：走吧，别等了。",
+      "html": "他说：走吧，别等了。",
+      "speaker": "老鬼",
+      "src": null,
+      "streaming": false
+    }
+  ]
+}

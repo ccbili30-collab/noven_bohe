@@ -1764,6 +1764,7 @@ fun ChatScreen(
                     autoMarker = def.autoMarker,
                     tavernCompat = def.tavernCompat,
                     fullscreen = def.fullscreen,
+                    ownInput = def.ownInput,
                 )
             }
     }
@@ -1776,39 +1777,318 @@ fun ChatScreen(
     // HTML 岛数据桥：卡名/卡类 + 本局状态 → window.NOVEN_FRAME。
     // playthroughState 喂给 HtmlIslandBridge 状态注入，故提升到 provider 之前收集。
     val playthroughState by viewModel.activePlaythroughState.collectAsState()
+    // 卡 rootId → frame.card.id（v0.3）：与卡文档同一次解析顺手捕获。
+    var islandCardRootId by remember(sessionId) { mutableStateOf<String?>(null) }
     val islandCard by produceState<novex.content.ContentDocument?>(null, sessionId) {
         viewModel.novexConfigurationJson.collect { raw ->
-            value = runCatching {
+            val sel = runCatching {
                 novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
             }.getOrNull()?.cardBindingJson
                 ?.let(com.openminis.app.cards.CardBinding::decode)
                 ?.primary
-                ?.let { sel ->
-                    withContext(Dispatchers.IO) {
-                        runCatching { viewModel.integratedCards.store.open(sel.rootId) }.getOrNull()
-                    }
+            // 只在变化时写——每次 emission 都清会闪一帧 card.id 空窗。
+            if (islandCardRootId != sel?.rootId) islandCardRootId = sel?.rootId
+            value = sel?.let {
+                withContext(Dispatchers.IO) {
+                    runCatching { viewModel.integratedCards.store.open(it.rootId) }.getOrNull()
                 }
-                ?.content
+            }?.content
         }
     }
     // 卡收割资源：novex-asset://<资源ID> 与 url 映射命中的远程引用→本地字节。
-    val islandResources = islandCard?.resources?.associate { it.id to (it.content to it.mediaType) }
+    // 绑定卡文档集（主卡+背景卡）：资源并集与 cast 名册都从这里取。
+    // 只索引主卡的话，角色卡/世界卡内嵌角色的头像资源会 asset() 解
+    // 不到空图——头像存在角色文档自己的 resources 里。
+    val islandBoundDocs by produceState(emptyList<novex.content.ContentDocument>(), configurationJson) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val binding = novex.core.NovexConversationConfigurationCodec
+                    .decode(configurationJson, sessionId).cardBindingJson
+                    ?.let(com.openminis.app.cards.CardBinding::decode)
+                (listOfNotNull(binding?.primary) + binding?.backgrounds.orEmpty())
+                    .mapNotNull { viewModel.integratedCards.store.open(it.rootId)?.content }
+            }.getOrDefault(emptyList())
+        }
+    }
+    val islandResources = remember(islandBoundDocs) {
+        islandBoundDocs
+            .flatMap { d -> listOf(d) + d.internalCharacters }
+            .flatMap { it.resources }
+            .associate { it.id to (it.content to it.mediaType) }
+    }
     val islandResourceLoader = remember(islandResources) {
-        islandResources?.let { index ->
-            { id: String ->
-                index[id]?.let { (ref, mime) ->
-                    runCatching { viewModel.integratedCards.store.contents.open(ref) to mime }.getOrNull()
-                }
+        { id: String ->
+            islandResources[id]?.let { (ref, mime) ->
+                runCatching { viewModel.integratedCards.store.contents.open(ref) to mime }.getOrNull()
             }
         }
     }
-    val islandRemoteMap = islandCard?.extensions?.get(novex.core.tavern.TavernAssetHarvester.URL_MAP_EXT)?.let { ref ->
+    // 收割映射读卡内文件：IO 线程 + 按卡缓存，不做组合期逐次读字节。
+    val islandRemoteMap by produceState(emptyMap<String, String>(), islandCard) {
+        value = withContext(Dispatchers.IO) {
+            islandCard?.extensions?.get(novex.core.tavern.TavernAssetHarvester.URL_MAP_EXT)?.let { ref ->
+                runCatching {
+                    val json = org.json.JSONObject(
+                        viewModel.integratedCards.store.contents.open(ref).use { it.readBytes().toString(Charsets.UTF_8) })
+                    json.keys().asSequence().associateWith { json.getString(it) }
+                }.getOrNull()
+            } ?: emptyMap()
+        }
+    }
+
+    // ── 舞台协议 v0.3 帧附件与出站（IslandFrame.kt 组装进 NOVEN_FRAME）──
+    val islandDensity = LocalDensity.current
+    // WindowInsets.ime 是 @Composable 属性，derivedStateOf 里调不了——
+    // 先在组合语境取出 insets 对象（其值是快照态，observable）。
+    val islandImeInsets = WindowInsets.ime
+    val islandImeRawPx by remember { derivedStateOf { islandImeInsets.getBottom(islandDensity) } }
+    var islandImeCssPx by remember { mutableIntStateOf(0) }
+    val islandWebViewVer = remember { islandWebViewMajor(context) }
+    val islandQueuedPrompts by viewModel.promptQueue.collectAsState()
+    // reason 是"最近事件"的短暂标记：事件置位后回 "turn"——连续事件后到
+    // 的覆盖先到的（近似语义，协议对 reason 只要求"反映最近事件"）。
+    var islandFrameReason by remember { mutableStateOf("turn") }
+    var islandSendReceipt by remember(sessionId, stageDefId) { mutableStateOf<IslandSendResult?>(null) }
+    // 舞台可开件全集：会话注册件 + 内置体检岛（S8）。不进
+    // LocalNovexArtifactDefs——体检岛无 marker，本就不会内联渲染；
+    // 但保持分离更干净：内联解析只看作品带的件，舞台解析才并内建件。
+    val stageDefs = novexArtifactScene.defs +
+        (NOVEX_STAGE_CHECK_DEF.id to NOVEX_STAGE_CHECK_DEF)
+    // 舞台页面的替换后 HTML：ready 键与渲染共用——键必须打在"页面
+    // 实际会重载"的东西上。use 数据变了但替换产物相同→页面不重载→
+    // 不该重置 ready；数据变了页面也变了→重新武装超时。
+    val stageSubstitutedHtml = remember(stageDefId, novexArtifactScene.latestUseData) {
+        stageDefId?.let { id ->
+            stageDefs[id]?.let { def ->
+                substituteNovexArtifact(
+                    def.template,
+                    novexArtifactScene.latestUseData[def.id].orEmpty(),
+                )
+            }
+        }
+    }
+    // ready 按（会话, 作品, 可见性, 页面内容）键控：重开/页面重载后
+    // 新页不 ready()，8s 超时要重新生效（v0.3 B7）。
+    var islandReadyReceived by remember(sessionId, stageDefId, stageVisible, stageSubstitutedHtml) { mutableStateOf(false) }
+    // #11 连续崩溃按会话键控 + 60s 窗（onCrash 处实现窗长）。
+    var islandStageCrashCount by remember(sessionId) { mutableIntStateOf(0) }
+    var islandStageLastCrashMs by remember(sessionId) { mutableStateOf(0L) }
+    // send 门控状态：已消费的手势时间戳（一手势一发）与最近一次发送时刻。
+    var islandConsumedGestureMs by remember { mutableStateOf(0L) }
+    var islandLastSendAtMs by remember { mutableStateOf(0L) }
+    // cast（v0.3 B5，形状冻结 [{id,name,avatar,color}]）：角色来自绑定
+    // 的 CHARACTER 卡 + 世界卡内嵌角色（internalCharacters——角色在
+    // 主卡内的常规居所）。avatar 用卡的头像资源 id（已含进资源并集，
+    // asset() 可解析），color 本版恒 null。
+    val islandCastJson = remember(islandBoundDocs) {
+        islandBoundDocs.flatMap { doc ->
+            if (doc.kind == novex.content.CardKind.CHARACTER) listOf(doc)
+            else doc.internalCharacters
+        }.distinctBy { it.name }.takeIf { it.isNotEmpty() }?.let { docs ->
+            org.json.JSONArray().apply {
+                docs.forEach { d ->
+                    put(org.json.JSONObject()
+                        .put("id", d.id)
+                        .put("name", d.name)
+                        .put("avatar",
+                            d.appearance.avatarResourceId ?: org.json.JSONObject.NULL)
+                        .put("color", org.json.JSONObject.NULL))
+                }
+            }.toString()
+        }
+    }
+    // transcript 解析挪 Default 线程：流式每 token 触发重组，40 条
+    // 消息的多正则剥除+分段不能占主线程（cast 对象数组里取 name）。
+    val islandTranscriptJson by produceState("[]", transcriptMessages, islandCastJson) {
+        value = withContext(Dispatchers.Default) {
+            val castNames = islandCastJson?.let { raw ->
+                runCatching {
+                    org.json.JSONArray(raw).let { a ->
+                        (0 until a.length()).map { a.getJSONObject(it).optString("name") }
+                    }
+                }.getOrNull()
+            }.orEmpty()
+            novex.core.StageTranscriptParser.toJson(
+                novex.core.StageTranscriptParser.parse(
+                    transcriptMessages.takeLast(40).map { m ->
+                        novex.core.StageTranscriptParser.Input(
+                            messageId = m.id,
+                            role = m.role,
+                            content = m.content,
+                            streaming = m.isStreaming,
+                        )
+                    },
+                    castNames,
+                ),
+            )
+        }
+    }
+    // choices（v0.3 B4）：最新助手回合里未过期、且之后没有用户回复的
+    // present_choices 工具块转数据——已作答或已失效的不下发。
+    val islandChoicesJson = remember(transcriptMessages) {
+        val idx = transcriptMessages.indexOfLast { m ->
+            m.role == "assistant" &&
+                m.toolBlocks.any { it.kind == "tool_use" && it.toolName == "present_choices" }
+        }
+        if (idx < 0 || transcriptMessages.drop(idx + 1).any { it.role == "user" }) null
+        else transcriptMessages[idx].let { m ->
+            val block = m.toolBlocks.last {
+                it.kind == "tool_use" && it.toolName == "present_choices"
+            }
+            val event = parseNovexChoiceEvent(block.toolArgs)
+            if (event.options.isEmpty() || event.expired) null
+            else org.json.JSONObject().put("turnId", m.id).put("items",
+                org.json.JSONArray().apply {
+                    event.options.forEachIndexed { i, o ->
+                        put(org.json.JSONObject()
+                            .put("id", o.payload.ifBlank { "c$i" })
+                            .put("label", o.label))
+                    }
+                }).toString()
+        }
+    }
+    // 查证回写附属记录（v0.3 B6）：锚定消息 id、非消息节点。解码随
+    // configurationJson 走——回写完成即触发重组。
+    val stageAnnotations = remember(configurationJson) {
         runCatching {
-            val json = org.json.JSONObject(
-                viewModel.integratedCards.store.contents.open(ref).use { it.readBytes().toString(Charsets.UTF_8) })
-            json.keys().asSequence().associateWith { json.getString(it) }
-        }.getOrNull()
-    } ?: emptyMap()
+            novex.core.NovexConversationConfigurationCodec
+                .decode(configurationJson, sessionId).stageAnnotations
+        }.getOrDefault(emptyList())
+    }
+    // deltas 增量流（v0.3 B6）：沿活动路径收集 novex-use 信封+附属记录。
+    // 合并气泡正文已含全部来源行文本（ChatViewModelHistoryExt 合并时
+    // content=combinedText），信封顺序即路径序；锚定合并气泡 id 与
+    // 查证锚点同一 id 域。锚消息不在路径上的附属记录自然消失——分支
+    // 隔离免费获得。
+    // 数据源是 `messages`（viewModel._messages = 全路径规范列表），不是
+    // transcriptMessages——后者是尾窗视图，窗口外的信封会被截掉（B6 日
+    // 志即真相，deltas 必须覆盖整条活动路径）。空则置 null：deltas 字段
+    // 缺席=本会话无档案事件，与 cast/choices「不下发空数组冒充能力」同口径。
+    var islandDeltaAnnoSeen by remember { mutableIntStateOf(-1) }
+    val islandDeltasJson by produceState<String?>(null, messages, stageAnnotations) {
+        val json = withContext(Dispatchers.Default) {
+            novex.core.StageDeltaResolver.toJson(
+                novex.core.StageDeltaResolver.collect(
+                    messages.filter { !it.isInternalBridge }.map {
+                        novex.core.StageDeltaResolver.MessageRef(
+                            it.id, it.role, it.content, it.sourceDbIds)
+                    },
+                    stageAnnotations,
+                ),
+            )
+        }
+        value = if (json == "[]") null else json
+        // 附属记录随 deltas 增长的帧带 reason:"query"（数据帧与来由同框）。
+        if (islandDeltaAnnoSeen >= 0 && stageAnnotations.size > islandDeltaAnnoSeen) {
+            islandFrameReason = "query"
+        }
+        islandDeltaAnnoSeen = stageAnnotations.size
+    }
+    // 留痕标签：消息 id → "域/实体" 列表，CompositionLocal 喂给消息行。
+    // 锚是写时的消息（行）id——气泡合并后锚行还在 sourceDbIds 里；
+    // 标签按"行 id → 展示气泡 id"反查。空 label 滤掉、去重。
+    val stageAnnotationLabels = remember(transcriptMessages, stageAnnotations) {
+        val byAnchor = stageAnnotations.groupBy { it.messageId }
+        if (byAnchor.isEmpty()) emptyMap()
+        else buildMap<String, List<String>> {
+            transcriptMessages.forEach { m ->
+                val ids = m.sourceDbIds + m.id
+                val labels = ids.flatMap { byAnchor[it].orEmpty() }
+                    .map { it.label }.filter { it.isNotBlank() }.distinct()
+                if (labels.isNotEmpty()) put(m.id, labels)
+            }
+        }
+    }
+    // 分支/重试/路径切换（v0.3 B6）：活动路径前缀分叉或截断→推帧
+    // reason:"branch"，作品丢弃本地物化按新 deltas 重放。纯追加（新
+    // 回合到达）不算分支。
+    // 键用展开后的行 id（sourceDbIds）：合并气泡 id 随新行并入漂移，
+    // 按气泡 id 比对会把纯追加误判成分叉。判定取「互为子序列即非同叉」
+    // ——纯追加/窗口顶扩/截窗都是子序列关系；重试、编辑、切分支才会让
+    // 路径中段分叉（两列各自有对方没有的中间行）。
+    var islandLastPathIds by remember(sessionId) { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(messages) {
+        val cur = messages.map { it.sourceDbIds.ifEmpty { listOf(it.id) } }.flatten()
+        val prev = islandLastPathIds
+        islandLastPathIds = cur
+        if (prev != null && prev.isNotEmpty() &&
+            !isIdSubsequence(prev, cur) && !isIdSubsequence(cur, prev)
+        ) {
+            islandFrameReason = "branch"
+        }
+    }
+    // 舞台可见且作品声明 input:"own"：原生输入栏隐藏、send 放行、
+    // ready 超时生效（旧舞台件/皮肤不施加——v0.3 B2/B7）。
+    val stageOwnInputActive = stageVisible &&
+        stageDefId?.let { stageDefs[it]?.ownInput } == true
+    val lastIslandImeCssPx = remember { intArrayOf(-1) }
+    LaunchedEffect(islandFrameReason) {
+        if (islandFrameReason != "turn") {
+            kotlinx.coroutines.delay(200)
+            islandFrameReason = "turn"
+            // 回执是事件载荷随 reason 回收：下一次同值回执会让帧重新
+            // 出现 sendResult→帧差存在→noven:frame 必派发（帧去重是
+            // 字符串比对，同值常驻回执的"第二次"会被吞——协议形状冻结
+            // 不含序号，靠瞬态化换逐次可见）。残余边缘：200ms 窗内的
+            // 连续同值 dropped 仍合并，作品显示的末态相同、可接受。
+            islandSendReceipt = null
+        }
+    }
+    // env.ime 节流（S5）：键盘动画逐帧改 inset——collectLatest 重启会
+    // 取消上一段等待，只在停稳后把终值写进帧；动画期间不逐帧推、
+    // reason 不在 ime/turn 之间抖。
+    LaunchedEffect(Unit) {
+        snapshotFlow { islandImeRawPx }.collectLatest { raw ->
+            kotlinx.coroutines.delay(150)
+            val stable = (raw / islandDensity.density).toInt()
+            if (stable != islandImeCssPx) {
+                islandImeCssPx = stable
+                if (lastIslandImeCssPx[0] >= 0 && lastIslandImeCssPx[0] != stable) {
+                    islandFrameReason = "ime"
+                }
+                lastIslandImeCssPx[0] = stable
+            }
+        }
+    }
+    // 舞台打开：首帧标 init；WebView 低于制作基线只提示不拦截（r2 §A）。
+    LaunchedEffect(stageVisible, stageDefId) {
+        if (stageVisible && stageDefId != null) {
+            islandStageCrashCount = 0 // 新开局重新计连续崩溃
+            val major = islandWebViewVer
+            if (major != null && major < IslandWebviewBaseline) {
+                android.widget.Toast.makeText(
+                    context,
+                    "系统 WebView 过旧（$major < $IslandWebviewBaseline），作品可能显示不全",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+    // 连续崩溃逃生：岛自疗重载连续两次仍挂 → 退回原生对话（r2 B7 的
+    // 崩溃半边）。
+    LaunchedEffect(islandStageCrashCount) {
+        if (islandStageCrashCount >= IslandCrashFallbackCount && stageVisible) {
+            stageVisible = false
+            islandStageCrashCount = 0
+            android.widget.Toast.makeText(
+                context, "作品连续崩溃，已切回对话", android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+    // ready 超时逃生（B7 另一半）：只对声明 input:"own" 的新协议作品施加
+    // ——高度回报对 100vh/fixed 布局不可靠，ready() 是显式"首屏已画出"信号；
+    // 旧舞台件与皮肤 overlay 不调 ready()，不能施加此超时。
+    LaunchedEffect(stageOwnInputActive, islandReadyReceived) {
+        if (stageOwnInputActive && !islandReadyReceived) {
+            kotlinx.coroutines.delay(IslandReadyTimeoutMs)
+            if (!islandReadyReceived && stageVisible) {
+                stageVisible = false
+                android.widget.Toast.makeText(
+                    context, "作品未能就绪，已切回对话", android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
 
     // 皮肤 accent/输入区色：覆盖 palette 的强调语义位（链接/发送键/思考态）
     // 与输入框底色/描边/文字色——会话级换色，不动主题本身。底图皮肤在场且
@@ -1844,6 +2124,7 @@ fun ChatScreen(
         // map (which is last-writer-wins across sessions).
         LocalMarkdownSessionId provides sessionId,
         LocalImmersiveChatProfile provides immersiveProfile,
+        LocalStageAnnotationLabels provides stageAnnotationLabels,
         LocalHtmlIslandBridge provides HtmlIslandBridge(
             cardName = islandCard?.name,
             cardKind = islandCard?.kind?.name?.lowercase(),
@@ -1851,6 +2132,7 @@ fun ChatScreen(
             sessionId = sessionId,
             cardResourceLoader = islandResourceLoader,
             remoteResources = islandRemoteMap,
+            cardResourceIds = islandResources.keys.toList(),
             messagesJson = remember(transcriptMessages, immersiveProfile.effectiveAssistantName, immersiveProfile.effectivePlayerName) {
                 // 覆盖层/岛用的最近消息投影：最近 30 条 {role,name,text}，
                 // 超长正文截断——皮肤层是呈现层不是历史档案。
@@ -1868,10 +2150,91 @@ fun ChatScreen(
                 }
                 arr.toString()
             },
+            // transcript 叙事流（v0.3 B1）：Default 线程解析的产物，
+            // cast 名册已喂 speaker 检测。
+            transcriptJson = islandTranscriptJson,
+            castJson = islandCastJson,
+            choicesJson = islandChoicesJson,
+            deltasJson = islandDeltasJson,
+            cardId = islandCardRootId,
+            webviewMajor = islandWebViewVer,
+            turnStreaming = isStreaming,
+            queuedCount = islandQueuedPrompts.size,
+            imeVisible = islandImeCssPx > 0,
+            imeHeightCssPx = islandImeCssPx,
+            frameReason = islandFrameReason,
+            sendResult = islandSendReceipt,
+            onQuery = { domain, entity, _ ->
+                // v0.3 B6 静默查证轮：不进消息树的一次性调用；锚定发起时
+                // 最近一条助手消息（发起后新回合开始也锚这里）。回写成功
+                // 才推 reason:"query"——失败不回写，作品无新数据可收。
+                viewModel.runIslandQuery(
+                    domain, entity,
+                    anchorMessageId = transcriptMessages
+                        .lastOrNull { it.role == "assistant" }?.id,
+                ) { ok -> if (ok) islandFrameReason = "query" }
+            },
+            onCompose = { text ->
+                // compose 只填草稿不发送（v0.2 C1）：拼到现有草稿末尾。
+                // 收紧到舞台可见——消息流内联岛不给写草稿口（新增出站只
+                // 放给舞台；内联岛在此之前从无此通道，不丢能力）。
+                if (stageVisible && !stageOwnInputActive) {
+                    // own 舞台下原生输入栏已隐藏——写草稿用户看不见，
+                    // 作品自己的输入层才是入口（v0.3 B2 compose 保留给
+                    // 未声明 own 的作品）。
+                    val draft = viewModel.inputText.value
+                    viewModel.setInputText(if (draft.isBlank()) text else "$draft\n$text")
+                }
+            },
+            onSend = { text, gestureMs ->
+                // v0.3 B2 门控：own + 真实触摸窗口 + 一手势一发 + 限频 +
+                // 长度（evaluateIslandSend 纯函数，判定见 IslandFrame.kt）。
+                val now = android.os.SystemClock.uptimeMillis()
+                val (verdict, why) = evaluateIslandSend(
+                    ownInput = stageOwnInputActive,
+                    text = text,
+                    gestureUptimeMs = gestureMs,
+                    consumedGestureUptimeMs = islandConsumedGestureMs,
+                    lastSendAtMs = islandLastSendAtMs,
+                    nowUptimeMs = now,
+                )
+                if (verdict == "accept") {
+                    islandConsumedGestureMs = gestureMs
+                    islandLastSendAtMs = now
+                    val streaming = isStreaming
+                    viewModel.sendMessage(text)
+                    islandSendReceipt = IslandSendResult(
+                        result = if (streaming) "queued" else "accepted",
+                    )
+                } else {
+                    islandSendReceipt = IslandSendResult("dropped", why)
+                }
+                islandFrameReason = "send"
+            },
+            // ready 只收 own 舞台的（内联岛误触发不算数）。
+            onReady = { if (stageOwnInputActive) islandReadyReceived = true },
+            onCrash = {
+                if (stageVisible) {
+                    // 崩溃→自疗重载的页面要重新 ready()；重置标记让
+                    // 8s 超时重新武装（仅 own 舞台——旧件无 ready 概念）。
+                    if (stageOwnInputActive) islandReadyReceived = false
+                    // "连续崩溃"按 60s 窗计：稳定运行超窗长后重新计数。
+                    // 不因 ready 清零——崩溃→重载→ready→再崩的循环件
+                    // 要能数到阈值退回（v0.3 B7）。
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - islandStageLastCrashMs > IslandCrashWindowMs) {
+                        islandStageCrashCount = 1
+                    } else {
+                        islandStageCrashCount++
+                    }
+                    islandStageLastCrashMs = now
+                }
+            },
         ),
         LocalNovexArtifactDefs provides novexArtifactScene.defs,
         LocalNovexFullscreenAnchors provides novexArtifactScene.fullscreenAnchors,
         LocalNovexStageOpener provides { def: NovexArtifactDef ->
+            islandFrameReason = "init" // 首帧即带对 reason（effect 会迟到一帧）
             stageDefId = def.id
             stageVisible = true
         },
@@ -1913,6 +2276,12 @@ fun ChatScreen(
                 modelName = modelName,
                 onOpenModelPicker = { showModelPicker = true },
                 onOpenThinkingSheet = { showThinkingLevelSheet = true },
+                // 舞台自检（v0.3 S8）：打开内置体检岛——进舞台与注册件同路径。
+                onOpenStageCheck = {
+                    islandFrameReason = "init"
+                    stageDefId = NOVEX_STAGE_CHECK_DEF.id
+                    stageVisible = true
+                },
                 stageOpen = stageVisible,
                 returnFromConversation = {
                     if (stageVisible) stageVisible = false else returnFromConversation()
@@ -2102,22 +2471,18 @@ fun ChatScreen(
                 // （弹幕/书信/终端等形态）。原生转录只是被盖住不是被替换，
                 // 右下角「消息」浮钮随时切回。
                 // 全屏舞台：display:"fullscreen"/compat:tavern 的件被点开后，
-                // 转录区整换成舞台岛（单例 WebView）；缩小回会话时岛在 1dp
-                // 里保活，DOM/JS 状态存续，再进全屏不重载页面。
-                val stageDef = stageDefId?.let { novexArtifactScene.defs[it] }
-                val stageHtml = stageDef?.let { def ->
-                    remember(def.template, novexArtifactScene.latestUseData) {
-                        substituteNovexArtifact(
-                            def.template,
-                            novexArtifactScene.latestUseData[def.id].orEmpty(),
-                        )
-                    }
-                }
+                // 转录区整换成舞台岛。注意：全屏位与 1dp 位是两个 call
+                // site→两个 WebView 实例，缩小/放大都会重建页面（既有
+                // 架构，DOM/JS 状态并不存续——舞台状态须来自帧，不能存
+                // 在页内；协议本来就是这么设计的）。
+                val stageDef = stageDefId?.let { stageDefs[it] }
+                val stageHtml = stageSubstitutedHtml
                 val skinOverlayHtml = immersiveProfile.skin?.overlay
                 var peekNativeTranscript by remember(sessionId) { mutableStateOf(false) }
                 if (stageDef != null && !stageVisible && stageHtml != null) {
-                    // 保活位：缩小中的舞台岛缩到 1dp 角落——留在组合里
-                    // WebView 不销毁，JS/DOM 状态保住。
+                    // 缩小位：舞台不可见时岛缩到 1dp 角落待命（与全屏位
+                    // 非同一 WebView，作用是让关闭后岛仍在组合里、下次
+                    // 打开路径一致，不保页面状态）。
                     Box(Modifier.size(1.dp).alpha(0f)) {
                         HtmlIsland(html = stageHtml, fillParent = true, tavernCompat = stageDef.tavernCompat)
                     }
@@ -2254,6 +2619,9 @@ fun ChatScreen(
                 },
                 sessionId,
             )
+            // input:"own" 舞台激活时隐藏原生输入栏（v0.3 B2）：作品自画
+            // 输入层；缩小/退出舞台此条件即失效、原生输入栏立即回来。
+            if (!stageOwnInputActive) {
             Box(Modifier.fillMaxWidth().then(
                 skinComposerBar?.let { Modifier.skinBar(it, skinComposerTexture) }
                     ?: Modifier
@@ -2284,6 +2652,7 @@ fun ChatScreen(
                 filePickerLauncher = filePickerLauncher,
                 onPreviewAttachment = onPreviewAttachment,
             )
+            }
             }
 
             // 就地对话框群（移动/全屏编写/删会话/发送门槛等）→

@@ -421,6 +421,7 @@ private suspend fun ChatViewModel.registerArtifactDefsFromParts(parts: List<Agen
                         autoMarker = def.autoMarker,
                         tavernCompat = def.tavernCompat,
                         fullscreen = def.fullscreen,
+                        ownInput = def.ownInput,
                         branchId = messageId,
                     )
                 },

@@ -1,0 +1,53 @@
+{
+  "name": "出图：纯图片段与文图混排",
+  "cast": [],
+  "input": [
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "![宫门](novex-asset://gate)\n\n他递来一张图：![地图](novex-asset://map)说照这个走。",
+      "streaming": false
+    }
+  ],
+  "expected": [
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "image",
+      "text": "宫门",
+      "html": null,
+      "speaker": null,
+      "src": "novex-asset://gate",
+      "streaming": false
+    },
+    {
+      "id": "m1#1",
+      "messageId": "m1",
+      "segment": 1,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "他递来一张图：说照这个走。",
+      "html": "他递来一张图：说照这个走。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    },
+    {
+      "id": "m1#2",
+      "messageId": "m1",
+      "segment": 2,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "image",
+      "text": "地图",
+      "html": null,
+      "speaker": null,
+      "src": "novex-asset://map",
+      "streaming": false
+    }
+  ]
+}

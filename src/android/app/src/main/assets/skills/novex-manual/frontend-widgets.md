@@ -48,3 +48,42 @@
 ## 常见边界
 
 `novex-use` 的 id 未注册 → 界面不显示；先用 `novex-def` 注册或确认卡内预置的 id。数学渲染的是 KaTeX 子集；不支持的宏会显示为原文，换通用写法。
+
+## 舞台协议（全屏作品，v0.3）
+
+`display:"fullscreen"` 的件被点开后进入**舞台**：整页 WebView 接管消息区，宿主每轮推一个 `NOVEN_FRAME` 数据帧，页内监听 `noven:frame` 事件拿新帧。
+
+### 帧字段
+
+| 字段 | 内容 |
+|---|---|
+| `card` / `session` | 卡与局身份：`card.{id,name,kind}`，`session.id` |
+| `env` | 环境：`bridgeVersion`（协议版本，当前 `2`）、`webview`（内核大版本号）、`ime.visible`/`height`（键盘） |
+| `state` / `max` | 本局状态值与上限（register_controls 那套） |
+| `theme` | 明暗与主题色板 |
+| `transcript` | 结构化叙事流：`[{id, messageId, segment, turnId, role, kind, speaker, text, html, src, streaming}]`。**作品直接用解析好的段，不要再自己解析正文或协议围栏** |
+| `cast` | 名册 `[{id,name,avatar,color}]`——avatar 是资源 id，经 `asset()` 取地址 |
+| `choices` | 选项数据 `{turnId, items:[{id,label}]}`——模型给的选项以数据形式下发，作品自己画 |
+| `deltas` | 档案增量流 `[{seq,messageId,envelope}]`：按 seq 顺序重放物化；envelope 自带操作动词（`replace`/`delta`/`insert`/`remove`/`move`），宿主不猜语义 |
+| `archive` | 物化快照（可丢弃缓存）；当前恒 `{}`，以 `deltas` 重放为准 |
+| `assets` | 资源 id → 平台地址映射；页内取地址一律 `NOVEN_FRAME.asset(id)` |
+| `reason` | 本帧来由：`init`/`turn`/`query`/`branch`/`ime`/`send`。`branch` = 路径换了（重试/切分支），丢弃本地物化按新 `deltas` 重放 |
+| `turn` | 回合状态：`streaming`、`queued` |
+| `sendResult` | send 回执 `{result,why}`：`accepted`/`queued`/`dropped`；dropped 的 why：`rate`/`gesture`/`not-own`/`length` |
+| `messages` | 旧投影，已弃用——新作品用 `transcript` |
+
+### 出站（作品 → 宿主）
+
+- `NOVEN_FRAME.send(text)`：发一条玩家输入。**只认真实触摸**：脚本定时/自动发会被门控丢回 `dropped/gesture`；一次触摸只放行一发；最短间隔 1 秒；最长 8000 字。
+- `NOVEN_FRAME.compose(text)`：往原生草稿框填字（own 输入模式下已隐藏，不要用）。
+- `NOVEN_FRAME.query(domain, entity)`：静默查证——宿主让同模型换查证角色后台答一轮，结果作为附属记录写进 `deltas`，以 `reason:"query"` 推帧回来；不回话进消息流。
+- `NOVEN_FRAME.asset(id)`：资源 id 换成可用地址。
+- `NOVEN_FRAME.ready()`：首屏画完必须调一次——8 秒没 ready 宿主判作品卡死，自动退回原生对话。
+
+### 输入层
+
+def 元信息 `"input":"own"` 声明作品自带输入层：宿主隐藏原生输入栏、`send` 放行门控内发送。不声明的作品走原生输入栏，`send` 一律 `dropped/not-own`。
+
+### 自检
+
+聊天菜单 →「舞台自检」打开内置体检页：逐项核验帧字段、helper、出站、内核基线，产出 JSON 报告（可复制）。同一张页面在电脑模拟器和真机各跑一遍逐项对账，不一致即缺陷。

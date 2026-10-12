@@ -182,6 +182,8 @@ data class ConversationArtifactDefinition(
     val autoMarker: Boolean = false,
     val tavernCompat: Boolean = false,
     val fullscreen: Boolean = false,
+    /** input:"own"（v0.3）：作品自带输入层，与 def 一同按分支注册。 */
+    val ownInput: Boolean = false,
     val branchId: String,
 ) {
     init {
@@ -190,6 +192,18 @@ data class ConversationArtifactDefinition(
         require(branchId.isNotBlank()) { "前端件分支编号不能为空" }
     }
 }
+
+/**
+ * 舞台协议 v0.3 B6 查证回写：锚定某条助手消息的附属记录——不是消息
+ * 节点，不进消息树。参与 deltas 重放；"查阅了××"留痕由此渲染。
+ * 列表顺序即到达顺序；锚的消息不在活动路径上时，本条随之不可见
+ * （分支隔离免费获得）。
+ */
+data class StageAnnotation(
+    val messageId: String,
+    val envelopeJson: String,
+    val label: String = "",
+)
 
 data class NovexConversationConfigurationSnapshot(
     val conversationId: String,
@@ -215,6 +229,8 @@ data class NovexConversationConfigurationSnapshot(
     val unreadableConfiguration: String? = null,
     /** New content bindings travel with conversation settings, checkpoints and exports. */
     val cardBindingJson: String? = null,
+    /** v0.3 B6：舞台查证回写附属记录（锚定 messageId，沿活动路径可见）。 */
+    val stageAnnotations: List<StageAnnotation> = emptyList(),
 ) {
     val effectivePlaythroughId: String?
         get() = if(cardBindingJson!=null) "conversation:$conversationId" else activeInteractiveFiction?.let { activePlaythroughId ?: "legacy:${it.snapshotId}" }
@@ -223,7 +239,7 @@ data class NovexConversationConfigurationSnapshot(
         get() = cardBindingJson != null || answerIdentity != AnswerIdentity.Nova || playerIdentity != null ||
             backgroundSettings.isNotEmpty() || managedSubjects.isNotEmpty() ||
             activeInteractiveFiction != null || completedPlaythroughs.isNotEmpty() ||
-            playthroughStates.isNotEmpty() || controls.isNotEmpty() || artifactDefs.isNotEmpty() || disabledSettings.isNotEmpty() ||
+            playthroughStates.isNotEmpty() || controls.isNotEmpty() || artifactDefs.isNotEmpty() || stageAnnotations.isNotEmpty() || disabledSettings.isNotEmpty() ||
             executionMode != NovexExecutionMode.DEFAULT || contextLimitTokens != NovexConversationContextLimit.MINIMUM
 }
 
@@ -268,6 +284,8 @@ sealed interface NovexConversationCommand {
         val access: ManagedAccess,
     ) : NovexConversationCommand
     data class UnmountSubject(val subject: NovexContentAddress) : NovexConversationCommand
+    /** 舞台查证回写：只追加，不修改已有记录（v0.3 B6）。 */
+    data class AppendStageAnnotation(val annotation: StageAnnotation) : NovexConversationCommand
 }
 
 class NovexConversationConfiguration private constructor(
@@ -294,6 +312,8 @@ class NovexConversationConfiguration private constructor(
             }
         }
         is NovexConversationCommand.SetPlayerIdentity -> withSnapshot(snapshot.copy(playerIdentity = command.identity))
+        is NovexConversationCommand.AppendStageAnnotation ->
+            withSnapshot(snapshot.copy(stageAnnotations = snapshot.stageAnnotations + command.annotation))
         is NovexConversationCommand.SetAnswerIdentity -> withSnapshot(
             snapshot.copy(answerIdentity = command.identity),
         )

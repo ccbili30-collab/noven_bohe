@@ -76,6 +76,9 @@ internal data class NovexArtifactDef(
      *  每轮内联重复渲染。缺省规则：compat:tavern 的资产本就是整页，一律
      *  全屏；display:"inline" 可显式关掉。 */
     val fullscreen: Boolean = false,
+    /** 舞台协议 v0.3 B2：input:"own" 声明作品自带输入层——App 隐藏原生
+     *  输入栏、放行 send 通道（是模式切换不是授权，门控仍在宿主）。 */
+    val ownInput: Boolean = false,
 )
 
 /** 一次调用：目标 id + 本轮数据（slot 字段已退役，仅存解析兼容）。 */
@@ -153,6 +156,7 @@ internal fun parseNovexDef(code: String): NovexArtifactDef? {
             "inline" -> false
             else -> meta.optString("compat") == "tavern"
         },
+        ownInput = meta.optString("input").trim().lowercase() == "own",
     )
 }
 

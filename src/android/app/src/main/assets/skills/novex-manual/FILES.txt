@@ -5,7 +5,6 @@ chat-reply.md
 cards.md
 islands.md
 frontend-widgets.md
-skins.md
 workspace-and-import.md
 identity.md
 web.md

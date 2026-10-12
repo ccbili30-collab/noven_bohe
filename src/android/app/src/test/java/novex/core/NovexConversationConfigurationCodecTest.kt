@@ -6,6 +6,23 @@ import org.json.JSONObject
 
 class NovexConversationConfigurationCodecTest {
     @Test
+    fun stageAnnotationsSurviveRoundTripAnchoredByMessageId() {
+        val snapshot = NovexConversationConfiguration.empty("chat-q").snapshot
+            .copy(stageAnnotations = listOf(
+                StageAnnotation("msg-7", "{\"kind\":\"query-answer\",\"data\":{\"兵力\":4200}}", "军队/兵力"),
+                StageAnnotation("msg-9", "{\"kind\":\"query-answer\",\"data\":{}}", "财政/岁入"),
+            ))
+        val restored = NovexConversationConfigurationCodec.decode(
+            NovexConversationConfigurationCodec.encode(snapshot), "chat-q",
+        )
+        assertEquals(2, restored.stageAnnotations.size)
+        assertEquals("msg-7", restored.stageAnnotations[0].messageId)
+        assertEquals("军队/兵力", restored.stageAnnotations[0].label)
+        assertEquals(4200, org.json.JSONObject(restored.stageAnnotations[0].envelopeJson)
+            .getJSONObject("data").getInt("兵力"))
+    }
+
+    @Test
     fun unreadableOptionalRestorationIdentityDoesNotDiscardTheConversationOrState() {
         val saved = """{"preGameAnswerIdentity":{"kind":"future-persona"},"activeInteractiveFiction":{"projectId":"game","snapshotId":"v1","title":"生生"},"playthroughStates":[{"branchId":"branch","values":{"health":{"kind":"number","value":72}}}]}"""
         val restored = NovexConversationConfigurationCodec.decode(saved, "chat")
@@ -111,6 +128,29 @@ class NovexConversationConfigurationCodecTest {
             NovexConversationConfigurationCodec.encode(snapshot), "chat-1",
         )
         assertEquals(snapshot.artifactDefs, restored.artifactDefs)
+    }
+
+    @Test
+    fun artifactDefOwnInputRoundTripsAndDefaultsFalseOnOldData() {
+        // v0.3：ownInput 随注册表持久化；旧数据无此字段时按 false 读
+        // （optBoolean 缺省），不能崩也不能误开。
+        val snapshot = NovexConversationConfiguration.empty("chat-1").snapshot.copy(
+            artifactDefs = listOf(
+                ConversationArtifactDefinition(
+                    id = "stage", kind = "html", template = "<div/>",
+                    branchId = "reply-a", fullscreen = true, ownInput = true,
+                ),
+            ),
+        )
+        val restored = NovexConversationConfigurationCodec.decode(
+            NovexConversationConfigurationCodec.encode(snapshot), "chat-1",
+        )
+        assertEquals(snapshot.artifactDefs, restored.artifactDefs)
+        val legacy = NovexConversationConfigurationCodec.decode(
+            """{"artifactDefs":[{"id":"s","kind":"html","template":"<div/>","branchId":"m1"}]}""",
+            "chat-1",
+        )
+        assertEquals(false, legacy.artifactDefs.single().ownInput)
     }
 
     @Test
