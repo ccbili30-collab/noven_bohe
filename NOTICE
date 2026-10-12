@@ -1,0 +1,30 @@
+Novex
+=====
+
+Copyright (C) 2026 noven and contributors.
+
+Provenance
+----------
+
+Novex is a derivative work of OpenMinis, an open-source project licensed
+under the GNU General Public License version 3 (GPL-3.0). Through
+OpenMinis, portions of this codebase also descend from RikkaHub and its
+upstream projects.
+
+The upstream source baseline is preserved in this repository's git
+history as commit 82c2eb0e ("chore: import OpenMinis upstream
+baseline"). Historical releases prior to the open-source transition are
+archived at https://github.com/ccbili30-collab/novex-android
+(archived, read-only).
+
+Third-party components and their licenses are listed in
+THIRD_PARTY_LICENSES.md.
+
+Lineage status
+--------------
+
+An ongoing de-upstreaming effort is tracked in
+docs/UPSTREAM_EXIT_PLAN.md. Until that program completes, portions of
+the codebase remain derived from GPL-3.0 upstream sources, and this
+repository is distributed as a whole under GPL-3.0 in accordance with
+the upstream license's copyleft terms.
