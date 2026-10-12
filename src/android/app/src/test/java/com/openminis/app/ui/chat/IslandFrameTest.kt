@@ -102,7 +102,7 @@ class IslandFrameTest {
     }
 
     @Test
-    fun `transcript cast choices pass through; absent when null`() {
+    fun `transcript cast choices pass through and absent when null`() {
         val transcript = """[{"id":"m1#0","kind":"narration","text":"hi"}]"""
         val cast = """[{"id":"c1","name":"阿七","avatar":"a7.png","color":null}]"""
         val choices = """{"turnId":"m1","items":[{"id":"走","label":"走"}]}"""
