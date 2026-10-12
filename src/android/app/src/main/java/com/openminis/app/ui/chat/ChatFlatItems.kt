@@ -269,8 +269,10 @@ private class FlatItemFold(
         // 部分，玩家读完一条回复就在底部换版本。
         // [T-branch-affordance] 2026-10-11 决策：AI 回复恒显切换器（含
         // 1/1）——位置恒定、告诉用户"这里有几个版本"；人类输入一侧
-        // 不挂（见 emitUser）。
-        if (!ctx.isSystem) {
+        // 不挂（见 emitUser）。例外：首个内容未到的流式等待壳（只有
+        // 打字行）还不算是回复——与"零内容不挂操作行"同一口径，内容
+        // 一到达切换器即出现。
+        if (!ctx.isSystem && !(message.isStreaming && !ctx.hasVisibleContent)) {
             add(FlatChatItem.BranchSwitcher(
                 messageId = message.branchAnchorDbId ?: message.id,
                 index = message.branchIndex,
