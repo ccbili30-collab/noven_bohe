@@ -20,11 +20,11 @@ internal const val IslandBridgeVersion = 2
 internal const val IslandWebviewBaseline = 111
 
 /** send 回执：reason:"send" 帧携带，作品据此显示 已发/排队/没发出去。
- *  [seq] 供作品去重——同一回执可能随后续帧残留。 */
+ *  形状与 r2 B2 冻结一致（{result, why}），不加协议外字段——同值回执
+ *  的"又一次发生"由 noven:frame 派发本身表达。 */
 internal data class IslandSendResult(
     val result: String, // accepted | queued | dropped
     val why: String? = null, // rate | gesture | not-own | length | null
-    val seq: Int = 0,
 )
 
 // v0.3 B2 门控参数：一次触摸手势最多发一条（窗口 1.5s），发送最小间隔
@@ -62,8 +62,11 @@ internal sealed interface IslandOutbound {
     data class Send(val text: String) : IslandOutbound
 }
 
-private fun decodeIslandComponent(value: String): String =
+internal fun decodeIslandComponent(value: String): String =
     runCatching { java.net.URLDecoder.decode(value, "UTF-8") }.getOrDefault(value)
+
+private fun encodeIslandComponent(value: String): String =
+    java.net.URLEncoder.encode(value, "UTF-8")
 
 private fun islandQueryParam(rest: String, key: String): String? =
     rest.substringAfter('?', "")
@@ -80,7 +83,7 @@ private fun islandQueryParam(rest: String, key: String): String? =
  */
 internal fun parseIslandOutbound(url: String): IslandOutbound? {
     val scheme = url.substringBefore("://", "").lowercase()
-    val rest = url.substringAfter("://", "")
+    val rest = url.substringAfter("://", "").substringBefore('#')
     return when (scheme) {
         "novex-query" -> {
             val path = rest.substringBefore('?')
@@ -146,12 +149,22 @@ internal fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colo
     root.put("max", maxes)
     // 弃用但保留一个版本：皮肤 overlay 依赖（v0.4 由 transcript 接替）。
     runCatching { root.put("messages", org.json.JSONArray(bridge?.messagesJson ?: "[]")) }
-    // assets 映射表（v0.2 B2）：收割期 remoteUrl→id 反转为 id→平台 URL；
-    // 岛上 src 一律经 NOVEN_FRAME.asset(id) 取，不手写 scheme。
-    bridge?.remoteResources?.takeIf { it.isNotEmpty() }?.let { map ->
-        val assets = JSONObject()
-        map.values.distinct().forEach { id -> assets.put(id, "novex-asset://$id") }
-        root.put("assets", assets)
+    // transcript 叙事流（v0.3 B1）：宿主已解析的结构化段表。
+    runCatching { root.put("transcript", org.json.JSONArray(bridge?.transcriptJson ?: "[]")) }
+    // assets 映射表（v0.2 B2 + S2.4）：卡本地资源 id ∪ 收割期
+    // remoteUrl→id 反转值，统一写成 id→平台 URL；岛上 src 一律经
+    // NOVEN_FRAME.asset(id) 取，不手写 scheme。id 编码后与拦截器
+    // decode 对齐（非 ASCII/含空格 id 也能命中）。
+    run {
+        val ids = (bridge?.cardResourceIds ?: emptyList()) +
+            (bridge?.remoteResources?.values ?: emptyList())
+        if (ids.isNotEmpty()) {
+            val assets = JSONObject()
+            ids.distinct().forEach { id ->
+                assets.put(id, "novex-asset://${encodeIslandComponent(id)}")
+            }
+            root.put("assets", assets)
+        }
     }
     // reason 由宿主在事件发生时短暂置位（约一帧窗口后回到 "turn"）；
     // sendResult 载荷可常驻——作品按 seq 去重，不依赖 reason 判断新回执。
@@ -162,8 +175,7 @@ internal fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colo
     bridge?.sendResult?.let { r ->
         root.put("sendResult", JSONObject()
             .put("result", r.result)
-            .put("why", r.why ?: JSONObject.NULL)
-            .put("seq", r.seq))
+            .put("why", r.why ?: JSONObject.NULL))
     }
     root.put("theme", JSONObject()
         .put("dark", dark)

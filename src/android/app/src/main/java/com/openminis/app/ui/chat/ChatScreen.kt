@@ -1778,9 +1778,10 @@ fun ChatScreen(
     // playthroughState 喂给 HtmlIslandBridge 状态注入，故提升到 provider 之前收集。
     val playthroughState by viewModel.activePlaythroughState.collectAsState()
     // 卡 rootId → frame.card.id（v0.3）：与卡文档同一次解析顺手捕获。
-    var islandCardRootId by remember { mutableStateOf<String?>(null) }
+    var islandCardRootId by remember(sessionId) { mutableStateOf<String?>(null) }
     val islandCard by produceState<novex.content.ContentDocument?>(null, sessionId) {
         viewModel.novexConfigurationJson.collect { raw ->
+            islandCardRootId = null // 换卡/解绑时先清空，防残留指错卡
             value = runCatching {
                 novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
             }.getOrNull()?.cardBindingJson
@@ -1806,23 +1807,28 @@ fun ChatScreen(
             }
         }
     }
-    val islandRemoteMap = islandCard?.extensions?.get(novex.core.tavern.TavernAssetHarvester.URL_MAP_EXT)?.let { ref ->
-        runCatching {
-            val json = org.json.JSONObject(
-                viewModel.integratedCards.store.contents.open(ref).use { it.readBytes().toString(Charsets.UTF_8) })
-            json.keys().asSequence().associateWith { json.getString(it) }
-        }.getOrNull()
-    } ?: emptyMap()
+    // 收割映射读卡内文件：IO 线程 + 按卡缓存，不做组合期逐次读字节。
+    val islandRemoteMap by produceState(emptyMap<String, String>(), islandCard) {
+        value = withContext(Dispatchers.IO) {
+            islandCard?.extensions?.get(novex.core.tavern.TavernAssetHarvester.URL_MAP_EXT)?.let { ref ->
+                runCatching {
+                    val json = org.json.JSONObject(
+                        viewModel.integratedCards.store.contents.open(ref).use { it.readBytes().toString(Charsets.UTF_8) })
+                    json.keys().asSequence().associateWith { json.getString(it) }
+                }.getOrNull()
+            } ?: emptyMap()
+        }
+    }
 
     // ── 舞台协议 v0.3 帧附件与出站（IslandFrame.kt 组装进 NOVEN_FRAME）──
     val islandDensity = LocalDensity.current
-    val islandImeCssPx = (WindowInsets.ime.getBottom(islandDensity) / islandDensity.density).toInt()
+    val islandImeRawPx by remember { derivedStateOf { WindowInsets.ime.getBottom(islandDensity) } }
+    var islandImeCssPx by remember { mutableIntStateOf(0) }
     val islandWebViewVer = remember { islandWebViewMajor(context) }
     val islandQueuedPrompts by viewModel.promptQueue.collectAsState()
     // reason 是"最近事件"的短暂标记：事件置位后回 "turn"——连续事件后到
     // 的覆盖先到的（近似语义，协议对 reason 只要求"反映最近事件"）。
     var islandFrameReason by remember { mutableStateOf("turn") }
-    var islandSendSeq by remember { mutableIntStateOf(0) }
     var islandSendReceipt by remember { mutableStateOf<IslandSendResult?>(null) }
     var islandReadyReceived by remember(sessionId, stageDefId) { mutableStateOf(false) }
     var islandStageCrashCount by remember { mutableIntStateOf(0) }
@@ -1840,16 +1846,26 @@ fun ChatScreen(
             islandFrameReason = "turn"
         }
     }
-    LaunchedEffect(islandImeCssPx) {
-        if (lastIslandImeCssPx[0] >= 0 && lastIslandImeCssPx[0] != islandImeCssPx) {
-            islandFrameReason = "ime"
+    // env.ime 节流（S5）：键盘动画逐帧改 inset——collectLatest 重启会
+    // 取消上一段等待，只在停稳后把终值写进帧；动画期间不逐帧推、
+    // reason 不在 ime/turn 之间抖。
+    LaunchedEffect(Unit) {
+        snapshotFlow { islandImeRawPx }.collectLatest { raw ->
+            kotlinx.coroutines.delay(150)
+            val stable = (raw / islandDensity.density).toInt()
+            if (stable != islandImeCssPx) {
+                islandImeCssPx = stable
+                if (lastIslandImeCssPx[0] >= 0 && lastIslandImeCssPx[0] != stable) {
+                    islandFrameReason = "ime"
+                }
+                lastIslandImeCssPx[0] = stable
+            }
         }
-        lastIslandImeCssPx[0] = islandImeCssPx
     }
     // 舞台打开：首帧标 init；WebView 低于制作基线只提示不拦截（r2 §A）。
     LaunchedEffect(stageVisible, stageDefId) {
         if (stageVisible && stageDefId != null) {
-            islandFrameReason = "init"
+            islandStageCrashCount = 0 // 新开局重新计连续崩溃
             val major = islandWebViewVer
             if (major != null && major < IslandWebviewBaseline) {
                 android.widget.Toast.makeText(
@@ -1927,6 +1943,7 @@ fun ChatScreen(
             sessionId = sessionId,
             cardResourceLoader = islandResourceLoader,
             remoteResources = islandRemoteMap,
+            cardResourceIds = islandResources?.keys?.toList().orEmpty(),
             messagesJson = remember(transcriptMessages, immersiveProfile.effectiveAssistantName, immersiveProfile.effectivePlayerName) {
                 // 覆盖层/岛用的最近消息投影：最近 30 条 {role,name,text}，
                 // 超长正文截断——皮肤层是呈现层不是历史档案。
@@ -1944,6 +1961,22 @@ fun ChatScreen(
                 }
                 arr.toString()
             },
+            // transcript 叙事流（v0.3 B1）：宿主解析一次。cast 名册等 S6
+            // 接上挂载角色卡再传——目前 speaker 检测关闭，全是 narration。
+            transcriptJson = remember(transcriptMessages) {
+                novex.core.StageTranscriptParser.toJson(
+                    novex.core.StageTranscriptParser.parse(
+                        transcriptMessages.takeLast(40).map { m ->
+                            novex.core.StageTranscriptParser.Input(
+                                messageId = m.id,
+                                role = m.role,
+                                content = m.content,
+                                streaming = m.isStreaming,
+                            )
+                        },
+                    ),
+                )
+            },
             cardId = islandCardRootId,
             webviewMajor = islandWebViewVer,
             turnStreaming = isStreaming,
@@ -1958,11 +1991,14 @@ fun ChatScreen(
             },
             onCompose = { text ->
                 // compose 只填草稿不发送（v0.2 C1）：拼到现有草稿末尾。
-                val draft = viewModel.inputText.value
-                viewModel.setInputText(if (draft.isBlank()) text else "$draft\n$text")
+                // 收紧到舞台可见——消息流内联岛不给写草稿口（新增出站只
+                // 放给舞台；内联岛在此之前从无此通道，不丢能力）。
+                if (stageVisible) {
+                    val draft = viewModel.inputText.value
+                    viewModel.setInputText(if (draft.isBlank()) text else "$draft\n$text")
+                }
             },
             onSend = { text, gestureMs ->
-                islandSendSeq++
                 // v0.3 B2 门控：own + 真实触摸窗口 + 一手势一发 + 限频 +
                 // 长度（evaluateIslandSend 纯函数，判定见 IslandFrame.kt）。
                 val now = android.os.SystemClock.uptimeMillis()
@@ -1981,19 +2017,26 @@ fun ChatScreen(
                     viewModel.sendMessage(text)
                     islandSendReceipt = IslandSendResult(
                         result = if (streaming) "queued" else "accepted",
-                        seq = islandSendSeq,
                     )
                 } else {
-                    islandSendReceipt = IslandSendResult("dropped", why, islandSendSeq)
+                    islandSendReceipt = IslandSendResult("dropped", why)
                 }
                 islandFrameReason = "send"
             },
-            onReady = { islandReadyReceived = true },
+            // ready 只收 own 舞台的（内联岛误触发不算数）；就绪即重置
+            // 连续崩溃计数——"连续"而非累计。
+            onReady = {
+                if (stageOwnInputActive) {
+                    islandReadyReceived = true
+                    islandStageCrashCount = 0
+                }
+            },
             onCrash = { if (stageVisible) islandStageCrashCount++ },
         ),
         LocalNovexArtifactDefs provides novexArtifactScene.defs,
         LocalNovexFullscreenAnchors provides novexArtifactScene.fullscreenAnchors,
         LocalNovexStageOpener provides { def: NovexArtifactDef ->
+            islandFrameReason = "init" // 首帧即带对 reason（effect 会迟到一帧）
             stageDefId = def.id
             stageVisible = true
         },

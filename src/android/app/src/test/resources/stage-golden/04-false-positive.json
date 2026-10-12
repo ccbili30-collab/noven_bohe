@@ -1,0 +1,12 @@
+{
+  "name": "误判样例：名册外的行首词不识别，名册内的会误判",
+  "cast": ["阿七", "注"],
+  "input": [
+    {"id": "m1", "role": "assistant", "content": "注：以下内容来自旧档。\n\n阿七的话：他确实来过。\n\n注：这不是台词。", "streaming": false}
+  ],
+  "expected": [
+    {"id": "m1#0", "messageId": "m1", "role": "assistant", "kind": "dialogue", "text": "以下内容来自旧档。", "html": "以下内容来自旧档。", "speaker": "注", "image": null, "streaming": false},
+    {"id": "m1#1", "messageId": "m1", "role": "assistant", "kind": "narration", "text": "阿七的话：他确实来过。", "html": "阿七的话：他确实来过。", "speaker": null, "image": null, "streaming": false},
+    {"id": "m1#2", "messageId": "m1", "role": "assistant", "kind": "dialogue", "text": "这不是台词。", "html": "这不是台词。", "speaker": "注", "image": null, "streaming": false}
+  ]
+}

@@ -88,12 +88,11 @@ class IslandFrameTest {
     }
 
     @Test
-    fun `sendResult rides the frame with seq`() {
-        val f = frame(bridge(sendResult = IslandSendResult("queued", seq = 3)))
+    fun `sendResult rides the frame`() {
+        val f = frame(bridge(sendResult = IslandSendResult("queued")))
         val r = f.getJSONObject("sendResult")
         assertEquals("queued", r.getString("result"))
         assertTrue(r.isNull("why"))
-        assertEquals(3, r.getInt("seq"))
     }
 
     @Test

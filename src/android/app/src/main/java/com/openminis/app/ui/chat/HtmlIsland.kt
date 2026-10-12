@@ -64,10 +64,14 @@ internal class HtmlIslandBridge(
     val sessionId: String? = null,
     /** 最近消息 JSON 数组 [{role,name,text}]——皮肤覆盖层（弹幕等）吃这个。 */
     val messagesJson: String = "[]",
+    /** transcript 叙事流 JSON 数组（v0.3 B1，StageTranscriptParser 产出）。 */
+    val transcriptJson: String = "[]",
     /** 卡收割资源：资源ID → (字节流, MIME)。导入收割的素材由此进岛。 */
     val cardResourceLoader: ((String) -> Pair<java.io.InputStream, String>?)? = null,
     /** 收割期留下的 远程URL→资源ID 映射：JS 动态拼的已知素材也能本地命中。 */
     val remoteResources: Map<String, String> = emptyMap(),
+    /** 卡本地资源 id 清单 → frame.assets（与 remoteResources 值并集下发）。 */
+    val cardResourceIds: List<String> = emptyList(),
     // ─── 舞台协议 v0.3 附件字段（IslandFrame.kt 组装进 NOVEN_FRAME）───
     /** 卡 rootId → frame.card.id。 */
     val cardId: String? = null,
@@ -144,7 +148,18 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
     val context = androidx.compose.ui.platform.LocalContext.current
     val compatScripts = if (tavernCompat) remember { IslandCompatAssets.load(context) } else emptyList()
     val dark = colors.text.luminance() > 0.5f
-    val frameJson = remember(bridge, dark, colors) { buildIslandFrameJson(bridge, dark, colors) }
+    // bridge 逐重组新建 → remember(bridge) 等于不缓存：按影响帧内容的
+    // 实际字段做键，输入框敲字之类无关重组不再全量重建帧 JSON。
+    val frameJson = remember(
+        dark, colors,
+        bridge?.cardId, bridge?.cardName, bridge?.cardKind,
+        bridge?.sessionId, bridge?.state,
+        bridge?.messagesJson, bridge?.transcriptJson,
+        bridge?.remoteResources, bridge?.cardResourceIds,
+        bridge?.webviewMajor, bridge?.turnStreaming, bridge?.queuedCount,
+        bridge?.imeVisible, bridge?.imeHeightCssPx,
+        bridge?.frameReason, bridge?.sendResult,
+    ) { buildIslandFrameJson(bridge, dark, colors) }
     val islandSessionId = bridge?.sessionId
 
     var showSource by remember(html) { mutableStateOf(false) }
@@ -389,8 +404,12 @@ private class IslandRenderer {
                 if (url == IslandBaseUrl) return null
                 // 卡收割资源：novex-asset://<资源ID> → 卡本地资源字节。
                 if (scheme == "novex-asset") {
-                    val id = request.url.host
-                        ?: url.removePrefix("novex-asset://").substringBefore('/').substringBefore('?')
+                    // asset()/assets 表写出的 id 是 encodeURIComponent 过的，
+                    // 解码后再查资源（非 ASCII/含空格 id 也能命中）。
+                    val id = decodeIslandComponent(
+                        request.url.host
+                            ?: url.removePrefix("novex-asset://").substringBefore('/').substringBefore('?'),
+                    )
                     cardBridge?.cardResourceLoader?.invoke(id)?.let { (stream, mime) ->
                         return WebResourceResponse(mime, null, stream)
                     }
