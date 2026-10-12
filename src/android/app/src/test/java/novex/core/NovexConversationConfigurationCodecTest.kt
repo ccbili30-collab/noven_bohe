@@ -114,6 +114,29 @@ class NovexConversationConfigurationCodecTest {
     }
 
     @Test
+    fun artifactDefOwnInputRoundTripsAndDefaultsFalseOnOldData() {
+        // v0.3：ownInput 随注册表持久化；旧数据无此字段时按 false 读
+        // （optBoolean 缺省），不能崩也不能误开。
+        val snapshot = NovexConversationConfiguration.empty("chat-1").snapshot.copy(
+            artifactDefs = listOf(
+                ConversationArtifactDefinition(
+                    id = "stage", kind = "html", template = "<div/>",
+                    branchId = "reply-a", fullscreen = true, ownInput = true,
+                ),
+            ),
+        )
+        val restored = NovexConversationConfigurationCodec.decode(
+            NovexConversationConfigurationCodec.encode(snapshot), "chat-1",
+        )
+        assertEquals(snapshot.artifactDefs, restored.artifactDefs)
+        val legacy = NovexConversationConfigurationCodec.decode(
+            """{"artifactDefs":[{"id":"s","kind":"html","template":"<div/>","branchId":"m1"}]}""",
+            "chat-1",
+        )
+        assertEquals(false, legacy.artifactDefs.single().ownInput)
+    }
+
+    @Test
     fun emptyLegacyValueIsNewButBrokenDataIsPreservedReadOnly() {
         val empty = NovexConversationConfigurationCodec.decode(null, "chat-legacy")
         val broken = NovexConversationConfigurationCodec.decode("{broken", "chat-legacy")

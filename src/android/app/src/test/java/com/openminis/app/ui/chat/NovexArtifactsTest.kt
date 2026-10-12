@@ -302,6 +302,17 @@ OLD {{hp}}
     }
 
     @Test
+    fun `ownInput flag follows input meta`() {
+        // v0.3 B2：input:"own" 声明作品自带输入层；缺省/其他值都是 false。
+        assertTrue(parseNovexDef("""{"id":"a","kind":"html","display":"fullscreen","input":"own"}
+<div/>""")!!.ownInput)
+        assertTrue(!parseNovexDef("""{"id":"b","kind":"html","input":"native"}
+<div/>""")!!.ownInput)
+        assertTrue(!parseNovexDef("""{"id":"c","kind":"html"}
+<div/>""")!!.ownInput)
+    }
+
+    @Test
     fun `fullscreen anchor marks first use, later uses become entries`() {
         val scene = collectNovexArtifactScene(
             listOf(

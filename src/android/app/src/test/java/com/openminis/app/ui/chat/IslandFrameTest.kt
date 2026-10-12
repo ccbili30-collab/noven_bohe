@@ -130,6 +130,63 @@ class IslandFrameTest {
     }
 
     @Test
+    fun `send gate - own required before anything else`() {
+        val r = evaluateIslandSend(
+            ownInput = false, text = "hi",
+            gestureUptimeMs = 1000, consumedGestureUptimeMs = 0,
+            lastSendAtMs = 0, nowUptimeMs = 1100,
+        )
+        assertEquals("dropped" to "not-own", r)
+    }
+
+    @Test
+    fun `send gate - gesture freshness and one-per-gesture`() {
+        // 从未触摸（uptime=0）或超出 1.5s 窗口 → dropped/gesture。
+        assertEquals("dropped" to "gesture", evaluateIslandSend(
+            ownInput = true, text = "hi",
+            gestureUptimeMs = 0, consumedGestureUptimeMs = 0,
+            lastSendAtMs = 0, nowUptimeMs = 1000,
+        ))
+        assertEquals("dropped" to "gesture", evaluateIslandSend(
+            ownInput = true, text = "hi",
+            gestureUptimeMs = 100, consumedGestureUptimeMs = 0,
+            lastSendAtMs = 0, nowUptimeMs = 2000,
+        ))
+        // 同一手势二次使用 → dropped/gesture（一手势一发）。
+        assertEquals("dropped" to "gesture", evaluateIslandSend(
+            ownInput = true, text = "hi",
+            gestureUptimeMs = 1000, consumedGestureUptimeMs = 1000,
+            lastSendAtMs = 0, nowUptimeMs = 1100,
+        ))
+    }
+
+    @Test
+    fun `send gate - length and rate limits`() {
+        assertEquals("dropped" to "length", evaluateIslandSend(
+            ownInput = true, text = "",
+            gestureUptimeMs = 1000, consumedGestureUptimeMs = 0,
+            lastSendAtMs = 0, nowUptimeMs = 1100,
+        ))
+        assertEquals("dropped" to "length", evaluateIslandSend(
+            ownInput = true, text = "x".repeat(IslandSendMaxChars + 1),
+            gestureUptimeMs = 1000, consumedGestureUptimeMs = 0,
+            lastSendAtMs = 0, nowUptimeMs = 1100,
+        ))
+        // 限频 1s：间隔不足即使换了新手势也 dropped/rate。
+        assertEquals("dropped" to "rate", evaluateIslandSend(
+            ownInput = true, text = "hi",
+            gestureUptimeMs = 1500, consumedGestureUptimeMs = 1000,
+            lastSendAtMs = 1100, nowUptimeMs = 1600,
+        ))
+        // 全通过 → accept（queued/accepted 由调用方按回合态映射）。
+        assertEquals("accept" to null, evaluateIslandSend(
+            ownInput = true, text = "hi",
+            gestureUptimeMs = 2100, consumedGestureUptimeMs = 1000,
+            lastSendAtMs = 1000, nowUptimeMs = 2200,
+        ))
+    }
+
+    @Test
     fun `assets map inverts harvested urls`() {
         val b = HtmlIslandBridge(
             cardName = null, cardKind = null, state = null,

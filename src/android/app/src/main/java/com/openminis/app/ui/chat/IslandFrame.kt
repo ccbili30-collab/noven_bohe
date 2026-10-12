@@ -27,6 +27,34 @@ internal data class IslandSendResult(
     val seq: Int = 0,
 )
 
+// v0.3 B2 门控参数：一次触摸手势最多发一条（窗口 1.5s），发送最小间隔
+// 1s，文本上限 8000 字（原生输入栏无显式上限，此为合理保护值）。
+internal const val IslandSendGestureWindowMs = 1500L
+internal const val IslandSendMinIntervalMs = 1000L
+internal const val IslandSendMaxChars = 8000
+
+/**
+ * send 门控判定（纯函数，可单测）：v0.3 B2——只认作品声明 input:"own"
+ * 之后的真实触摸：手势窗口内 + 一手势一发 + 限频 + 长度。返回值
+ * ("accept", null) 由调用方按回合态映射成 accepted/queued。
+ */
+internal fun evaluateIslandSend(
+    ownInput: Boolean,
+    text: String,
+    gestureUptimeMs: Long,
+    consumedGestureUptimeMs: Long,
+    lastSendAtMs: Long,
+    nowUptimeMs: Long,
+): Pair<String, String?> = when {
+    !ownInput -> "dropped" to "not-own"
+    gestureUptimeMs <= 0L ||
+        nowUptimeMs - gestureUptimeMs > IslandSendGestureWindowMs ||
+        gestureUptimeMs <= consumedGestureUptimeMs -> "dropped" to "gesture"
+    text.isBlank() || text.length > IslandSendMaxChars -> "dropped" to "length"
+    lastSendAtMs > 0 && nowUptimeMs - lastSendAtMs < IslandSendMinIntervalMs -> "dropped" to "rate"
+    else -> "accept" to null
+}
+
 /** 出站意图：shouldOverrideUrlLoading 拦到的三条 scheme（r2 B1/B2）。 */
 internal sealed interface IslandOutbound {
     data class Query(val domain: String, val entity: String, val from: String?) : IslandOutbound

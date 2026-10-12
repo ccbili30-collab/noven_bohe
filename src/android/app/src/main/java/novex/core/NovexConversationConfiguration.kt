@@ -182,6 +182,8 @@ data class ConversationArtifactDefinition(
     val autoMarker: Boolean = false,
     val tavernCompat: Boolean = false,
     val fullscreen: Boolean = false,
+    /** input:"own"（v0.3）：作品自带输入层，与 def 一同按分支注册。 */
+    val ownInput: Boolean = false,
     val branchId: String,
 ) {
     init {

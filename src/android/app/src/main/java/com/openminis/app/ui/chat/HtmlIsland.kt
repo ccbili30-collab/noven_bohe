@@ -87,7 +87,8 @@ internal class HtmlIslandBridge(
     // ─── v0.3 出站回调（URL 拦截分发，无 JS 桥）───
     val onQuery: ((domain: String, entity: String, from: String?) -> Unit)? = null,
     val onCompose: ((String) -> Unit)? = null,
-    val onSend: ((String) -> Unit)? = null,
+    /** send：文本 + 发出 WebView 最近 ACTION_UP 的 eventTime（门控用）。 */
+    val onSend: ((String, Long) -> Unit)? = null,
     /** ready() 经 console 信号回报（全屏作品的"已画出首屏"）。 */
     val onReady: (() -> Unit)? = null,
     /** 渲染进程丢失（自疗重载之外的上报通道，宿主可累计后退回）。 */
@@ -306,9 +307,21 @@ private class IslandRenderer {
     var onHeight: ((Int) -> Unit)? = null
     var onCrash: (() -> Unit)? = null
     var onError: ((String?) -> Unit)? = null
+    /** 最近一次 ACTION_UP 的 eventTime（uptimeMillis 时钟）：send 门控
+     *  用它证"刚有一次真实触摸"——0 = 从没有过触摸（v0.3 B2）。 */
+    var lastGestureUptimeMs: Long = 0L
 
     fun create(context: android.content.Context): WebView = WebView(context).apply {
         configure(this)
+        // 观察不消费（返回 false）：只记手势时间，触摸照常进 WebView。
+        setOnTouchListener { _, ev ->
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_UP ||
+                ev.actionMasked == android.view.MotionEvent.ACTION_POINTER_UP
+            ) {
+                lastGestureUptimeMs = ev.eventTime
+            }
+            false
+        }
         webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 pageReady = true
@@ -359,7 +372,8 @@ private class IslandRenderer {
                     is IslandOutbound.Query ->
                         cardBridge?.onQuery?.invoke(outbound.domain, outbound.entity, outbound.from)
                     is IslandOutbound.Compose -> cardBridge?.onCompose?.invoke(outbound.text)
-                    is IslandOutbound.Send -> cardBridge?.onSend?.invoke(outbound.text)
+                    is IslandOutbound.Send ->
+                        cardBridge?.onSend?.invoke(outbound.text, lastGestureUptimeMs)
                     null -> Unit
                 }
                 return true

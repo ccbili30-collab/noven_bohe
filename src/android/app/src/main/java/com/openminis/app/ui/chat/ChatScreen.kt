@@ -1764,6 +1764,7 @@ fun ChatScreen(
                     autoMarker = def.autoMarker,
                     tavernCompat = def.tavernCompat,
                     fullscreen = def.fullscreen,
+                    ownInput = def.ownInput,
                 )
             }
     }
@@ -1823,8 +1824,15 @@ fun ChatScreen(
     var islandFrameReason by remember { mutableStateOf("turn") }
     var islandSendSeq by remember { mutableIntStateOf(0) }
     var islandSendReceipt by remember { mutableStateOf<IslandSendResult?>(null) }
-    var islandReadyReceived by remember(sessionId) { mutableStateOf(false) }
+    var islandReadyReceived by remember(sessionId, stageDefId) { mutableStateOf(false) }
     var islandStageCrashCount by remember { mutableIntStateOf(0) }
+    // send 门控状态：已消费的手势时间戳（一手势一发）与最近一次发送时刻。
+    var islandConsumedGestureMs by remember { mutableStateOf(0L) }
+    var islandLastSendAtMs by remember { mutableStateOf(0L) }
+    // 舞台可见且作品声明 input:"own"：原生输入栏隐藏、send 放行、
+    // ready 超时生效（旧舞台件/皮肤不施加——v0.3 B2/B7）。
+    val stageOwnInputActive = stageVisible &&
+        stageDefId?.let { novexArtifactScene.defs[it]?.ownInput } == true
     val lastIslandImeCssPx = remember { intArrayOf(-1) }
     LaunchedEffect(islandFrameReason) {
         if (islandFrameReason != "turn") {
@@ -1853,7 +1861,7 @@ fun ChatScreen(
         }
     }
     // 连续崩溃逃生：岛自疗重载连续两次仍挂 → 退回原生对话（r2 B7 的
-    // 崩溃半边；ready 超时半边随 input:"own" 标记在下一批接入）。
+    // 崩溃半边）。
     LaunchedEffect(islandStageCrashCount) {
         if (islandStageCrashCount >= 2 && stageVisible) {
             stageVisible = false
@@ -1861,6 +1869,20 @@ fun ChatScreen(
             android.widget.Toast.makeText(
                 context, "作品连续崩溃，已切回对话", android.widget.Toast.LENGTH_LONG,
             ).show()
+        }
+    }
+    // ready 超时逃生（B7 另一半）：只对声明 input:"own" 的新协议作品施加
+    // ——高度回报对 100vh/fixed 布局不可靠，ready() 是显式"首屏已画出"信号；
+    // 旧舞台件与皮肤 overlay 不调 ready()，不能施加此超时。
+    LaunchedEffect(stageOwnInputActive, islandReadyReceived) {
+        if (stageOwnInputActive && !islandReadyReceived) {
+            kotlinx.coroutines.delay(8000)
+            if (!islandReadyReceived && stageVisible) {
+                stageVisible = false
+                android.widget.Toast.makeText(
+                    context, "作品未能就绪，已切回对话", android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -1939,11 +1961,31 @@ fun ChatScreen(
                 val draft = viewModel.inputText.value
                 viewModel.setInputText(if (draft.isBlank()) text else "$draft\n$text")
             },
-            onSend = {
+            onSend = { text, gestureMs ->
                 islandSendSeq++
-                // v0.3 B2 接受侧随 input:"own" 在下一批接入——当前无作品
-                // 声明 own，全部回执 dropped/not-own；回执通道先打通。
-                islandSendReceipt = IslandSendResult("dropped", "not-own", islandSendSeq)
+                // v0.3 B2 门控：own + 真实触摸窗口 + 一手势一发 + 限频 +
+                // 长度（evaluateIslandSend 纯函数，判定见 IslandFrame.kt）。
+                val now = android.os.SystemClock.uptimeMillis()
+                val (verdict, why) = evaluateIslandSend(
+                    ownInput = stageOwnInputActive,
+                    text = text,
+                    gestureUptimeMs = gestureMs,
+                    consumedGestureUptimeMs = islandConsumedGestureMs,
+                    lastSendAtMs = islandLastSendAtMs,
+                    nowUptimeMs = now,
+                )
+                if (verdict == "accept") {
+                    islandConsumedGestureMs = gestureMs
+                    islandLastSendAtMs = now
+                    val streaming = isStreaming
+                    viewModel.sendMessage(text)
+                    islandSendReceipt = IslandSendResult(
+                        result = if (streaming) "queued" else "accepted",
+                        seq = islandSendSeq,
+                    )
+                } else {
+                    islandSendReceipt = IslandSendResult("dropped", why, islandSendSeq)
+                }
                 islandFrameReason = "send"
             },
             onReady = { islandReadyReceived = true },
@@ -2334,6 +2376,9 @@ fun ChatScreen(
                 },
                 sessionId,
             )
+            // input:"own" 舞台激活时隐藏原生输入栏（v0.3 B2）：作品自画
+            // 输入层；缩小/退出舞台此条件即失效、原生输入栏立即回来。
+            if (!stageOwnInputActive) {
             Box(Modifier.fillMaxWidth().then(
                 skinComposerBar?.let { Modifier.skinBar(it, skinComposerTexture) }
                     ?: Modifier
@@ -2399,6 +2444,7 @@ fun ChatScreen(
                 onEnhancedCacheDismissed = { showEnhancedCacheDialog = false },
             )
         }
+            }
         // Top gradient fade: messages fade into the Scaffold background.
         Box(
             modifier = Modifier

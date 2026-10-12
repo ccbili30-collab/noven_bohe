@@ -242,6 +242,7 @@ private fun ConversationArtifactDefinition.toJson() = JSONObject()
     .put("autoMarker", autoMarker)
     .put("tavernCompat", tavernCompat)
     .put("fullscreen", fullscreen)
+    .put("ownInput", ownInput)
     .put("branchId", branchId)
 
 private fun JSONObject.toArtifactDef() = ConversationArtifactDefinition(
@@ -253,6 +254,7 @@ private fun JSONObject.toArtifactDef() = ConversationArtifactDefinition(
     autoMarker = optBoolean("autoMarker", false),
     tavernCompat = optBoolean("tavernCompat", false),
     fullscreen = optBoolean("fullscreen", false),
+    ownInput = optBoolean("ownInput", false),
     branchId = getString("branchId"),
 )
 
