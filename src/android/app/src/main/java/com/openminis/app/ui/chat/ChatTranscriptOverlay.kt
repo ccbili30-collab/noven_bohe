@@ -449,7 +449,6 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
 
 // ── 拉条跳端 ──────────────────────────────────────────────────────────────
 
-private const val STRETCH_HOLD_MS = 280L
 private const val STRETCH_TRIGGER_PX = 48f
 
 /**
@@ -463,10 +462,10 @@ private fun Modifier.stretchDragGesture(
 ): Modifier = this.pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
-        // 等"稍微按住"：官方长按手势到期返回 = 进拉伸态；提前抬指、被
+        // 等系统长按时长到期返回 = 进拉伸态；提前抬指、被
         // 其它手势消费、拖走出界都直接让位（单击/滚动照旧）。awaitPointerEvent
         // 是受限挂起，不能嵌进 withTimeoutOrNull——长按等待必须用它。
-        val held = awaitLongPressOrCancellation(down.id, STRETCH_HOLD_MS)
+        val held = awaitLongPressOrCancellation(down.id)
         if (held == null || !held.pressed || held.isConsumed ||
             kotlin.math.abs(held.position.y - down.position.y) > STRETCH_TRIGGER_PX
         ) return@awaitEachGesture
