@@ -191,8 +191,6 @@ data class ImmersiveChatProfile(
     val assistantAvatarPath: String? = null,
     val playerDisplayName: String? = null,
     val playerAvatarPath: String? = null,
-    /** 会话皮肤包（九宫格气泡/顶图/底图/头像框/覆盖层），见 ChatSkin。 */
-    val skin: ChatSkin? = null,
 )
 
 val ImmersiveChatProfile.usesRolePresentation: Boolean

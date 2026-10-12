@@ -70,9 +70,6 @@ object NovexCardActivation {
         val frontendCount = cards.sumOf { card ->
             card.modules.flatMap(::flatten).count { it.second.isFrontendModule() }
         }
-        val skinCount = cards.sumOf { card ->
-            card.modules.flatMap(::flatten).count { it.second.isSkinModule() }
-        }
         cards.forEach { card ->
             val cardDefaults = card.modules.flatMap(::flatten)
                 .filter { it.second.effectiveRouting() == ModuleRouting.DEFAULT }
@@ -89,12 +86,10 @@ object NovexCardActivation {
                 val verbatim = module.isVerbatimSource(card, readText)
                 if (verbatim) verbatimCount++
                 val frontend = module.isFrontendModule()
-                val skin = module.isSkinModule()
                 listing.appendLine(
                     "  · ${module.name}" +
                         if (verbatim) "（原文导入 · 按需分页载入）"
                         else if (frontend) "（前端 · 内含界面模板定义）"
-                        else if (skin) "（皮肤 · 会话外观包）"
                         else "",
                 )
                 defaults.appendLine()
@@ -153,10 +148,6 @@ object NovexCardActivation {
                         }
                     })
                 }
-                appendLine()
-            }
-            if (skinCount > 0) {
-                appendLine("本卡含皮肤包（novex-skin）。会话外观已按卡内定义就位，剧情中可用 ```novex-skin 块改版或 {\"clear\":true} 卸除。")
                 appendLine()
             }
             appendLine("──")

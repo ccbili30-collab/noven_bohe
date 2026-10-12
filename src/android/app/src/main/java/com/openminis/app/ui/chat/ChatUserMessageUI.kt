@@ -224,28 +224,6 @@ internal fun UserMessageBubble(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        // 会话皮肤：用户气泡槽位（令牌/slice + 变体）。
-                        // 排队消息默认保持虚框——皮肤声明了 queued 变体才接管排队态。
-                        val skin = immersiveProfile.skin
-                        val userSkinBase = skin?.bubbleUser
-                        val userSkinSpec = if (isQueued &&
-                            userSkinBase?.variants?.containsKey("queued") != true
-                        ) {
-                            null
-                        } else {
-                            userSkinBase.effective(
-                                stateKeys = if (isQueued) listOf("queued") else emptyList(),
-                                groupPos = SkinGroupPos.SOLO,
-                            )
-                        }
-                        val userSkinAssets = rememberSkinBubbleAssets(
-                            userSkinSpec, skin?.base, LocalMarkdownSessionId.current,
-                        )
-                        val userSkinText = userSkinSpec?.let {
-                            skinBubblePalette(
-                                com.openminis.app.ui.theme.LocalChatPalette.current, it,
-                            ).primaryText
-                        }
                         // [feat/ui-rikkahub] 18dp → 16dp: mainstream chat bubble formula.
                         val shape = RoundedCornerShape(16.dp)
                         val dashedStroke = if (isQueued) {
@@ -298,30 +276,13 @@ internal fun UserMessageBubble(
                                     // [A2c-cards] 紫卡胶囊渲染：〔能力名〕token
                                     // 以紫色底胶囊呈现，其余正文原样。
                                     text = remember(displayContent) { novexCapsuleAnnotated(displayContent) },
-                                    color = userSkinText ?: textColor,
+                                    color = textColor,
                                     style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.5.sp),
                                     modifier = bubbleModifier
-                                        .then(
-                                            userSkinSpec?.maxWidth?.let {
-                                                Modifier.widthIn(max = it.dp)
-                                            } ?: Modifier
-                                        )
-                                        .then(
-                                            if (userSkinSpec != null) {
-                                                Modifier.skinBubble(userSkinSpec, userSkinAssets)
-                                            } else Modifier.background(bubbleBg, shape)
-                                        )
+                                        .background(bubbleBg, shape)
                                         .clip(shape)
                                         .then(dashedStroke)
-                                        .padding(
-                                            if (userSkinSpec != null) {
-                                                skinBubblePadding(userSkinSpec, userSkinAssets.slice)
-                                            } else {
-                                                androidx.compose.foundation.layout.PaddingValues(
-                                                    horizontal = 14.dp, vertical = 8.dp,
-                                                )
-                                            }
-                                        ),
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
                                 )
                             }
                         }

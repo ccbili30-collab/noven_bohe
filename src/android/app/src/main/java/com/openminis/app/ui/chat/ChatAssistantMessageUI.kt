@@ -86,18 +86,8 @@ internal fun AssistantHeader() {
         val avatar = immersiveProfile.effectiveAssistantAvatarPath
             ?.let { java.io.File(it) }
             ?.takeIf { it.exists() }
-        val avatarFrame = immersiveProfile.skin?.avatarFrame
-        val skinSessionId = LocalMarkdownSessionId.current
-        val avatarFrameImg = rememberSkinBitmap(
-            avatarFrame?.img?.let { immersiveProfile.skin?.resolveAssetPath(it) },
-            skinSessionId,
-        )
-        // 头像框皮肤叠加在头像之上：饰件图 + 原生环（颜色+线宽）。
-        val avatarFrameModifier = avatarFrame?.let {
-            Modifier.skinAvatarFrame(it, avatarFrameImg)
-        } ?: Modifier
         if (avatar != null) {
-            Box(modifier = Modifier.size(28.dp).then(avatarFrameModifier)) {
+            Box(modifier = Modifier.size(28.dp)) {
                 AsyncImage(
                     model = avatar,
                     contentDescription = "$displayName 头像",
@@ -157,39 +147,8 @@ internal fun AssistantHeader() {
  */
 @Composable
 internal fun CharacterAssistantBubble(
-    isStreaming: Boolean = false,
-    groupPos: SkinGroupPos = SkinGroupPos.SOLO,
     content: @Composable () -> Unit,
 ) {
-    // 皮肤槽位优先于呈现模式：声明了 assistant 气泡皮肤就画皮肤气泡，
-    // 即便当前是扁平（非角色呈现）回复形态。contentScheme 经 palette
-    // 注入——岛/表格/代码块等 markdown 子元素整套跟色。
-    val skin = LocalImmersiveChatProfile.current.skin
-    val spec = skin?.bubbleAssistant.effective(
-        stateKeys = if (isStreaming) listOf("streaming") else emptyList(),
-        groupPos = groupPos,
-    )
-    val assets = rememberSkinBubbleAssets(spec, skin?.base, LocalMarkdownSessionId.current)
-    if (spec != null) {
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-            CompositionLocalProvider(
-                com.openminis.app.ui.theme.LocalChatPalette provides
-                    skinBubblePalette(
-                        com.openminis.app.ui.theme.LocalChatPalette.current, spec,
-                    )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .widthIn(max = spec.maxWidth?.dp ?: 360.dp)
-                        .skinBubble(spec, assets)
-                        .padding(skinBubblePadding(spec, assets.slice)),
-                ) {
-                    content()
-                }
-            }
-        }
-        return
-    }
     if (!LocalImmersiveChatProfile.current.usesRolePresentation) {
         content()
         return

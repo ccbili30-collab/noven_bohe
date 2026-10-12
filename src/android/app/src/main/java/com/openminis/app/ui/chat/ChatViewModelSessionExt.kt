@@ -359,8 +359,6 @@ internal fun ChatViewModel.loadSession() {
             assistantAvatarPath = session.assistantAvatarPath,
             playerDisplayName = session.playerDisplayName,
             playerAvatarPath = session.playerAvatarPath,
-            skin = com.openminis.app.data.character.ChatSkin.fromJsonString(session.chatSkinJson)
-                .also { appliedSkinJson = if (it != null) session.chatSkinJson else null },
         )
         _conversationBackgroundPathOverride.value = session.chatBackgroundPath
         _conversationPrompt.value = session.conversationPrompt
