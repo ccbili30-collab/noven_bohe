@@ -123,11 +123,15 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
     val islandSessionId = bridge?.sessionId
 
     var showSource by remember(html) { mutableStateOf(false) }
-    var measuredCssHeight by remember(html) { mutableIntStateOf(0) }
+    // 数据热更新会把新值替换进 html（substituteNovexArtifact）——测量
+    // 值与揭开态不随 html 键控重置，否则每次数据更新都闪回占位、重走
+    // 绸缎展开，高频数据件（血条/HUD）缩个不停。占位只给首次装载；
+    // 后续换页保持当前窗高，量到新值后同曲线补扫。
+    var measuredCssHeight by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     var islandError by remember(html) { mutableStateOf<String?>(null) }
-    // 绸缎展开：WebView 首次量出真实高度 = 内容已排版完成——此刻才
-    // 允许外窗下沿扫下来。量出前整窗是装载占位（高度固定、内有进度条）。
-    var revealed by remember(html) { mutableStateOf(false) }
+    // rememberSaveable：LazyColumn 回收重挂不重播揭开动画（页会重载，
+    // 但窗直接停在终高，不再闪占位）。
+    var revealed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     // 渲染进程死亡自疗计数：onRenderProcessGone 销毁死 view 后 bump，
     // key(reloadTick) 触发 AndroidView 重建+整页重载（sync 看到
     // loadedHtml==null 会重新 loadDataWithBaseURL）。
@@ -402,9 +406,12 @@ private class IslandRenderer {
         wv.resumeTimers()
         frameJson = frame
         if (boundView !== wv || loadedHtml != html || loadedCompat != compat) {
+            // 换绑新视图（回收重挂/进程重建）必须直装：它的 pending 没有
+            // 在途页面，等 onPageFinished 回补就是永久空窗。
+            val freshView = boundView !== wv
             boundView = wv
             val now = android.os.SystemClock.uptimeMillis()
-            if (pageReady || now - lastLoadAtMs >= IslandReloadCoalesceMs) {
+            if (freshView || pageReady || now - lastLoadAtMs >= IslandReloadCoalesceMs) {
                 pendingHtml = null
                 load(wv, html, compat)
             } else {

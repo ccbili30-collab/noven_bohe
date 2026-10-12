@@ -246,9 +246,6 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
     isNearBottom: androidx.compose.runtime.State<Boolean>,
     contentOverflows: androidx.compose.runtime.State<Boolean>,
     chromeFadeAlpha: Float,
-    isStreaming: Boolean,
-    transcriptFollowState: TranscriptFollowState,
-    onFollowStateChange: (TranscriptFollowState) -> Unit,
     onJumpedUserCleared: () -> Unit,
     scrollToPreviousUserTurn: suspend () -> Unit,
     scrollToNextUserTurn: suspend () -> Unit,
@@ -282,11 +279,6 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                 }
                 // [P3.3 裁军] SpeechPlayerCapsule（语音播报浮动胶囊）随语音
                 // 全家退役；浮动按钮堆叠的原避让参数一并删除。
-                val upFabVisible = transcriptViewportReady &&
-                    messages.isNotEmpty() && !isNearBottom.value
-                val downFabVisible = transcriptViewportReady &&
-                    !isNearBottom.value && contentOverflows.value && messages.isNotEmpty()
-
                 // T261: tool-detail sheet hoisted out of LazyColumn item
                 // scope. Visibility driven by ViewModel state so streaming /
                 // pill-disposal / new-tool emissions can't snap it shut.
@@ -334,10 +326,9 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                 // 单击 = 逐回合步进（上钮上一发言/下钮下一发言，可快速连点）；
                 // 稍按住再向上/下拖动 = 拉条，出现方向指示，松手跳到顶/底。
                 // 两钮都支持拉条；拉条是独立手势族，不与单击抢。
-                var upStretchDy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-                var downStretchDy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-
                 if (transcriptViewportReady && messages.isNotEmpty() && !isNearBottom.value && chromeFadeAlpha > 0.01f) {
+                    // 拉伸量活在 FAB 可见块内——块离组合状态即清，不留陈值。
+                    var upStretchDy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
                     val upBaseBottom = 8.dp
                     novex.android.ui.NovexFilledIconButton(
                         onClick = {
@@ -352,8 +343,12 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                             .stretchDragGesture(
                                 onDelta = { upStretchDy = it },
                                 onRelease = { dir ->
-                                    if (dir < 0) coroutineScope.launch { scrollToTopOnce() }
-                                    else if (dir > 0) {
+                                    // 跳端都会离开回合走查锚——两个方向都清
+                                    // lastJumpedUserId，否则下次步进从旧锚出发。
+                                    if (dir < 0) {
+                                        onJumpedUserCleared()
+                                        coroutineScope.launch { scrollToTopOnce() }
+                                    } else if (dir > 0) {
                                         onJumpedUserCleared()
                                         coroutineScope.launch { scrollToLatestOnce(TranscriptViewportMove.UserRequestedLatest) }
                                     }
@@ -374,7 +369,7 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                     }
                     // 拉条方向指示：拖出幅度时出现，位置跟着拖动方向贴
                     // 按钮外侧（上拉露上方、下拉露下方），方向箭头跟手。
-                    if (kotlin.math.abs(upStretchDy) > STRETCH_TRIGGER_PX) {
+                    if (kotlin.math.abs(upStretchDy) >= STRETCH_TRIGGER_PX) {
                         StretchDirectionIndicator(
                             direction = if (upStretchDy < 0) -1 else 1,
                             modifier = Modifier
@@ -391,6 +386,7 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                 if (transcriptViewportReady && !isNearBottom.value &&
                     contentOverflows.value && messages.isNotEmpty() && chromeFadeAlpha > 0.01f
                 ) {
+                    var downStretchDy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
                     val fabBottomPadding = 8.dp
                     novex.android.ui.NovexFilledIconButton(
                         onClick = {
@@ -408,7 +404,10 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                                     if (dir > 0) {
                                         onJumpedUserCleared()
                                         coroutineScope.launch { scrollToLatestOnce(TranscriptViewportMove.UserRequestedLatest) }
-                                    } else if (dir < 0) coroutineScope.launch { scrollToTopOnce() }
+                                    } else if (dir < 0) {
+                                        onJumpedUserCleared()
+                                        coroutineScope.launch { scrollToTopOnce() }
+                                    }
                                 },
                             ),
                         colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
@@ -422,7 +421,7 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                             modifier = Modifier.size(20.dp),
                         )
                     }
-                    if (kotlin.math.abs(downStretchDy) > STRETCH_TRIGGER_PX) {
+                    if (kotlin.math.abs(downStretchDy) >= STRETCH_TRIGGER_PX) {
                         StretchDirectionIndicator(
                             direction = if (downStretchDy < 0) -1 else 1,
                             modifier = Modifier
@@ -466,16 +465,26 @@ private fun Modifier.stretchDragGesture(
         // 其它手势消费、拖走出界都直接让位（单击/滚动照旧）。awaitPointerEvent
         // 是受限挂起，不能嵌进 withTimeoutOrNull——长按等待必须用它。
         val held = awaitLongPressOrCancellation(down.id)
-        if (held == null || !held.pressed || held.isConsumed ||
+        // 抬指(pressed=false)或拖走出界 = 让位给单击/滚动。不查
+        // isConsumed——纹丝不动的按压会拿到被按钮 clickable 消费过的
+        // down，那恰是要进拉伸态的情形；取消类退出统一是 pressed=false。
+        if (held == null || !held.pressed ||
             kotlin.math.abs(held.position.y - down.position.y) > STRETCH_TRIGGER_PX
         ) return@awaitEachGesture
+        // 进入拉伸态即接管事件流：否则长按后原地松手会被按钮
+        // clickable 当作一次完整点击，误触发步进。
+        held.consume()
         // 拉伸态：消耗位移，实时回报累计量（负=上拉，正=下拉）。
         var dy = 0f
+        var released = false
         onDelta(0f)
         while (true) {
             val ev = awaitPointerEvent()
-            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-            if (!ch.pressed) break
+            val ch = ev.changes.firstOrNull { it.id == down.id }
+            // 系统取消（来电/悬浮窗抢焦点）送达已消费的释放或直接丢
+            // change——取消不是松手，绝不触发跳端（约定见 ReorderList）。
+            if (ch == null || ch.isConsumed) break
+            if (!ch.pressed) { ch.consume(); released = true; break }
             val d = ch.positionChange().y
             if (d != 0f) {
                 dy += d
@@ -484,7 +493,9 @@ private fun Modifier.stretchDragGesture(
             }
         }
         onDelta(0f)
-        onRelease(if (dy <= -STRETCH_TRIGGER_PX) -1 else if (dy >= STRETCH_TRIGGER_PX) 1 else 0)
+        if (released) {
+            onRelease(if (dy <= -STRETCH_TRIGGER_PX) -1 else if (dy >= STRETCH_TRIGGER_PX) 1 else 0)
+        }
     }
 }
 

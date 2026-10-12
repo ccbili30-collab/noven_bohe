@@ -1303,11 +1303,11 @@ fun ChatScreen(
             ?.takeIf { it >= 0 }
             ?: 0
         // 下步进的起点 = 视口顶所在回合的下一条用户发言；行走中以
-        // lastJumpedUserId 为链位继续向前（规则与上步进对称）。
+        // lastJumpedUserId 为链位继续向前（规则与上步进对称）。视口在
+        // 首条发言之上时锚为空——从第一条开始算"下一条"，不许跳过它。
         val currentAnchor = transcriptMessages.take(topMsgIdx + 1).lastOrNull { it.role == "user" }?.id
-            ?: userIds.first()
         val walkFrom = lastJumpedUserId?.takeIf { it in userIds } ?: currentAnchor
-        val pos = userIds.indexOf(walkFrom)
+        val pos = walkFrom?.let { userIds.indexOf(it) } ?: -1
         val viewportTop = info.viewportStartOffset
         val viewportBottom = info.viewportEndOffset
         val fullyVisibleUserIds: Set<String> = visible
@@ -1328,7 +1328,10 @@ fun ChatScreen(
             if (userIds[i] !in fullyVisibleUserIds) { target = userIds[i]; break }
             i++
         }
-        if (target == null) {
+        // 内容末端已在屏内 = 滚动已到钳位极限：部分露出的末回合再怎么
+        // scrollToItem 也走不动，死拍不如直接按"最后回合"语义回底。
+        val endVisible = visible.lastOrNull()?.index == info.totalItemsCount - 1
+        if (target == null || endVisible) {
             // 没有"下一回合"= 回最新：接旧下钮语义——清走链、流式中
             // 临时挂底，避免新长出的行又把视口甩开一屏。
             lastJumpedUserId = null
