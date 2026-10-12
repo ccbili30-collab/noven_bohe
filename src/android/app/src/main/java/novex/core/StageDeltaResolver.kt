@@ -23,16 +23,24 @@ object StageDeltaResolver {
         setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
     )
 
-    data class MessageRef(val id: String, val role: String, val content: String)
+    data class MessageRef(
+        val id: String,
+        val role: String,
+        val content: String,
+        /** 合并气泡的全部来源行 id——附属记录锚的是旧锚 id 时也能命中。 */
+        val sourceDbIds: List<String> = emptyList(),
+    )
     data class Delta(val seq: Int, val messageId: String, val envelopeJson: String)
 
     /** 抽出文本里全部 novex-use 信封原文（要求可解析为 JSON 对象）。 */
-    fun extractUseEnvelopes(content: String): List<String> =
-        USE_FENCE.findAll(content).mapNotNull { m ->
+    fun extractUseEnvelopes(content: String): List<String> {
+        if (!content.contains("novex-use")) return emptyList()
+        return USE_FENCE.findAll(content).mapNotNull { m ->
             m.groupValues[1].trim().takeIf { raw ->
                 runCatching { JSONObject(raw) }.isSuccess
             }
         }.toList()
+    }
 
     /**
      * 沿活动路径收集 deltas：助手消息内的信封 + 锚定该消息的附属记录
@@ -51,9 +59,12 @@ object StageDeltaResolver {
             extractUseEnvelopes(m.content).forEach { env ->
                 out += Delta(seq++, m.id, env)
             }
-            byMessage[m.id].orEmpty().forEach { a ->
-                out += Delta(seq++, m.id, a.envelopeJson)
-            }
+            // 锚匹配按气泡的全部来源行 id 展开：附属记录写锚时气泡
+            // 可能还没合并进后续行，旧锚 id 仍在 sourceDbIds 里。
+            val msgIds = m.sourceDbIds.ifEmpty { listOf(m.id) } + m.id
+            msgIds.flatMap { byMessage[it].orEmpty() }
+                .distinct()
+                .forEach { a -> out += Delta(seq++, m.id, a.envelopeJson) }
         }
         return out
     }

@@ -60,6 +60,22 @@ internal fun evaluateIslandSend(
     else -> "accept" to null
 }
 
+/**
+ * 保序子序列判定：活动路径分叉检测用——纯追加/窗口顶扩/截窗都是
+ * 子序列关系（不算分叉），只有中段改写的两列路径才互为非子序列。
+ */
+internal fun isIdSubsequence(sub: List<String>, full: List<String>): Boolean {
+    if (sub.isEmpty()) return true
+    var i = 0
+    for (id in full) {
+        if (id == sub[i]) {
+            i++
+            if (i == sub.size) return true
+        }
+    }
+    return false
+}
+
 /** 出站意图：shouldOverrideUrlLoading 拦到的三条 scheme（r2 B1/B2）。 */
 internal sealed interface IslandOutbound {
     data class Query(val domain: String, val entity: String, val from: String?) : IslandOutbound
@@ -164,8 +180,10 @@ internal fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colo
     // 可丢弃的派生缓存——本版恒空对象，作品按序重放 deltas 物化；信封
     // 自带操作动词（replace/delta/insert/remove/move），宿主不猜语义。
     bridge?.deltasJson?.let {
-        runCatching { root.put("deltas", org.json.JSONArray(it)) }
-        root.put("archive", JSONObject())
+        runCatching {
+            root.put("deltas", org.json.JSONArray(it))
+            root.put("archive", JSONObject())
+        }
     }
     // assets 映射表（v0.2 B2 + S2.4）：卡本地资源 id ∪ 收割期
     // remoteUrl→id 反转值，统一写成 id→平台 URL；岛上 src 一律经

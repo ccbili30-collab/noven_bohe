@@ -88,6 +88,8 @@ internal sealed class FlatChatItem {
         val block: AssistantBlock,
         val isStreaming: Boolean,
         val isTurnStart: Boolean = false,
+        /** 是否本消息最后一个块（查证留痕等小标挂点）。 */
+        val isLastBlockOfMessage: Boolean = false,
         /** 父消息的全部 markdown 拼接，供选区工具条的 Copy Markdown 用。 */
         val messageMarkdown: String,
     ) : FlatChatItem() {
@@ -95,11 +97,11 @@ internal sealed class FlatChatItem {
         override val contentType = "text"
 
         override fun equals(other: Any?) = fingerprintEquals(other) {
-            listOf(messageId, Ref(block), isStreaming, isTurnStart, messageMarkdown.length)
+            listOf(messageId, Ref(block), isStreaming, isTurnStart, isLastBlockOfMessage, messageMarkdown.length)
         }
 
         override fun hashCode() = fingerprintHash(
-            listOf(messageId, Ref(block), isStreaming, isTurnStart, messageMarkdown.length)
+            listOf(messageId, Ref(block), isStreaming, isTurnStart, isLastBlockOfMessage, messageMarkdown.length)
         )
 
         override fun keyVariant(n: Int) = AssistantText(
@@ -107,6 +109,7 @@ internal sealed class FlatChatItem {
             block = block,
             isStreaming = isStreaming,
             isTurnStart = isTurnStart,
+            isLastBlockOfMessage = isLastBlockOfMessage,
             messageMarkdown = messageMarkdown,
         )
     }

@@ -1960,33 +1960,59 @@ fun ChatScreen(
     // content=combinedText），信封顺序即路径序；锚定合并气泡 id 与
     // 查证锚点同一 id 域。锚消息不在路径上的附属记录自然消失——分支
     // 隔离免费获得。
-    val islandDeltasJson by produceState("[]", transcriptMessages, stageAnnotations) {
-        value = withContext(Dispatchers.Default) {
+    // 数据源是 `messages`（viewModel._messages = 全路径规范列表），不是
+    // transcriptMessages——后者是尾窗视图，窗口外的信封会被截掉（B6 日
+    // 志即真相，deltas 必须覆盖整条活动路径）。空则置 null：deltas 字段
+    // 缺席=本会话无档案事件，与 cast/choices「不下发空数组冒充能力」同口径。
+    var islandDeltaAnnoSeen by remember { mutableIntStateOf(-1) }
+    val islandDeltasJson by produceState<String?>(null, messages, stageAnnotations) {
+        val json = withContext(Dispatchers.Default) {
             novex.core.StageDeltaResolver.toJson(
                 novex.core.StageDeltaResolver.collect(
-                    transcriptMessages.map {
-                        novex.core.StageDeltaResolver.MessageRef(it.id, it.role, it.content)
+                    messages.filter { !it.isInternalBridge }.map {
+                        novex.core.StageDeltaResolver.MessageRef(
+                            it.id, it.role, it.content, it.sourceDbIds)
                     },
                     stageAnnotations,
                 ),
             )
         }
+        value = if (json == "[]") null else json
+        // 附属记录随 deltas 增长的帧带 reason:"query"（数据帧与来由同框）。
+        if (islandDeltaAnnoSeen >= 0 && stageAnnotations.size > islandDeltaAnnoSeen) {
+            islandFrameReason = "query"
+        }
+        islandDeltaAnnoSeen = stageAnnotations.size
     }
     // 留痕标签：消息 id → "域/实体" 列表，CompositionLocal 喂给消息行。
-    val stageAnnotationLabels = remember(stageAnnotations) {
-        stageAnnotations.groupBy({ it.messageId }, { it.label })
-            .filterValues { it.isNotEmpty() }
+    // 锚是写时的消息（行）id——气泡合并后锚行还在 sourceDbIds 里；
+    // 标签按"行 id → 展示气泡 id"反查。空 label 滤掉、去重。
+    val stageAnnotationLabels = remember(transcriptMessages, stageAnnotations) {
+        val byAnchor = stageAnnotations.groupBy { it.messageId }
+        if (byAnchor.isEmpty()) emptyMap()
+        else buildMap<String, List<String>> {
+            transcriptMessages.forEach { m ->
+                val ids = m.sourceDbIds + m.id
+                val labels = ids.flatMap { byAnchor[it].orEmpty() }
+                    .map { it.label }.filter { it.isNotBlank() }.distinct()
+                if (labels.isNotEmpty()) put(m.id, labels)
+            }
+        }
     }
     // 分支/重试/路径切换（v0.3 B6）：活动路径前缀分叉或截断→推帧
     // reason:"branch"，作品丢弃本地物化按新 deltas 重放。纯追加（新
     // 回合到达）不算分支。
+    // 键用展开后的行 id（sourceDbIds）：合并气泡 id 随新行并入漂移，
+    // 按气泡 id 比对会把纯追加误判成分叉。判定取「互为子序列即非同叉」
+    // ——纯追加/窗口顶扩/截窗都是子序列关系；重试、编辑、切分支才会让
+    // 路径中段分叉（两列各自有对方没有的中间行）。
     var islandLastPathIds by remember(sessionId) { mutableStateOf<List<String>?>(null) }
-    LaunchedEffect(transcriptMessages) {
-        val cur = transcriptMessages.map { it.id }
+    LaunchedEffect(messages) {
+        val cur = messages.map { it.sourceDbIds.ifEmpty { listOf(it.id) } }.flatten()
         val prev = islandLastPathIds
         islandLastPathIds = cur
-        if (prev != null &&
-            (cur.size < prev.size || prev.indices.any { i -> cur.getOrNull(i) != prev[i] })
+        if (prev != null && prev.isNotEmpty() &&
+            !isIdSubsequence(prev, cur) && !isIdSubsequence(cur, prev)
         ) {
             islandFrameReason = "branch"
         }

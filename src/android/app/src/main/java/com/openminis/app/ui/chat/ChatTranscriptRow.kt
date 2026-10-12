@@ -65,7 +65,7 @@ internal val LocalStageAnnotationLabels =
 @Composable
 private fun StageAnnotationChip(labels: List<String>) {
     Text(
-        text = labels.joinToString(" · ") { it },
+        text = "查证 · " + labels.joinToString(" · ") { it },
         fontSize = 11.sp,
         color = com.openminis.app.ui.theme.LocalChatPalette.current.thinking,
         maxLines = 1,
@@ -186,7 +186,7 @@ internal fun ChatTranscriptRow(
                 )
             }
             }
-            if (!item.isStreaming) {
+            if (!item.isStreaming && item.isLastBlockOfMessage) {
                 LocalStageAnnotationLabels.current[item.messageId]
                     ?.let { StageAnnotationChip(it) }
             }

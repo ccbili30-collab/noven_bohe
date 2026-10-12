@@ -108,7 +108,9 @@ object NovexConversationConfigurationCodec {
                 stageAnnotations = root.optJSONArray("stageAnnotations").objects().mapNotNull { value ->
                     val mid = value.optString("messageId")
                     val env = value.opt("envelope")?.toString().orEmpty()
-                    if (mid.isBlank() || env.isBlank()) null
+                    // 信封必须能解析成 JSON 对象——损坏/包装体形状不进 deltas。
+                    if (mid.isBlank() || env.isBlank() ||
+                        runCatching { JSONObject(env) }.isFailure) null
                     else StageAnnotation(mid, env, value.optString("label"))
                 },
             )

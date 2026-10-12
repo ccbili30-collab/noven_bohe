@@ -301,6 +301,7 @@ private class FlatItemFold(
                 block = block,
                 isStreaming = message.isStreaming,
                 isTurnStart = claimTurnStartRow(),
+                isLastBlockOfMessage = block.id == ctx.lastBlockId,
                 messageMarkdown = ctx.joinedMarkdown,
             ))
             return
