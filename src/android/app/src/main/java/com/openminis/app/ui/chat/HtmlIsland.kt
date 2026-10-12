@@ -90,6 +90,7 @@ internal class HtmlIslandBridge(
     val sendResult: IslandSendResult? = null,
     /** cast 角色名册 JSON 数组（v0.3 B5）；null = 无角色卡不下发。 */
     val castJson: String? = null,
+    val deltasJson: String? = null,
     /** choices 选项数据 JSON（v0.3 B4 {turnId, items}）；null = 无有效选项。 */
     val choicesJson: String? = null,
     // ─── v0.3 出站回调（URL 拦截分发，无 JS 桥）───
@@ -163,7 +164,7 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
         bridge?.webviewMajor, bridge?.turnStreaming, bridge?.queuedCount,
         bridge?.imeVisible, bridge?.imeHeightCssPx,
         bridge?.frameReason, bridge?.sendResult,
-        bridge?.castJson, bridge?.choicesJson,
+        bridge?.castJson, bridge?.choicesJson, bridge?.deltasJson,
     ) { buildIslandFrameJson(bridge, dark, colors) }
     val islandSessionId = bridge?.sessionId
 

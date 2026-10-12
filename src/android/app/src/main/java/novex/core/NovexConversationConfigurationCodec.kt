@@ -34,6 +34,13 @@ object NovexConversationConfigurationCodec {
         put("playthroughStates", JSONArray(snapshot.playthroughStates.values.map(PlaythroughState::toJson)))
         put("controls", JSONArray(snapshot.controls.map(ConversationControlDefinition::toJson)))
         put("artifactDefs", JSONArray(snapshot.artifactDefs.map(ConversationArtifactDefinition::toJson)))
+        // v0.3 B6 查证回写：锚定消息的附属记录（非消息节点）。
+        put("stageAnnotations", JSONArray(snapshot.stageAnnotations.map { a ->
+            JSONObject().put("messageId", a.messageId)
+                .put("label", a.label)
+                .put("envelope", runCatching { JSONObject(a.envelopeJson) }
+                    .getOrElse { JSONObject().put("raw", a.envelopeJson) })
+        }))
     }.toString()
 
     fun decode(raw: String?, conversationId: String): NovexConversationConfigurationSnapshot {
@@ -97,6 +104,12 @@ object NovexConversationConfigurationCodec {
                 controls = root.optJSONArray("controls").objects().map(JSONObject::toControl),
                 artifactDefs = root.optJSONArray("artifactDefs").objects().mapNotNull { value ->
                     runCatching { value.toArtifactDef() }.getOrNull()
+                },
+                stageAnnotations = root.optJSONArray("stageAnnotations").objects().mapNotNull { value ->
+                    val mid = value.optString("messageId")
+                    val env = value.opt("envelope")?.toString().orEmpty()
+                    if (mid.isBlank() || env.isBlank()) null
+                    else StageAnnotation(mid, env, value.optString("label"))
                 },
             )
             NovexConversationConfiguration.open(

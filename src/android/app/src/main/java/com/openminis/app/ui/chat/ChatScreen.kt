@@ -1942,6 +1942,50 @@ fun ChatScreen(
                 }).toString()
         }
     }
+    // 查证回写附属记录（v0.3 B6）：锚定消息 id、非消息节点。解码随
+    // configurationJson 走——回写完成即触发重组。
+    val stageAnnotations = remember(configurationJson) {
+        runCatching {
+            novex.core.NovexConversationConfigurationCodec
+                .decode(configurationJson, sessionId).stageAnnotations
+        }.getOrDefault(emptyList())
+    }
+    // deltas 增量流（v0.3 B6）：沿活动路径收集 novex-use 信封+附属记录。
+    // 合并气泡正文已含全部来源行文本（ChatViewModelHistoryExt 合并时
+    // content=combinedText），信封顺序即路径序；锚定合并气泡 id 与
+    // 查证锚点同一 id 域。锚消息不在路径上的附属记录自然消失——分支
+    // 隔离免费获得。
+    val islandDeltasJson by produceState("[]", transcriptMessages, stageAnnotations) {
+        value = withContext(Dispatchers.Default) {
+            novex.core.StageDeltaResolver.toJson(
+                novex.core.StageDeltaResolver.collect(
+                    transcriptMessages.map {
+                        novex.core.StageDeltaResolver.MessageRef(it.id, it.role, it.content)
+                    },
+                    stageAnnotations,
+                ),
+            )
+        }
+    }
+    // 留痕标签：消息 id → "域/实体" 列表，CompositionLocal 喂给消息行。
+    val stageAnnotationLabels = remember(stageAnnotations) {
+        stageAnnotations.groupBy({ it.messageId }, { it.label })
+            .filterValues { it.isNotEmpty() }
+    }
+    // 分支/重试/路径切换（v0.3 B6）：活动路径前缀分叉或截断→推帧
+    // reason:"branch"，作品丢弃本地物化按新 deltas 重放。纯追加（新
+    // 回合到达）不算分支。
+    var islandLastPathIds by remember(sessionId) { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(transcriptMessages) {
+        val cur = transcriptMessages.map { it.id }
+        val prev = islandLastPathIds
+        islandLastPathIds = cur
+        if (prev != null &&
+            (cur.size < prev.size || prev.indices.any { i -> cur.getOrNull(i) != prev[i] })
+        ) {
+            islandFrameReason = "branch"
+        }
+    }
     // 舞台可见且作品声明 input:"own"：原生输入栏隐藏、send 放行、
     // ready 超时生效（旧舞台件/皮肤不施加——v0.3 B2/B7）。
     val stageOwnInputActive = stageVisible &&
@@ -2049,6 +2093,7 @@ fun ChatScreen(
         // map (which is last-writer-wins across sessions).
         LocalMarkdownSessionId provides sessionId,
         LocalImmersiveChatProfile provides immersiveProfile,
+        LocalStageAnnotationLabels provides stageAnnotationLabels,
         LocalHtmlIslandBridge provides HtmlIslandBridge(
             cardName = islandCard?.name,
             cardKind = islandCard?.kind?.name?.lowercase(),
@@ -2079,6 +2124,7 @@ fun ChatScreen(
             transcriptJson = islandTranscriptJson,
             castJson = islandCastJson,
             choicesJson = islandChoicesJson,
+            deltasJson = islandDeltasJson,
             cardId = islandCardRootId,
             webviewMajor = islandWebViewVer,
             turnStreaming = isStreaming,
@@ -2087,9 +2133,15 @@ fun ChatScreen(
             imeHeightCssPx = islandImeCssPx,
             frameReason = islandFrameReason,
             sendResult = islandSendReceipt,
-            onQuery = { _, _, _ ->
-                // S7 静默查证轮未上线：通道已接通，查证回写在批次三落地；
-                // 此前收到 query 安静忽略（岛会等不到回包——已知未实现）。
+            onQuery = { domain, entity, _ ->
+                // v0.3 B6 静默查证轮：不进消息树的一次性调用；锚定发起时
+                // 最近一条助手消息（发起后新回合开始也锚这里）。回写成功
+                // 才推 reason:"query"——失败不回写，作品无新数据可收。
+                viewModel.runIslandQuery(
+                    domain, entity,
+                    anchorMessageId = transcriptMessages
+                        .lastOrNull { it.role == "assistant" }?.id,
+                ) { ok -> if (ok) islandFrameReason = "query" }
             },
             onCompose = { text ->
                 // compose 只填草稿不发送（v0.2 C1）：拼到现有草稿末尾。

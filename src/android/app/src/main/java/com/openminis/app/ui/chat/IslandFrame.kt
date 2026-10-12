@@ -9,7 +9,7 @@ import org.json.JSONObject
 // 依据：local/design/shaosong-ui/STUDIO-ALIGNMENT-v0.3.md（r2 冻结）+
 // STUDIO-ALIGNMENT-PC-v0.3.md（PC 回执）。帧字段分批落地：本批下发
 // card/session/env/state/max/theme/messages(弃用)/assets/reason/turn/
-// sendResult；transcript/choices/cast/deltas/archive 在后续批次补齐，
+// sendResult；deltas/archive 由 StageDeltaResolver 产出，
 // 未落地的字段不下发（不下发空数组冒充能力）。
 
 /** 协议版本：r2 §B3——v0.3 帧 bridgeVersion=2（体检岛按此对账）。 */
@@ -160,6 +160,13 @@ internal fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colo
     // 空数组冒充能力——作品判字段存在即可知有无）。
     bridge?.castJson?.let { runCatching { root.put("cast", org.json.JSONArray(it)) } }
     bridge?.choicesJson?.let { runCatching { root.put("choices", org.json.JSONObject(it)) } }
+    // deltas 增量流 + archive 快照（v0.3 B6「日志即真相」）：archive 是
+    // 可丢弃的派生缓存——本版恒空对象，作品按序重放 deltas 物化；信封
+    // 自带操作动词（replace/delta/insert/remove/move），宿主不猜语义。
+    bridge?.deltasJson?.let {
+        runCatching { root.put("deltas", org.json.JSONArray(it)) }
+        root.put("archive", JSONObject())
+    }
     // assets 映射表（v0.2 B2 + S2.4）：卡本地资源 id ∪ 收割期
     // remoteUrl→id 反转值，统一写成 id→平台 URL；岛上 src 一律经
     // NOVEN_FRAME.asset(id) 取，不手写 scheme。id 编码后与拦截器
