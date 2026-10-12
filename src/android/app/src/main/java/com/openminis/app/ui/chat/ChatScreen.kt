@@ -1821,7 +1821,10 @@ fun ChatScreen(
 
     // ── 舞台协议 v0.3 帧附件与出站（IslandFrame.kt 组装进 NOVEN_FRAME）──
     val islandDensity = LocalDensity.current
-    val islandImeRawPx by remember { derivedStateOf { WindowInsets.ime.getBottom(islandDensity) } }
+    // WindowInsets.ime 是 @Composable 属性，derivedStateOf 里调不了——
+    // 先在组合语境取出 insets 对象（其值是快照态，observable）。
+    val islandImeInsets = WindowInsets.ime
+    val islandImeRawPx by remember { derivedStateOf { islandImeInsets.getBottom(islandDensity) } }
     var islandImeCssPx by remember { mutableIntStateOf(0) }
     val islandWebViewVer = remember { islandWebViewMajor(context) }
     val islandQueuedPrompts by viewModel.promptQueue.collectAsState()
