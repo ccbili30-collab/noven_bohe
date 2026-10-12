@@ -43,12 +43,14 @@ class StageTranscriptGoldenTest {
                 val tag = "${file.name} #$i"
                 assertEquals("$tag id", e.getString("id"), g.id)
                 assertEquals("$tag messageId", e.getString("messageId"), g.messageId)
+                assertEquals("$tag segment", e.getInt("segment"), g.segment)
+                assertEquals("$tag turnId", e.getString("turnId"), g.turnId)
                 assertEquals("$tag role", e.getString("role"), g.role)
                 assertEquals("$tag kind", e.getString("kind"), g.kind)
                 assertEquals("$tag text", e.getString("text"), g.text)
                 assertEquals("$tag html", e.optNullable("html"), g.html)
                 assertEquals("$tag speaker", e.optNullable("speaker"), g.speaker)
-                assertEquals("$tag image", e.optNullable("image"), g.image)
+                assertEquals("$tag src", e.optNullable("src"), g.src)
                 assertEquals("$tag streaming", e.getBoolean("streaming"), g.streaming)
             }
         }

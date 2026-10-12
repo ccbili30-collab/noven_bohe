@@ -33,12 +33,14 @@ object StageTranscriptParser {
     data class Segment(
         val id: String,
         val messageId: String,
+        val segment: Int, // 消息内段序号（r2 冻结字段，与 id 尾号一致）
+        val turnId: String, // 回合 id——choices.turnId 关联回这条消息
         val role: String,
         val kind: String, // narration | dialogue | image
         val text: String = "",
         val html: String? = null,
         val speaker: String? = null,
-        val image: String? = null,
+        val src: String? = null, // kind=image：asset() 可解析的 id/url
         val streaming: Boolean = false,
     )
 
@@ -74,16 +76,18 @@ object StageTranscriptParser {
                 val images = MD_IMAGE.findAll(para).toList()
                 val textPart = MD_IMAGE.replace(para, "").trim()
                 if (textPart.isNotEmpty()) {
-                    msgSegs += textSegment(msg, textPart, cast, "${msg.messageId}#${msgSegs.size}")
+                    msgSegs += textSegment(msg, textPart, cast, msgSegs.size)
                 }
                 images.forEach { img ->
                     msgSegs += Segment(
                         id = "${msg.messageId}#${msgSegs.size}",
                         messageId = msg.messageId,
+                        segment = msgSegs.size,
+                        turnId = msg.messageId,
                         role = msg.role,
                         kind = "image",
                         text = img.groupValues[1],
-                        image = img.groupValues[2],
+                        src = img.groupValues[2],
                     )
                 }
             }
@@ -101,7 +105,7 @@ object StageTranscriptParser {
         msg: Input,
         text: String,
         cast: List<String>,
-        segmentId: String,
+        segIndex: Int,
     ): Segment {
         val firstLine = text.lineSequence().firstOrNull().orEmpty()
         val speaker = cast.firstOrNull { name ->
@@ -109,11 +113,17 @@ object StageTranscriptParser {
                 firstLine.startsWith("@$name：") || firstLine.startsWith("@$name:")
         }
         return if (speaker != null) {
-            // 台词：text/html 去掉"名字："前缀（speaker 单列，避免双显）。
-            val body = text.substringAfter('：', text.substringAfter(':')).trimStart()
+            // 台词：text/html 剥"[@]名字[：:]"前缀（speaker 单列避免双显）。
+            // 按已匹配的前缀精确剥——不能 substringAfter('：')：半角冒号
+            // 开场、正文又含全角冒号时会把正文前半截掉。
+            val prefix = (if (firstLine.startsWith("@")) "@" else "") + speaker
+            val body = text.removePrefix("$prefix：").removePrefix("$prefix:")
+                .trimStart()
             Segment(
-                id = segmentId,
+                id = "${msg.messageId}#$segIndex",
                 messageId = msg.messageId,
+                segment = segIndex,
+                turnId = msg.messageId,
                 role = msg.role,
                 kind = "dialogue",
                 text = body,
@@ -122,8 +132,10 @@ object StageTranscriptParser {
             )
         } else {
             Segment(
-                id = segmentId,
+                id = "${msg.messageId}#$segIndex",
                 messageId = msg.messageId,
+                segment = segIndex,
+                turnId = msg.messageId,
                 role = msg.role,
                 kind = "narration",
                 text = text,
@@ -159,12 +171,14 @@ object StageTranscriptParser {
             arr.put(JSONObject()
                 .put("id", s.id)
                 .put("messageId", s.messageId)
+                .put("segment", s.segment)
+                .put("turnId", s.turnId)
                 .put("role", s.role)
                 .put("kind", s.kind)
                 .put("text", s.text)
                 .put("html", s.html ?: JSONObject.NULL)
                 .put("speaker", s.speaker ?: JSONObject.NULL)
-                .put("image", s.image ?: JSONObject.NULL)
+                .put("src", s.src ?: JSONObject.NULL)
                 .put("streaming", s.streaming))
         }
         return arr.toString()

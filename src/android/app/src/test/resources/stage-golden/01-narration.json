@@ -1,11 +1,43 @@
 {
   "name": "纯旁白多段",
-  "cast": ["阿七", "老鬼"],
+  "cast": [
+    "阿七",
+    "老鬼"
+  ],
   "input": [
-    {"id": "m1", "role": "assistant", "content": "天亮了。\n\n雨还没停，檐角的水珠一串串往下掉。", "streaming": false}
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "天亮了。\n\n雨还没停，檐角的水珠一串串往下掉。",
+      "streaming": false
+    }
   ],
   "expected": [
-    {"id": "m1#0", "messageId": "m1", "role": "assistant", "kind": "narration", "text": "天亮了。", "html": "天亮了。", "speaker": null, "image": null, "streaming": false},
-    {"id": "m1#1", "messageId": "m1", "role": "assistant", "kind": "narration", "text": "雨还没停，檐角的水珠一串串往下掉。", "html": "雨还没停，檐角的水珠一串串往下掉。", "speaker": null, "image": null, "streaming": false}
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "天亮了。",
+      "html": "天亮了。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    },
+    {
+      "id": "m1#1",
+      "messageId": "m1",
+      "segment": 1,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "雨还没停，檐角的水珠一串串往下掉。",
+      "html": "雨还没停，檐角的水珠一串串往下掉。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    }
   ]
 }

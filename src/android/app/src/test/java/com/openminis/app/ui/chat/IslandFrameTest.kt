@@ -15,6 +15,9 @@ class IslandFrameTest {
     private fun bridge(
         messages: String = "[]",
         sendResult: IslandSendResult? = null,
+        transcriptJson: String = "[]",
+        castJson: String? = null,
+        choicesJson: String? = null,
     ) = HtmlIslandBridge(
         cardName = "绍宋",
         cardKind = "world",
@@ -36,6 +39,9 @@ class IslandFrameTest {
         imeHeightCssPx = 300,
         frameReason = "turn",
         sendResult = sendResult,
+        transcriptJson = transcriptJson,
+        castJson = castJson,
+        choicesJson = choicesJson,
     )
 
     private val testColors = MdColors(
@@ -93,6 +99,21 @@ class IslandFrameTest {
         val r = f.getJSONObject("sendResult")
         assertEquals("queued", r.getString("result"))
         assertTrue(r.isNull("why"))
+    }
+
+    @Test
+    fun `transcript cast choices pass through; absent when null`() {
+        val transcript = """[{"id":"m1#0","kind":"narration","text":"hi"}]"""
+        val cast = """[{"id":"c1","name":"阿七","avatar":"a7.png","color":null}]"""
+        val choices = """{"turnId":"m1","items":[{"id":"走","label":"走"}]}"""
+        val f = frame(bridge(transcriptJson = transcript, castJson = cast, choicesJson = choices))
+        assertEquals("narration", f.getJSONArray("transcript").getJSONObject(0).getString("kind"))
+        assertEquals("阿七", f.getJSONArray("cast").getJSONObject(0).getString("name"))
+        assertEquals("m1", f.getJSONObject("choices").getString("turnId"))
+
+        val bare = frame(bridge())
+        assertFalse("cast 为空不应下发", bare.has("cast"))
+        assertFalse("choices 为空不应下发", bare.has("choices"))
     }
 
     @Test

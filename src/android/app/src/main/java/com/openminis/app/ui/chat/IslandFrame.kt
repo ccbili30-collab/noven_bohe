@@ -33,6 +33,11 @@ internal const val IslandSendGestureWindowMs = 1500L
 internal const val IslandSendMinIntervalMs = 1000L
 internal const val IslandSendMaxChars = 8000
 
+// v0.3 B7 舞台生存门槛：ready() 超时 8s；连续崩溃（60s 窗内）2 次退回。
+internal const val IslandReadyTimeoutMs = 8000L
+internal const val IslandCrashWindowMs = 60_000L
+internal const val IslandCrashFallbackCount = 2
+
 /**
  * send 门控判定（纯函数，可单测）：v0.3 B2——只认作品声明 input:"own"
  * 之后的真实触摸：手势窗口内 + 一手势一发 + 限频 + 长度。返回值

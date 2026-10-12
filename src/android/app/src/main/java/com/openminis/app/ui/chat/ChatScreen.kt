@@ -1781,19 +1781,18 @@ fun ChatScreen(
     var islandCardRootId by remember(sessionId) { mutableStateOf<String?>(null) }
     val islandCard by produceState<novex.content.ContentDocument?>(null, sessionId) {
         viewModel.novexConfigurationJson.collect { raw ->
-            islandCardRootId = null // 换卡/解绑时先清空，防残留指错卡
-            value = runCatching {
+            val sel = runCatching {
                 novex.core.NovexConversationConfigurationCodec.decode(raw, sessionId)
             }.getOrNull()?.cardBindingJson
                 ?.let(com.openminis.app.cards.CardBinding::decode)
                 ?.primary
-                ?.let { sel ->
-                    islandCardRootId = sel.rootId
-                    withContext(Dispatchers.IO) {
-                        runCatching { viewModel.integratedCards.store.open(sel.rootId) }.getOrNull()
-                    }
+            // 只在变化时写——每次 emission 都清会闪一帧 card.id 空窗。
+            if (islandCardRootId != sel?.rootId) islandCardRootId = sel?.rootId
+            value = sel?.let {
+                withContext(Dispatchers.IO) {
+                    runCatching { viewModel.integratedCards.store.open(it.rootId) }.getOrNull()
                 }
-                ?.content
+            }?.content
         }
     }
     // 卡收割资源：novex-asset://<资源ID> 与 url 映射命中的远程引用→本地字节。
@@ -1829,14 +1828,20 @@ fun ChatScreen(
     // reason 是"最近事件"的短暂标记：事件置位后回 "turn"——连续事件后到
     // 的覆盖先到的（近似语义，协议对 reason 只要求"反映最近事件"）。
     var islandFrameReason by remember { mutableStateOf("turn") }
-    var islandSendReceipt by remember { mutableStateOf<IslandSendResult?>(null) }
-    var islandReadyReceived by remember(sessionId, stageDefId) { mutableStateOf(false) }
-    var islandStageCrashCount by remember { mutableIntStateOf(0) }
+    var islandSendReceipt by remember(sessionId, stageDefId) { mutableStateOf<IslandSendResult?>(null) }
+    // ready 按（会话, 作品, 最新 use 数据）键控：use 更新会重载页面，
+    // 新页若不 ready() 超时要重新生效（v0.3 B7）。
+    var islandReadyReceived by remember(sessionId, stageDefId, stageDefId?.let { novexArtifactScene.latestUseData[it] }) { mutableStateOf(false) }
+    // #11 连续崩溃按会话键控 + 60s 窗（onCrash 处实现窗长）。
+    var islandStageCrashCount by remember(sessionId) { mutableIntStateOf(0) }
+    var islandStageLastCrashMs by remember(sessionId) { mutableStateOf(0L) }
     // send 门控状态：已消费的手势时间戳（一手势一发）与最近一次发送时刻。
     var islandConsumedGestureMs by remember { mutableStateOf(0L) }
     var islandLastSendAtMs by remember { mutableStateOf(0L) }
-    // cast（v0.3 B5）：绑定里 CHARACTER 卡（主卡+背景卡）的卡名当名册——
-    // 头像/颜色等卡内字段后续再解（r2 允许缺省 null）。
+    // cast（v0.3 B5，形状冻结 [{id,name,avatar,color}]）：角色来自绑定
+    // 的 CHARACTER 卡 + 世界卡内嵌角色（internalCharacters——角色在
+    // 主卡内的常规居所）。avatar 用卡的头像资源 id（asset() 可解析），
+    // color 本版恒 null。
     val islandCastJson by produceState<String?>(null, configurationJson, islandCard) {
         value = withContext(Dispatchers.IO) {
             runCatching {
@@ -1844,12 +1849,51 @@ fun ChatScreen(
                     .decode(configurationJson, sessionId).cardBindingJson
                     ?.let(com.openminis.app.cards.CardBinding::decode)
                 val sels = listOfNotNull(binding?.primary) + binding?.backgrounds.orEmpty()
-                sels.mapNotNull { sel ->
-                    viewModel.integratedCards.store.open(sel.rootId)?.content
-                        ?.takeIf { it.kind == novex.content.CardKind.CHARACTER }?.name
-                }.distinct().takeIf { it.isNotEmpty() }
-                    ?.let { org.json.JSONArray(it).toString() }
+                val chars = sels.flatMap { sel ->
+                    viewModel.integratedCards.store.open(sel.rootId)?.content?.let { doc ->
+                        if (doc.kind == novex.content.CardKind.CHARACTER) listOf(doc)
+                        else doc.internalCharacters
+                    }.orEmpty()
+                }
+                chars.distinctBy { it.name }.takeIf { it.isNotEmpty() }?.let { docs ->
+                    org.json.JSONArray().apply {
+                        docs.forEach { d ->
+                            put(org.json.JSONObject()
+                                .put("id", d.id)
+                                .put("name", d.name)
+                                .put("avatar",
+                                    d.appearance.avatarResourceId ?: org.json.JSONObject.NULL)
+                                .put("color", org.json.JSONObject.NULL))
+                        }
+                    }.toString()
+                }
             }.getOrNull()
+        }
+    }
+    // transcript 解析挪 Default 线程：流式每 token 触发重组，40 条
+    // 消息的多正则剥除+分段不能占主线程（cast 对象数组里取 name）。
+    val islandTranscriptJson by produceState("[]", transcriptMessages, islandCastJson) {
+        value = withContext(Dispatchers.Default) {
+            val castNames = islandCastJson?.let { raw ->
+                runCatching {
+                    org.json.JSONArray(raw).let { a ->
+                        (0 until a.length()).map { a.getJSONObject(it).optString("name") }
+                    }
+                }.getOrNull()
+            }.orEmpty()
+            novex.core.StageTranscriptParser.toJson(
+                novex.core.StageTranscriptParser.parse(
+                    transcriptMessages.takeLast(40).map { m ->
+                        novex.core.StageTranscriptParser.Input(
+                            messageId = m.id,
+                            role = m.role,
+                            content = m.content,
+                            streaming = m.isStreaming,
+                        )
+                    },
+                    castNames,
+                ),
+            )
         }
     }
     // choices（v0.3 B4）：最新助手回合里未过期、且之后没有用户回复的
@@ -1885,6 +1929,12 @@ fun ChatScreen(
         if (islandFrameReason != "turn") {
             kotlinx.coroutines.delay(200)
             islandFrameReason = "turn"
+            // 回执是事件载荷随 reason 回收：下一次同值回执会让帧重新
+            // 出现 sendResult→帧差存在→noven:frame 必派发（帧去重是
+            // 字符串比对，同值常驻回执的"第二次"会被吞——协议形状冻结
+            // 不含序号，靠瞬态化换逐次可见）。残余边缘：200ms 窗内的
+            // 连续同值 dropped 仍合并，作品显示的末态相同、可接受。
+            islandSendReceipt = null
         }
     }
     // env.ime 节流（S5）：键盘动画逐帧改 inset——collectLatest 重启会
@@ -1920,7 +1970,7 @@ fun ChatScreen(
     // 连续崩溃逃生：岛自疗重载连续两次仍挂 → 退回原生对话（r2 B7 的
     // 崩溃半边）。
     LaunchedEffect(islandStageCrashCount) {
-        if (islandStageCrashCount >= 2 && stageVisible) {
+        if (islandStageCrashCount >= IslandCrashFallbackCount && stageVisible) {
             stageVisible = false
             islandStageCrashCount = 0
             android.widget.Toast.makeText(
@@ -1933,7 +1983,7 @@ fun ChatScreen(
     // 旧舞台件与皮肤 overlay 不调 ready()，不能施加此超时。
     LaunchedEffect(stageOwnInputActive, islandReadyReceived) {
         if (stageOwnInputActive && !islandReadyReceived) {
-            kotlinx.coroutines.delay(8000)
+            kotlinx.coroutines.delay(IslandReadyTimeoutMs)
             if (!islandReadyReceived && stageVisible) {
                 stageVisible = false
                 android.widget.Toast.makeText(
@@ -2002,30 +2052,9 @@ fun ChatScreen(
                 }
                 arr.toString()
             },
-            // transcript 叙事流（v0.3 B1）：宿主解析一次，cast 名册喂
-            // speaker 检测；名册为空时全段 narration。
-            transcriptJson = remember(transcriptMessages, islandCastJson) {
-                val castNames = islandCastJson?.let { raw ->
-                    runCatching {
-                        org.json.JSONArray(raw).let { a ->
-                            (0 until a.length()).map { a.getString(it) }
-                        }
-                    }.getOrNull()
-                }
-                novex.core.StageTranscriptParser.toJson(
-                    novex.core.StageTranscriptParser.parse(
-                        transcriptMessages.takeLast(40).map { m ->
-                            novex.core.StageTranscriptParser.Input(
-                                messageId = m.id,
-                                role = m.role,
-                                content = m.content,
-                                streaming = m.isStreaming,
-                            )
-                        },
-                        castNames,
-                    ),
-                )
-            },
+            // transcript 叙事流（v0.3 B1）：Default 线程解析的产物，
+            // cast 名册已喂 speaker 检测。
+            transcriptJson = islandTranscriptJson,
             castJson = islandCastJson,
             choicesJson = islandChoicesJson,
             cardId = islandCardRootId,
@@ -2044,7 +2073,10 @@ fun ChatScreen(
                 // compose 只填草稿不发送（v0.2 C1）：拼到现有草稿末尾。
                 // 收紧到舞台可见——消息流内联岛不给写草稿口（新增出站只
                 // 放给舞台；内联岛在此之前从无此通道，不丢能力）。
-                if (stageVisible) {
+                if (stageVisible && !stageOwnInputActive) {
+                    // own 舞台下原生输入栏已隐藏——写草稿用户看不见，
+                    // 作品自己的输入层才是入口（v0.3 B2 compose 保留给
+                    // 未声明 own 的作品）。
                     val draft = viewModel.inputText.value
                     viewModel.setInputText(if (draft.isBlank()) text else "$draft\n$text")
                 }
@@ -2074,15 +2106,22 @@ fun ChatScreen(
                 }
                 islandFrameReason = "send"
             },
-            // ready 只收 own 舞台的（内联岛误触发不算数）；就绪即重置
-            // 连续崩溃计数——"连续"而非累计。
-            onReady = {
-                if (stageOwnInputActive) {
-                    islandReadyReceived = true
-                    islandStageCrashCount = 0
+            // ready 只收 own 舞台的（内联岛误触发不算数）。
+            onReady = { if (stageOwnInputActive) islandReadyReceived = true },
+            onCrash = {
+                if (stageVisible) {
+                    // "连续崩溃"按 60s 窗计：稳定运行超窗长后重新计数。
+                    // 不因 ready 清零——崩溃→重载→ready→再崩的循环件
+                    // 要能数到阈值退回（v0.3 B7）。
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - islandStageLastCrashMs > IslandCrashWindowMs) {
+                        islandStageCrashCount = 1
+                    } else {
+                        islandStageCrashCount++
+                    }
+                    islandStageLastCrashMs = now
                 }
             },
-            onCrash = { if (stageVisible) islandStageCrashCount++ },
         ),
         LocalNovexArtifactDefs provides novexArtifactScene.defs,
         LocalNovexFullscreenAnchors provides novexArtifactScene.fullscreenAnchors,
@@ -2318,8 +2357,10 @@ fun ChatScreen(
                 // （弹幕/书信/终端等形态）。原生转录只是被盖住不是被替换，
                 // 右下角「消息」浮钮随时切回。
                 // 全屏舞台：display:"fullscreen"/compat:tavern 的件被点开后，
-                // 转录区整换成舞台岛（单例 WebView）；缩小回会话时岛在 1dp
-                // 里保活，DOM/JS 状态存续，再进全屏不重载页面。
+                // 转录区整换成舞台岛。注意：全屏位与 1dp 位是两个 call
+                // site→两个 WebView 实例，缩小/放大都会重建页面（既有
+                // 架构，DOM/JS 状态并不存续——舞台状态须来自帧，不能存
+                // 在页内；协议本来就是这么设计的）。
                 val stageDef = stageDefId?.let { novexArtifactScene.defs[it] }
                 val stageHtml = stageDef?.let { def ->
                     remember(def.template, novexArtifactScene.latestUseData) {
@@ -2332,8 +2373,9 @@ fun ChatScreen(
                 val skinOverlayHtml = immersiveProfile.skin?.overlay
                 var peekNativeTranscript by remember(sessionId) { mutableStateOf(false) }
                 if (stageDef != null && !stageVisible && stageHtml != null) {
-                    // 保活位：缩小中的舞台岛缩到 1dp 角落——留在组合里
-                    // WebView 不销毁，JS/DOM 状态保住。
+                    // 缩小位：舞台不可见时岛缩到 1dp 角落待命（与全屏位
+                    // 非同一 WebView，作用是让关闭后岛仍在组合里、下次
+                    // 打开路径一致，不保页面状态）。
                     Box(Modifier.size(1.dp).alpha(0f)) {
                         HtmlIsland(html = stageHtml, fillParent = true, tavernCompat = stageDef.tavernCompat)
                     }
@@ -2504,6 +2546,7 @@ fun ChatScreen(
                 onPreviewAttachment = onPreviewAttachment,
             )
             }
+            }
 
             // 就地对话框群（移动/全屏编写/删会话/发送门槛等）→
             // ChatScreenInlineDialogs.kt，开关位仍由本函数持有。
@@ -2538,7 +2581,6 @@ fun ChatScreen(
                 onEnhancedCacheDismissed = { showEnhancedCacheDialog = false },
             )
         }
-            }
         // Top gradient fade: messages fade into the Scaffold background.
         Box(
             modifier = Modifier

@@ -561,7 +561,7 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
     // 新增攻击面）；asset() 统一资源写法；ready() 走 console 信号。
     // 帧热更新整体替换 NOVEN_FRAME 会冲掉这些函数——installer 挂在
     // window 上，每次赋帧后由 frameUpdateJs 重挂。
-    append("<script>window.__novenHelpers=function(F){if(!F)return;F.query=F.query||function(d,i){location.href='novex-query://'+encodeURIComponent(d)+'/'+encodeURIComponent(i)};F.compose=F.compose||function(t){location.href='novex-compose://?text='+encodeURIComponent(t==null?'':t)};F.send=F.send||function(t){location.href='novex-send://?text='+encodeURIComponent(t==null?'':t)};F.asset=F.asset||function(id){return 'novex-asset://'+encodeURIComponent(id)};F.ready=F.ready||function(){console.log('")
+    append("<script>window.__novenHelpers=function(F){if(!F)return;F.query=F.query||function(d,i,from){location.href='novex-query://'+encodeURIComponent(d)+'/'+encodeURIComponent(i)+(from?'?from='+encodeURIComponent(from):'')};F.compose=F.compose||function(t){location.href='novex-compose://?text='+encodeURIComponent(t==null?'':t)};F.send=F.send||function(t){location.href='novex-send://?text='+encodeURIComponent(t==null?'':t)};F.asset=F.asset||function(id){return 'novex-asset://'+encodeURIComponent(id)};F.ready=F.ready||function(){console.log('")
     append(IslandReadySignal)
     // → console.log('__novex_ready__') } } ; —— 括号序列分两截防拼错
     append("')")
