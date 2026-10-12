@@ -49,6 +49,8 @@
 
 `novex-use` 的 id 未注册 → 界面不显示；先用 `novex-def` 注册或确认卡内预置的 id。数学渲染的是 KaTeX 子集；不支持的宏会显示为原文，换通用写法。
 
+旧卡里可能见到 `novex-skin` 围栏（气泡/顶栏皮肤 JSON）——该机制已退役，新作品一律走 `novex-def`/`display:"fullscreen"` 舞台件；旧皮肤围栏只会显示一行下线提示，不再换装。
+
 ## 舞台协议（全屏作品，v0.3）
 
 `display:"fullscreen"` 的件被点开后进入**舞台**：整页 WebView 接管消息区，宿主每轮推一个 `NOVEN_FRAME` 数据帧，页内监听 `noven:frame` 事件拿新帧。
