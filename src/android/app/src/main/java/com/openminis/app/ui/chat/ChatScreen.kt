@@ -1835,6 +1835,47 @@ fun ChatScreen(
     // send 门控状态：已消费的手势时间戳（一手势一发）与最近一次发送时刻。
     var islandConsumedGestureMs by remember { mutableStateOf(0L) }
     var islandLastSendAtMs by remember { mutableStateOf(0L) }
+    // cast（v0.3 B5）：绑定里 CHARACTER 卡（主卡+背景卡）的卡名当名册——
+    // 头像/颜色等卡内字段后续再解（r2 允许缺省 null）。
+    val islandCastJson by produceState<String?>(null, configurationJson, islandCard) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val binding = novex.core.NovexConversationConfigurationCodec
+                    .decode(configurationJson, sessionId).cardBindingJson
+                    ?.let(com.openminis.app.cards.CardBinding::decode)
+                val sels = listOfNotNull(binding?.primary) + binding?.backgrounds.orEmpty()
+                sels.mapNotNull { sel ->
+                    viewModel.integratedCards.store.open(sel.rootId)?.content
+                        ?.takeIf { it.kind == novex.content.CardKind.CHARACTER }?.name
+                }.distinct().takeIf { it.isNotEmpty() }
+                    ?.let { org.json.JSONArray(it).toString() }
+            }.getOrNull()
+        }
+    }
+    // choices（v0.3 B4）：最新助手回合里未过期、且之后没有用户回复的
+    // present_choices 工具块转数据——已作答或已失效的不下发。
+    val islandChoicesJson = remember(transcriptMessages) {
+        val idx = transcriptMessages.indexOfLast { m ->
+            m.role == "assistant" &&
+                m.toolBlocks.any { it.kind == "tool_use" && it.toolName == "present_choices" }
+        }
+        if (idx < 0 || transcriptMessages.drop(idx + 1).any { it.role == "user" }) null
+        else transcriptMessages[idx].let { m ->
+            val block = m.toolBlocks.last {
+                it.kind == "tool_use" && it.toolName == "present_choices"
+            }
+            val event = parseNovexChoiceEvent(block.toolArgs)
+            if (event.options.isEmpty() || event.expired) null
+            else org.json.JSONObject().put("turnId", m.id).put("items",
+                org.json.JSONArray().apply {
+                    event.options.forEachIndexed { i, o ->
+                        put(org.json.JSONObject()
+                            .put("id", o.payload.ifBlank { "c$i" })
+                            .put("label", o.label))
+                    }
+                }).toString()
+        }
+    }
     // 舞台可见且作品声明 input:"own"：原生输入栏隐藏、send 放行、
     // ready 超时生效（旧舞台件/皮肤不施加——v0.3 B2/B7）。
     val stageOwnInputActive = stageVisible &&
@@ -1961,9 +2002,16 @@ fun ChatScreen(
                 }
                 arr.toString()
             },
-            // transcript 叙事流（v0.3 B1）：宿主解析一次。cast 名册等 S6
-            // 接上挂载角色卡再传——目前 speaker 检测关闭，全是 narration。
-            transcriptJson = remember(transcriptMessages) {
+            // transcript 叙事流（v0.3 B1）：宿主解析一次，cast 名册喂
+            // speaker 检测；名册为空时全段 narration。
+            transcriptJson = remember(transcriptMessages, islandCastJson) {
+                val castNames = islandCastJson?.let { raw ->
+                    runCatching {
+                        org.json.JSONArray(raw).let { a ->
+                            (0 until a.length()).map { a.getString(it) }
+                        }
+                    }.getOrNull()
+                }
                 novex.core.StageTranscriptParser.toJson(
                     novex.core.StageTranscriptParser.parse(
                         transcriptMessages.takeLast(40).map { m ->
@@ -1974,9 +2022,12 @@ fun ChatScreen(
                                 streaming = m.isStreaming,
                             )
                         },
+                        castNames,
                     ),
                 )
             },
+            castJson = islandCastJson,
+            choicesJson = islandChoicesJson,
             cardId = islandCardRootId,
             webviewMajor = islandWebViewVer,
             turnStreaming = isStreaming,

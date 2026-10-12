@@ -86,8 +86,12 @@ internal class HtmlIslandBridge(
     val imeHeightCssPx: Int = 0,
     /** frame.reason：宿主最近事件的短暂标记（send/ime/init 后约一帧回 "turn"）。 */
     val frameReason: String = "turn",
-    /** 最近一次 send 回执；works 按 seq 去重。 */
+    /** 最近一次 send 回执（形状 {result, why}，与 r2 B2 冻结一致）。 */
     val sendResult: IslandSendResult? = null,
+    /** cast 角色名册 JSON 数组（v0.3 B5）；null = 无角色卡不下发。 */
+    val castJson: String? = null,
+    /** choices 选项数据 JSON（v0.3 B4 {turnId, items}）；null = 无有效选项。 */
+    val choicesJson: String? = null,
     // ─── v0.3 出站回调（URL 拦截分发，无 JS 桥）───
     val onQuery: ((domain: String, entity: String, from: String?) -> Unit)? = null,
     val onCompose: ((String) -> Unit)? = null,
@@ -159,6 +163,7 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
         bridge?.webviewMajor, bridge?.turnStreaming, bridge?.queuedCount,
         bridge?.imeVisible, bridge?.imeHeightCssPx,
         bridge?.frameReason, bridge?.sendResult,
+        bridge?.castJson, bridge?.choicesJson,
     ) { buildIslandFrameJson(bridge, dark, colors) }
     val islandSessionId = bridge?.sessionId
 

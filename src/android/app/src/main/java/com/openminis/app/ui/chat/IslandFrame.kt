@@ -151,6 +151,10 @@ internal fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colo
     runCatching { root.put("messages", org.json.JSONArray(bridge?.messagesJson ?: "[]")) }
     // transcript 叙事流（v0.3 B1）：宿主已解析的结构化段表。
     runCatching { root.put("transcript", org.json.JSONArray(bridge?.transcriptJson ?: "[]")) }
+    // cast 名册 / choices 选项数据（v0.3 B5/B4）：无则不下发（不下发
+    // 空数组冒充能力——作品判字段存在即可知有无）。
+    bridge?.castJson?.let { runCatching { root.put("cast", org.json.JSONArray(it)) } }
+    bridge?.choicesJson?.let { runCatching { root.put("choices", org.json.JSONObject(it)) } }
     // assets 映射表（v0.2 B2 + S2.4）：卡本地资源 id ∪ 收割期
     // remoteUrl→id 反转值，统一写成 id→平台 URL；岛上 src 一律经
     // NOVEN_FRAME.asset(id) 取，不手写 scheme。id 编码后与拦截器
