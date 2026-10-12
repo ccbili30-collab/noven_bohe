@@ -255,6 +255,8 @@ internal fun ChatTopBar(
     modelName: String,
     onOpenModelPicker: () -> Unit,
     onOpenThinkingSheet: () -> Unit,
+    /** 舞台自检（v0.3 S8 体检岛）：打开内置整页检查件。 */
+    onOpenStageCheck: () -> Unit,
     returnFromConversation: () -> Unit,
     /** 舞台全屏中：返回键变成「缩小」——点击缩小回会话而非退出。 */
     stageOpen: Boolean = false,
@@ -621,6 +623,11 @@ internal fun ChatTopBar(
                                     },
                                 )
                             }
+                            // 舞台协议体检岛（S8）：开发者入口——逐项核验
+                            // 帧/helper/出站/能力基线并产出 JSON 报告。
+                            add(NovexMenuAction("舞台自检", R.drawable.ic_phosphor_search) {
+                                onOpenStageCheck()
+                            })
                             add(
                                 NovexMenuAction(
                                     "删除对话",

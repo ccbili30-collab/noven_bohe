@@ -1849,12 +1849,17 @@ fun ChatScreen(
     // 的覆盖先到的（近似语义，协议对 reason 只要求"反映最近事件"）。
     var islandFrameReason by remember { mutableStateOf("turn") }
     var islandSendReceipt by remember(sessionId, stageDefId) { mutableStateOf<IslandSendResult?>(null) }
+    // 舞台可开件全集：会话注册件 + 内置体检岛（S8）。不进
+    // LocalNovexArtifactDefs——体检岛无 marker，本就不会内联渲染；
+    // 但保持分离更干净：内联解析只看作品带的件，舞台解析才并内建件。
+    val stageDefs = novexArtifactScene.defs +
+        (NOVEX_STAGE_CHECK_DEF.id to NOVEX_STAGE_CHECK_DEF)
     // 舞台页面的替换后 HTML：ready 键与渲染共用——键必须打在"页面
     // 实际会重载"的东西上。use 数据变了但替换产物相同→页面不重载→
     // 不该重置 ready；数据变了页面也变了→重新武装超时。
     val stageSubstitutedHtml = remember(stageDefId, novexArtifactScene.latestUseData) {
         stageDefId?.let { id ->
-            novexArtifactScene.defs[id]?.let { def ->
+            stageDefs[id]?.let { def ->
                 substituteNovexArtifact(
                     def.template,
                     novexArtifactScene.latestUseData[def.id].orEmpty(),
@@ -1989,7 +1994,7 @@ fun ChatScreen(
     // 舞台可见且作品声明 input:"own"：原生输入栏隐藏、send 放行、
     // ready 超时生效（旧舞台件/皮肤不施加——v0.3 B2/B7）。
     val stageOwnInputActive = stageVisible &&
-        stageDefId?.let { novexArtifactScene.defs[it]?.ownInput } == true
+        stageDefId?.let { stageDefs[it]?.ownInput } == true
     val lastIslandImeCssPx = remember { intArrayOf(-1) }
     LaunchedEffect(islandFrameReason) {
         if (islandFrameReason != "turn") {
@@ -2245,6 +2250,12 @@ fun ChatScreen(
                 modelName = modelName,
                 onOpenModelPicker = { showModelPicker = true },
                 onOpenThinkingSheet = { showThinkingLevelSheet = true },
+                // 舞台自检（v0.3 S8）：打开内置体检岛——进舞台与注册件同路径。
+                onOpenStageCheck = {
+                    islandFrameReason = "init"
+                    stageDefId = NOVEX_STAGE_CHECK_DEF.id
+                    stageVisible = true
+                },
                 stageOpen = stageVisible,
                 returnFromConversation = {
                     if (stageVisible) stageVisible = false else returnFromConversation()
@@ -2438,7 +2449,7 @@ fun ChatScreen(
                 // site→两个 WebView 实例，缩小/放大都会重建页面（既有
                 // 架构，DOM/JS 状态并不存续——舞台状态须来自帧，不能存
                 // 在页内；协议本来就是这么设计的）。
-                val stageDef = stageDefId?.let { novexArtifactScene.defs[it] }
+                val stageDef = stageDefId?.let { stageDefs[it] }
                 val stageHtml = stageSubstitutedHtml
                 val skinOverlayHtml = immersiveProfile.skin?.overlay
                 var peekNativeTranscript by remember(sessionId) { mutableStateOf(false) }
