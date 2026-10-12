@@ -329,12 +329,32 @@ internal fun assistantActionAnchors(items: List<FlatChatItem>): Map<String, Assi
 
     // 第二遍：按消息累计 markdown/流式状态，每个锚定项产出一个
     // AssistantActionAnchor，以锚定项的 key 为键——转录循环手里正好有这个。
+    // [T-empty-reply-no-actions] 2026-10-11：零内容空壳助手行（错挂重试
+    // 遗留等）不挂操作行——没有正文可复制、没有内容可重试，挂了反而
+    // 是"↻ …"幽灵行。
+    val contentOwners = HashSet<String>()
+    for (item in items) {
+        val owner = item.ownerMessageId ?: continue
+        when (item) {
+            is FlatChatItem.AssistantText,
+            is FlatChatItem.AssistantMarkdownBlock,
+            is FlatChatItem.AssistantToolUse,
+            is FlatChatItem.AssistantThinking,
+            is FlatChatItem.AssistantProcess,
+            is FlatChatItem.AssistantInfo,
+            is FlatChatItem.AssistantFallbackChoices,
+            is FlatChatItem.AssistantError,
+            is FlatChatItem.AssistantLegacyContent -> contentOwners += owner
+            else -> Unit
+        }
+    }
     val anchors = HashMap<String, AssistantActionAnchor>()
     var prevOwner: String? = null
     var prevMarkdown = ""
     var prevStreaming = false
     for (item in items) {
         val owner = item.ownerMessageId ?: continue
+        if (owner !in contentOwners) continue
         if (owner != prevOwner) {
             prevMarkdown = ""
             prevStreaming = false

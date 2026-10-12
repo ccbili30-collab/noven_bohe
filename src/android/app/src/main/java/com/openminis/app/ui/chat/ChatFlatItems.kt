@@ -169,13 +169,9 @@ private class FlatItemFold(
         // 视觉上粘成一条。
         val prevIsUser = idx > 0 && messages[idx - 1].role == "user"
         add(FlatChatItem.UserBubble(message, precededByUser = prevIsUser))
-        if (message.branchCount > 1) {
-            add(FlatChatItem.BranchSwitcher(
-                messageId = message.branchAnchorDbId ?: message.id,
-                index = message.branchIndex,
-                count = message.branchCount,
-            ))
-        }
+        // [T-branch-affordance] 2026-10-11 决策：人类输入不挂分支切换器——
+        // 编辑过的旧提问由父行「后续分支」入口回看，不占每屏位置；分支
+        // 导航只钉在 AI 回复下（恒显，含 1/1）。
         emitChildPicker(message)
     }
 
@@ -270,13 +266,15 @@ private class FlatItemFold(
         }
 
         // 分支行放在整条回复最下方（岛/工具块之后）：岛也是回复的一
-        // 部分，玩家读完一条回复就在底部换版本，与玩家气泡下的分支行
-        // 位置对称。
-        if (!ctx.isSystem && message.branchCount > 1) {
+        // 部分，玩家读完一条回复就在底部换版本。
+        // [T-branch-affordance] 2026-10-11 决策：AI 回复恒显切换器（含
+        // 1/1）——位置恒定、告诉用户"这里有几个版本"；人类输入一侧
+        // 不挂（见 emitUser）。
+        if (!ctx.isSystem) {
             add(FlatChatItem.BranchSwitcher(
                 messageId = message.branchAnchorDbId ?: message.id,
                 index = message.branchIndex,
-                count = message.branchCount,
+                count = message.branchCount.coerceAtLeast(1),
             ))
         }
         // system 分隔行也可能是截断路径的叶子——子分支导航不设门槛，

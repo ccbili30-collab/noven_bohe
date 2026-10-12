@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -75,6 +76,8 @@ internal class HtmlIslandBridge(
 internal val LocalHtmlIslandBridge = compositionLocalOf<HtmlIslandBridge?> { null }
 
 private const val IslandBaseUrl = "https://novex.island/"
+// 距上次装载不足此间隔的重载请求合并为一帧（见 IslandRenderer.sync）。
+private const val IslandReloadCoalesceMs = 160L
 // 模型在岛 HTML 里直接写 src="/var/minis/..." 时，WebView 按 base URL
 // 展开成这个前缀的 https 请求——拦截后按 minis 资源路径解析。
 private const val IslandResourcePrefix = "https://novex.island/var/minis/"
@@ -122,12 +125,18 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
     var showSource by remember(html) { mutableStateOf(false) }
     var measuredCssHeight by remember(html) { mutableIntStateOf(0) }
     var islandError by remember(html) { mutableStateOf<String?>(null) }
+    // 绸缎展开：WebView 首次量出真实高度 = 内容已排版完成——此刻才
+    // 允许外窗下沿扫下来。量出前整窗是装载占位（高度固定、内有进度条）。
+    var revealed by remember(html) { mutableStateOf(false) }
     // 渲染进程死亡自疗计数：onRenderProcessGone 销毁死 view 后 bump，
     // key(reloadTick) 触发 AndroidView 重建+整页重载（sync 看到
     // loadedHtml==null 会重新 loadDataWithBaseURL）。
     var reloadTick by remember { mutableIntStateOf(0) }
     val renderer = remember { IslandRenderer() }
-    renderer.onHeight = { measuredCssHeight = it }
+    renderer.onHeight = {
+        measuredCssHeight = it
+        if (it > 0) revealed = true
+    }
     renderer.onCrash = { reloadTick++ }
     renderer.onError = { islandError = it }
     renderer.sessionId = islandSessionId
@@ -175,19 +184,58 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
                 }
                 val islandHeight = (measuredCssHeight.takeIf { it > 0 }
                     ?: IslandDefaultHeightDp).coerceAtMost(IslandMaxHeightDp)
-                androidx.compose.runtime.key(reloadTick) {
-                    AndroidView(
-                        modifier = if (fillParent) {
-                            Modifier.fillMaxSize()
-                        } else {
-                            Modifier
-                                .fillMaxWidth()
-                                .height(islandHeight.dp)
-                        },
-                        factory = { ctx -> renderer.create(ctx) },
-                        update = { wv -> renderer.sync(wv, html, frameJson, compatScripts) },
-                        onRelease = { wv -> runCatching { wv.destroy() } },
+                if (fillParent) {
+                    androidx.compose.runtime.key(reloadTick) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx -> renderer.create(ctx) },
+                            update = { wv -> renderer.sync(wv, html, frameJson, compatScripts) },
+                            onRelease = { wv -> runCatching { wv.destroy() } },
+                        )
+                    }
+                } else {
+                    // 绸缎展开：外窗高度是唯一动画对象——装载期固定在占位高，
+                    // 量出真实高后以 350ms 缓出让窗下沿扫到终高。WebView 本体
+                    // 从一开始就是终高终排版（顶对齐、被窗裁切），不缩放不
+                    // 淡入；后续内容长高的每次回报也走同一条曲线——增长
+                    // 不再跳变。
+                    val windowHeight by androidx.compose.animation.core.animateDpAsState(
+                        targetValue = if (revealed) islandHeight.dp else IslandLoadingHeightDp.dp,
+                        animationSpec = androidx.compose.animation.core.tween(
+                            durationMillis = IslandRevealDurationMs,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                        ),
+                        label = "island-reveal",
                     )
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(windowHeight)
+                            .clipToBounds(),
+                    ) {
+                        androidx.compose.runtime.key(reloadTick) {
+                            AndroidView(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(islandHeight.dp)
+                                    .align(Alignment.TopStart),
+                                factory = { ctx -> renderer.create(ctx) },
+                                update = { wv -> renderer.sync(wv, html, frameJson, compatScripts) },
+                                onRelease = { wv -> runCatching { wv.destroy() } },
+                            )
+                        }
+                        // 装载占位：量出前盖在窗上；揭开瞬间淡出，留下已
+                        // 排好的真实内容。
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !revealed,
+                            exit = androidx.compose.animation.fadeOut(
+                                androidx.compose.animation.core.tween(180),
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(IslandLoadingHeightDp.dp),
+                        ) {
+                            IslandLoadingPlaceholder()
+                        }
+                    }
                 }
             }
         }
@@ -216,6 +264,12 @@ private class IslandRenderer {
     private var frameJson = "{}"
     private var boundView: WebView? = null
     private var pushedFrame: String? = null
+    // 重载合并：html 高频变化（数据热更新投影）时，距上次装载不足阈值的
+    // 重载挂起为"待装"，onPageFinished 时只补装最新一版——连灌整页正是
+    // 流式末尾"白底→黑掉"的窗口之一。
+    private var pendingHtml: String? = null
+    private var pendingCompat: List<String> = emptyList()
+    private var lastLoadAtMs = 0L
     var sessionId: String? = null
     var cardBridge: HtmlIslandBridge? = null
     var onHeight: ((Int) -> Unit)? = null
@@ -227,6 +281,15 @@ private class IslandRenderer {
         webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 pageReady = true
+                // 装载期间积下的新 html 只装最终版（重载合并）。
+                pendingHtml?.let { next ->
+                    if (next != loadedHtml) {
+                        pendingHtml = null
+                        load(view, next, pendingCompat)
+                        return
+                    }
+                    pendingHtml = null
+                }
                 // 页面可能声明了全新 document 上下文；重注当前帧保证脚本
                 // 读到的是最新数据而非装载时的快照。
                 pushedFrame = frameJson
@@ -333,14 +396,23 @@ private class IslandRenderer {
     /** html 变了重载整页；只是帧数据变了走热更新。新 view 必重载——
      *  loadedHtml 不随 view 重建转移（切源码往返、渲染进程重建的 blank 根因）。 */
     fun sync(wv: WebView, html: String, frame: String, compat: List<String> = emptyList()) {
+        // LazyColumn 回收重挂的岛可能带着暂停态回来（WebView 暂停后不重绘
+        // = 黑画面透底的另一来源）；绑定时总是唤醒，代价是一次空调用。
+        wv.onResume()
+        wv.resumeTimers()
         frameJson = frame
         if (boundView !== wv || loadedHtml != html || loadedCompat != compat) {
             boundView = wv
-            loadedHtml = html
-            loadedCompat = compat
-            pageReady = false
-            onError?.invoke(null)
-            wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frame, compat), "text/html", "utf-8", null)
+            val now = android.os.SystemClock.uptimeMillis()
+            if (pageReady || now - lastLoadAtMs >= IslandReloadCoalesceMs) {
+                pendingHtml = null
+                load(wv, html, compat)
+            } else {
+                // 距上次装载太近：记最新版待装，本帧不灌——页面加载完时
+                // onPageFinished 检查 pending 补装最终态。
+                pendingHtml = html
+                pendingCompat = compat
+            }
         } else if (pageReady && pushedFrame != frame) {
             // 帧去重：宿主每次重组都会走到这（bridge 是逐重组新建的值），
             // 帧内容没变就不派发——否则岛页会被 noven:frame 事件流反复
@@ -348,6 +420,15 @@ private class IslandRenderer {
             pushedFrame = frame
             wv.evaluateJavascript(frameUpdateJs(frame), null)
         }
+    }
+
+    private fun load(wv: WebView, html: String, compat: List<String>) {
+        loadedHtml = html
+        loadedCompat = compat
+        pageReady = false
+        lastLoadAtMs = android.os.SystemClock.uptimeMillis()
+        onError?.invoke(null)
+        wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frameJson, compat), "text/html", "utf-8", null)
     }
 }
 
@@ -487,3 +568,73 @@ private fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, color
 }
 
 private fun Color.toHexString(): String = "#%06X".format(toArgb() and 0xFFFFFF)
+
+// ─── 装载占位 + 绸缎展开 ────────────────────────────────────────────────────
+//
+// 设计本意（manual/design-intent.md）：面板装载期先占一块固定小高度，
+// 进度条快冲到 ~92% 再缓速渐近（真完成才跳满）；内容早已排版完毕，
+// 揭开时只有外窗下沿向下扫——不缩放、不整片淡入、不瞬现。
+
+private const val IslandLoadingHeightDp = 72
+private const val IslandRevealDurationMs = 350
+private const val IslandFakeProgressCeil = 0.92f
+
+/** 表演性进度：逐帧向天花板渐近（p += (ceil-p)*k），接近 92% 后
+ *  爬行变慢；真完成由外层状态切换接管，不装死也不假满。 */
+@Composable
+private fun rememberIslandFakeProgress(): Float {
+    var progress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        var last = androidx.compose.runtime.withFrameNanos { it }
+        while (true) {
+            val now = androidx.compose.runtime.withFrameNanos { it }
+            val dt = ((now - last) / 16_666_667f).coerceIn(0.5f, 4f)
+            last = now
+            progress += (IslandFakeProgressCeil - progress) * 0.055f * dt
+        }
+    }
+    return progress
+}
+
+/** 界面装载占位：固定小高度 + 渐近进度条。供岛自身与流式未闭合
+ *  围栏（MdBlockRender liveIncremental 分支）共用——未写完的围栏
+ *  不再渲原文。 */
+@Composable
+internal fun IslandLoadingPlaceholder(
+    label: String = "界面装载中",
+    modifier: Modifier = Modifier,
+) {
+    val colors = currentMdColors()
+    val progress = rememberIslandFakeProgress()
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(IslandLoadingHeightDp.dp)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(
+                text = label,
+                fontSize = BaseFontSize * 0.78f,
+                color = colors.blockquote,
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(colors.divider),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(progress)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(colors.link),
+                )
+            }
+        }
+    }
+}

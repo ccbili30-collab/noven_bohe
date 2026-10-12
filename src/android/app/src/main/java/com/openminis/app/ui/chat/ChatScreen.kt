@@ -678,6 +678,14 @@ fun ChatScreen(
     // [T-chrome-autofade-setting] 空闲 6 秒自动淡出受「外观」开关控制，默认
     // 关闭（2026-09-16 用户决策）——关闭时仅保留点空白处的手动淡出/唤回。
     val chromeAutoFadeEnabled = remember { com.openminis.app.ui.settings.chromeAutoFadeEnabled(context) }
+    // 沉浸态返回：先退模式，不吞导航——优先级低于全屏舞台（enabled
+    // 条件排除 stageVisible），高于会话导航（组合顺序在后）。
+    androidx.activity.compose.BackHandler(
+        enabled = effectiveChromeCollapsed && !stageVisible,
+    ) {
+        chromeRevivedAtMs = System.currentTimeMillis()
+        chromeCollapsed = false
+    }
     LaunchedEffect(lastInteractionAt, chromeCollapsed, sideParentId) {
         if (!chromeAutoFadeEnabled || sideParentId != null || chromeCollapsed) return@LaunchedEffect
         kotlinx.coroutines.delay(6_000)
@@ -1271,6 +1279,95 @@ fun ChatScreen(
         tracedScrollToItem("FAB-UP/turn-walk", targetIndex, 0)
     }
 
+    // [T-fab-stretch-jump] 下钮的对称步进：镜像 scrollToPreviousUserTurn，
+    // 方向向下——单击跳到"下一回合"的用户发言；已到最后一条用户发言后
+    // 再点 = 回最新（与旧下钮语义衔接）。行走状态复用 lastJumpedUserId：
+    // 两个方向共享一条走链，向上步进中改向下即从当前锚点继续走。
+    val scrollToNextUserTurn: suspend () -> Unit = scrollToNextUserTurn@{
+        val info = listState.layoutInfo
+        val visible = info.visibleItemsInfo
+        if (visible.isEmpty()) return@scrollToNextUserTurn
+        val userIds = transcriptMessages.filter { it.role == "user" }.map { it.id }
+        if (userIds.isEmpty()) {
+            tracedScrollToItem("FAB-DOWN/no-user-turns", info.totalItemsCount - 1, 0)
+            lastJumpedUserId = null
+            return@scrollToNextUserTurn
+        }
+        val topKey = visible.minByOrNull { it.offset }?.key as? String
+        val topMessageId = topKey
+            ?.split(':')
+            ?.getOrNull(1)
+            ?.takeIf { it.isNotEmpty() }
+        val topMsgIdx = topMessageId
+            ?.let { id -> transcriptMessages.indexOfFirst { it.id == id } }
+            ?.takeIf { it >= 0 }
+            ?: 0
+        // 下步进的起点 = 视口顶所在回合的下一条用户发言；行走中以
+        // lastJumpedUserId 为链位继续向前（规则与上步进对称）。
+        val currentAnchor = transcriptMessages.take(topMsgIdx + 1).lastOrNull { it.role == "user" }?.id
+            ?: userIds.first()
+        val walkFrom = lastJumpedUserId?.takeIf { it in userIds } ?: currentAnchor
+        val pos = userIds.indexOf(walkFrom)
+        val viewportTop = info.viewportStartOffset
+        val viewportBottom = info.viewportEndOffset
+        val fullyVisibleUserIds: Set<String> = visible
+            .asSequence()
+            .filter { item ->
+                val k = item.key as? String ?: return@filter false
+                k.startsWith("user:") &&
+                    item.offset >= viewportTop &&
+                    item.offset + item.size <= viewportBottom
+            }
+            .mapNotNull { (it.key as? String)?.removePrefix("user:")?.takeIf { id -> id.isNotEmpty() } }
+            .toSet()
+        // 目标 = walkFrom 之后第一条未被完整看见的用户发言；越过末尾
+        // （没有"下一回合"）= 回最新并结束走链。
+        var target: String? = null
+        var i = pos + 1
+        while (i <= userIds.lastIndex) {
+            if (userIds[i] !in fullyVisibleUserIds) { target = userIds[i]; break }
+            i++
+        }
+        if (target == null) {
+            // 没有"下一回合"= 回最新：接旧下钮语义——清走链、流式中
+            // 临时挂底，避免新长出的行又把视口甩开一屏。
+            lastJumpedUserId = null
+            transcriptFollowState = if (isStreaming) {
+                transcriptFollowState.after(TranscriptFollowEvent.UserRequestedLatest)
+            } else {
+                TranscriptFollowState()
+            }
+            scrollToLatestOnce(TranscriptViewportMove.UserRequestedLatest)
+            return@scrollToNextUserTurn
+        }
+        val targetKey = "user:$target"
+        fun indexOfTargetKey(): Int? =
+            listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == targetKey }?.index
+
+        val restoreIndex = listState.firstVisibleItemIndex
+        val restoreOffset = listState.firstVisibleItemScrollOffset
+        var targetIndex = indexOfTargetKey()
+        var guard = 0
+        // 与上步进同理：方向不可假设，自顶向下全扫——scrollToItem 每步只
+        // 是一次布局，方向无关、不可能跨过目标。
+        if (targetIndex == null) {
+            val maxIdx = (info.totalItemsCount - 1).coerceAtLeast(0)
+            var probe = 0
+            while (targetIndex == null && probe <= maxIdx && guard++ < 200) {
+                tracedScrollToItem("FAB-DOWN/seek", probe, 0)
+                targetIndex = indexOfTargetKey()
+                val hi = listState.layoutInfo.visibleItemsInfo.maxByOrNull { it.index }?.index
+                probe = (hi ?: probe) + 1
+            }
+        }
+        if (targetIndex == null) {
+            tracedScrollToItem("FAB-DOWN/restore", restoreIndex, restoreOffset)
+            return@scrollToNextUserTurn
+        }
+        lastJumpedUserId = target
+        tracedScrollToItem("FAB-DOWN/turn-walk", targetIndex, 0)
+    }
+
     // T-drag-send-queue: shared send-or-enqueue handler used by BOTH the
     // send-button tap and the swipe-up-to-send drag. Routes through
     // `viewModel.sendMessage(...)` which internally dispatches to
@@ -1861,19 +1958,14 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(top = statusBarTop, bottom = padding.calculateBottomPadding())
                 .imePadding()
-                // 任何触摸都重置沉浸淡化的空闲计时；淡出状态下还负责唤回
-                // （600ms 内刚手动隐藏的不抢——那正是隐藏手势的收尾）。
+                // 任何触摸都重置沉浸淡化的空闲计时。唤回不在这里——
+                // 每次滚动的起手都是 down，down 唤回 = 拖动翻页必然弹回
+                // 界面（深度阅读模式的"滑动又出来了"病灶）。唤回只认完成
+                // 的单击（内层 detectTapGestures）或返回手势（BackHandler）。
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
-                        val now = System.currentTimeMillis()
-                        lastInteractionAt = now
-                        if (chromeCollapsed && sideParentId == null &&
-                            now - chromeHiddenAtMs > 600 && now - chromeRevivedAtMs > 600
-                        ) {
-                            chromeRevivedAtMs = now
-                            chromeCollapsed = false
-                        }
+                        lastInteractionAt = System.currentTimeMillis()
                     }
                 },
         ) {
@@ -1902,13 +1994,16 @@ fun ChatScreen(
 
             // Messages + scroll-to-bottom button
             Box(modifier = Modifier.weight(1f).pointerInput(Unit) {
-                // 空白处单点 = 立即淡出界面（消息行自身的点击不会到达这里）；
-                // 淡出状态下的唤回由外层触摸计时统一负责——同一次手势里两个
-                // 手势器都会触发，这里跳过"刚被唤回"的那一下，避免刚淡入又被
-                // 这里拍回去。
+                // 空白处完成单击 = 切换淡化态：可见→收起（消息行自身的点击
+                // 不会到达这里）；已收起→唤回。唤回只认完成的 tap——拖动手
+                // 势不触发 detectTapGestures，滚动不再误唤回。"刚唤回的一下
+                // 不再拍回去"由 600ms 窗口挡住。
                 detectTapGestures {
                     val now = System.currentTimeMillis()
-                    if (!chromeCollapsed && now - chromeRevivedAtMs > 600) {
+                    if (chromeCollapsed && sideParentId == null) {
+                        chromeRevivedAtMs = now
+                        chromeCollapsed = false
+                    } else if (!chromeCollapsed && now - chromeRevivedAtMs > 600) {
                         chromeCollapsed = true
                         chromeHiddenAtMs = now
                     }
@@ -2108,7 +2203,9 @@ fun ChatScreen(
                     onFollowStateChange = { transcriptFollowState = it },
                     onJumpedUserCleared = { lastJumpedUserId = null },
                     scrollToPreviousUserTurn = scrollToPreviousUserTurn,
+                    scrollToNextUserTurn = scrollToNextUserTurn,
                     scrollToLatestOnce = scrollToLatestOnce,
+                    scrollToTopOnce = { tracedScrollToItem("FAB-stretch-top", 0, 0) },
                 )
                 // 覆盖层皮肤在场但用户正在看原生消息：给一个回皮肤层的浮钮。
                 if (skinOverlayHtml != null && peekNativeTranscript) {

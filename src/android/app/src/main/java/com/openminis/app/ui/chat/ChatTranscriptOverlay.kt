@@ -250,7 +250,9 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
     onFollowStateChange: (TranscriptFollowState) -> Unit,
     onJumpedUserCleared: () -> Unit,
     scrollToPreviousUserTurn: suspend () -> Unit,
+    scrollToNextUserTurn: suspend () -> Unit,
     scrollToLatestOnce: suspend (TranscriptViewportMove) -> Unit,
+    scrollToTopOnce: suspend () -> Unit,
 ) {
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
     val context = LocalContext.current
@@ -327,15 +329,13 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                 // animation produces a synthetic drag-stop. iOS gets this
                 // for free via `maxOffset > 0`; Compose needs the explicit
                 // check.
-                // [T-android-scrollbtn-turn-walk] Floating up-button. Visibility
-                // is now the SHARED `!isNearBottom` condition (iOS dcdec3c5),
-                // replacing the separate isFarFromTop && isFarFromBottom
-                // middle-region gate: both floating buttons now appear together
-                // on the same signal, which is what the iOS refactor converged
-                // on. Sits ABOVE the scroll-to-bottom button (same BottomEnd
-                // anchor, extra bottom padding = down-button height 36dp + 10dp
-                // spacing). Tapping walks BACK one user turn at a time rather
-                // than jumping to the oldest message.
+                // [T-fab-stretch-jump] 2026-10-11 决策：浮动钮双层手势——
+                // 单击 = 逐回合步进（上钮上一发言/下钮下一发言，可快速连点）；
+                // 稍按住再向上/下拖动 = 拉条，出现方向指示，松手跳到顶/底。
+                // 两钮都支持拉条；拉条是独立手势族，不与单击抢。
+                var upStretchDy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+                var downStretchDy by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+
                 if (transcriptViewportReady && messages.isNotEmpty() && !isNearBottom.value && chromeFadeAlpha > 0.01f) {
                     val upBaseBottom = 8.dp
                     novex.android.ui.NovexFilledIconButton(
@@ -347,20 +347,42 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                             .graphicsLayer { alpha = chromeFadeAlpha }
                             .padding(end = 12.dp, bottom = upBaseBottom + 46.dp)
                             .shadow(if (chromeFadeAlpha >= 0.99f) 4.dp else 0.dp, CircleShape)
-                            .size(36.dp),
+                            .size(36.dp)
+                            .stretchDragGesture(
+                                onDelta = { upStretchDy = it },
+                                onRelease = { dir ->
+                                    if (dir < 0) coroutineScope.launch { scrollToTopOnce() }
+                                    else if (dir > 0) {
+                                        onJumpedUserCleared()
+                                        coroutineScope.launch { scrollToLatestOnce(TranscriptViewportMove.UserRequestedLatest) }
+                                    }
+                                },
+                            ),
                         colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                             containerColor = ChatColors.inputBg,
                             contentColor = ChatColors.primaryText,
                         ),
                     ) {
                         Icon(
-                            // Matches iOS's `arrow.up.to.line` (AIChatView.swift:2501):
-                            // an arrow pointing at a top line reads as "jump to a top
-                            // anchor" for the turn-walk, and keeps this button visually
-                            // distinct from the down button's plain chevron.
-                            imageVector = novex.android.ui.NovexIcons.VerticalAlignTop,
-                            contentDescription = "Scroll to previous message",
+                            // 单步步进的符号——不许画成"回端点"（旧
+                            // VerticalAlignTop 画的是到顶，干的是上一步）。
+                            imageVector = novex.android.ui.NovexIcons.KeyboardArrowUp,
+                            contentDescription = "上一条发言",
                             modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    // 拉条方向指示：拖出幅度时出现，位置跟着拖动方向贴
+                    // 按钮外侧（上拉露上方、下拉露下方），方向箭头跟手。
+                    if (kotlin.math.abs(upStretchDy) > STRETCH_TRIGGER_PX) {
+                        StretchDirectionIndicator(
+                            direction = if (upStretchDy < 0) -1 else 1,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(
+                                    end = 12.dp,
+                                    bottom = if (upStretchDy < 0) upBaseBottom + 46.dp + 40.dp
+                                        else (upBaseBottom + 46.dp - 26.dp).coerceAtLeast(0.dp),
+                                ),
                         )
                     }
                 }
@@ -371,31 +393,23 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                     val fabBottomPadding = 8.dp
                     novex.android.ui.NovexFilledIconButton(
                         onClick = {
-                            // [T-android-scrollbtn-turn-walk] Jumping to the
-                            // bottom resets the up-button's turn-walk (iOS does
-                            // the same in its forceScrollToBottom handler).
-                            onJumpedUserCleared()
-                            // Outside a live turn this remains a one-shot jump.
-                            // During streaming it becomes a temporary latch so
-                            // newly measured text/tool/image rows cannot leave
-                            // the user one screen behind again.
-                            onFollowStateChange(if (isStreaming) {
-                                transcriptFollowState.after(
-                                    TranscriptFollowEvent.UserRequestedLatest,
-                                )
-                            } else {
-                                TranscriptFollowState()
-                            })
-                            coroutineScope.launch {
-                                scrollToLatestOnce(TranscriptViewportMove.UserRequestedLatest)
-                            }
+                            coroutineScope.launch { scrollToNextUserTurn() }
                         },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .graphicsLayer { alpha = chromeFadeAlpha }
                             .padding(end = 12.dp, bottom = fabBottomPadding)
                             .shadow(if (chromeFadeAlpha >= 0.99f) 4.dp else 0.dp, CircleShape)
-                            .size(36.dp),
+                            .size(36.dp)
+                            .stretchDragGesture(
+                                onDelta = { downStretchDy = it },
+                                onRelease = { dir ->
+                                    if (dir > 0) {
+                                        onJumpedUserCleared()
+                                        coroutineScope.launch { scrollToLatestOnce(TranscriptViewportMove.UserRequestedLatest) }
+                                    } else if (dir < 0) coroutineScope.launch { scrollToTopOnce() }
+                                },
+                            ),
                         colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                             containerColor = ChatColors.inputBg,
                             contentColor = ChatColors.primaryText,
@@ -403,8 +417,20 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                     ) {
                         Icon(
                             imageVector = novex.android.ui.NovexIcons.KeyboardArrowDown,
-                            contentDescription = "Scroll to bottom",
+                            contentDescription = "下一条发言",
                             modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    if (kotlin.math.abs(downStretchDy) > STRETCH_TRIGGER_PX) {
+                        StretchDirectionIndicator(
+                            direction = if (downStretchDy < 0) -1 else 1,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(
+                                    end = 12.dp,
+                                    bottom = if (downStretchDy < 0) fabBottomPadding + 40.dp
+                                        else (fabBottomPadding - 26.dp).coerceAtLeast(0.dp),
+                                ),
                         )
                     }
                 }
@@ -418,4 +444,73 @@ internal fun androidx.compose.foundation.layout.BoxScope.ChatTranscriptOverlay(
                 // AIChatView.swift:1817 (.overlay(alignment: .topTrailing)).
 
                 // T-chat-title-pill: sticky session title overlay. Sits
+}
+
+// ── 拉条跳端 ──────────────────────────────────────────────────────────────
+
+private const val STRETCH_HOLD_MS = 280L
+private const val STRETCH_TRIGGER_PX = 48f
+
+/**
+ * 长按拖动拉条手势：按住 ~280ms 进入拉伸态，之后累计纵向位移；
+ * 松手时方向（上拉=负/下拉=正）交给调用方跳端。单击走按钮自己的
+ * onClick，不在此手势竞争——按住超时前抬指或移动都原样退出。
+ */
+private fun Modifier.stretchDragGesture(
+    onDelta: (Float) -> Unit,
+    onRelease: (direction: Int) -> Unit,
+): Modifier = this.pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        // 等"稍微按住"：按住满阈值（withTimeoutOrNull 超时返回 null）才进
+        // 拉伸态；提前抬指=交给按钮单击，提前开拖=让位给滚动，都不消费。
+        // 位移按相对落点的累计量判，慢速滑过也算开拖。
+        val heldThrough = kotlinx.coroutines.withTimeoutOrNull(STRETCH_HOLD_MS) {
+            while (true) {
+                val ev = awaitPointerEvent()
+                val ch = ev.changes.firstOrNull { it.id == down.id }
+                    ?: return@withTimeoutOrNull false
+                if (!ch.pressed) return@withTimeoutOrNull false
+                if (kotlin.math.abs(ch.position.y - down.position.y) > 20f) {
+                    return@withTimeoutOrNull false
+                }
+            }
+        }
+        if (heldThrough != null) return@awaitEachGesture
+        // 拉伸态：消耗位移，实时回报累计量（负=上拉，正=下拉）。
+        var dy = 0f
+        onDelta(0f)
+        while (true) {
+            val ev = awaitPointerEvent()
+            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+            if (!ch.pressed) break
+            val d = ch.positionChange().y
+            if (d != 0f) {
+                dy += d
+                ch.consume()
+                onDelta(dy)
+            }
+        }
+        onDelta(0f)
+        onRelease(if (dy <= -STRETCH_TRIGGER_PX) -1 else if (dy >= STRETCH_TRIGGER_PX) 1 else 0)
+    }
+}
+
+/** 拉条方向指示：跟手出现的小箭头（上拉=向上箭头，下拉=向下）。 */
+@Composable
+private fun StretchDirectionIndicator(direction: Int, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .size(width = 36.dp, height = 22.dp)
+            .background(ChatColors.inputBg, RoundedCornerShape(11.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (direction < 0) novex.android.ui.NovexIcons.KeyboardArrowUp
+                else novex.android.ui.NovexIcons.KeyboardArrowDown,
+            contentDescription = null,
+            tint = ChatColors.primaryText,
+            modifier = Modifier.size(16.dp),
+        )
+    }
 }
