@@ -1308,26 +1308,11 @@ fun ChatScreen(
         val currentAnchor = transcriptMessages.take(topMsgIdx + 1).lastOrNull { it.role == "user" }?.id
         val walkFrom = lastJumpedUserId?.takeIf { it in userIds } ?: currentAnchor
         val pos = walkFrom?.let { userIds.indexOf(it) } ?: -1
-        val viewportTop = info.viewportStartOffset
-        val viewportBottom = info.viewportEndOffset
-        val fullyVisibleUserIds: Set<String> = visible
-            .asSequence()
-            .filter { item ->
-                val k = item.key as? String ?: return@filter false
-                k.startsWith("user:") &&
-                    item.offset >= viewportTop &&
-                    item.offset + item.size <= viewportBottom
-            }
-            .mapNotNull { (it.key as? String)?.removePrefix("user:")?.takeIf { id -> id.isNotEmpty() } }
-            .toSet()
-        // 目标 = walkFrom 之后第一条未被完整看见的用户发言；越过末尾
-        // （没有"下一回合"）= 回最新并结束走链。
-        var target: String? = null
-        var i = pos + 1
-        while (i <= userIds.lastIndex) {
-            if (userIds[i] !in fullyVisibleUserIds) { target = userIds[i]; break }
-            i++
-        }
+        // 目标 = walkFrom 之后紧邻的下一条用户发言——严格逐条、不跳过已
+        // 完整在屏的气泡：屏上见 {1,2,3} 时按一下把 2 顶到屏顶，窗口
+        // 平移一格得到 {2,3,4}。越过末尾（没有"下一回合"）= 回最新并
+        // 结束走链。
+        val target = userIds.getOrNull(pos + 1)
         // 内容末端已在屏内 = 滚动已到钳位极限：部分露出的末回合再怎么
         // scrollToItem 也走不动，死拍不如直接按"最后回合"语义回底。
         val endVisible = visible.lastOrNull()?.index == info.totalItemsCount - 1
