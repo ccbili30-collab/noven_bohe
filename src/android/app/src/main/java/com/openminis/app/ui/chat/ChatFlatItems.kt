@@ -256,11 +256,11 @@ private class FlatItemFold(
 
         // 分支行放在整条回复最下方（岛/工具块之后）：岛也是回复的一
         // 部分，玩家读完一条回复就在底部换版本。
-        // [T-branch-affordance] 2026-10-13 决策修订：切换器只在真有
-        // 多个版本（count>1）时出现——恒显 1/1 是纯噪音；且要求本行
-        // 实际渲出了可见内容，零内容幻影行不挂。首个内容未到的流式
-        // 等待壳（只有打字行）同样不算回复，内容到达再出现。
-        if (!ctx.isSystem && message.branchCount > 1 &&
+        // [T-branch-affordance] 切换器恒显（含 1/1）：位置恒定、告诉
+        // 用户这条回复有几个版本。但要求本行实际渲出了可见内容——零
+        // 内容幻影行不挂；首个内容未到的流式等待壳（只有打字行）同
+        // 样不算回复，内容到达再出现。
+        if (!ctx.isSystem &&
             !(message.isStreaming && !ctx.hasVisibleContent) &&
             items.size > contentStartIndex
         ) {
