@@ -64,14 +64,14 @@ class ConversationBranchUiTest {
     }
 
     @Test
-    fun `single path assistant reply emits no switcher`() {
-        // [T-branch-affordance] 2026-10-13 修订：只有 1 个版本时翻页器
-        // 无导航对象——恒显 1/1 是纯噪音，不再渲染。
+    fun `single path assistant reply still emits the 1 of 1 switcher`() {
+        // [T-branch-affordance] 切换器恒显：即使只有 1 个版本也挂 1/1，
+        // 位置恒定、告诉用户这条回复的版本数。
         val items = buildFlatChatItems(
             listOf(ChatMessage(id = "a1", role = "assistant", content = "唯一版本")),
         )
 
-        assertTrue(items.none { it is FlatChatItem.BranchSwitcher })
+        assertEquals(FlatChatItem.BranchSwitcher("a1", 1, 1), items.last())
     }
 
     @Test
