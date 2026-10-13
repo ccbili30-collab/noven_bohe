@@ -1,0 +1,68 @@
+name: Android hub resync
+
+# 从本仓已发布的 GitHub release 拉取资产，重新镜像到公开分发仓
+# （GitHub hub + Gitee hub）。用于镜像步失败后的补传，例如 Gitee
+# 附件配额打满——sync_release_to_hubs.sh 会自动清旧附件腾配额。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to re-mirror (e.g. v4.0.8)"
+        required: true
+        type: string
+      channel:
+        description: "Hub channel"
+        required: true
+        type: choice
+        options:
+          - stable
+          - preview
+
+concurrency:
+  group: android-hub-resync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resync:
+    name: Re-mirror release to public hubs
+    runs-on: ubuntu-latest
+    # Gitee 附件上传从 GitHub runner 走很慢，留足余量。
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out sync script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download release assets and notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" --dir dist --clobber \
+            --pattern "*.apk" --pattern "*.novex" --pattern "SHA256SUMS.txt"
+          gh release view "$RELEASE_TAG" --json body --jq '.body' \
+            > "$RUNNER_TEMP/resync-notes.md"
+          ls -la dist/
+
+      - name: Mirror to public hubs
+        shell: bash
+        env:
+          # GITHUB_TOKEN 只能写本仓；镜像到公开分发站 ccbili30-collab/novex
+          # 需要跨仓 PAT（NOVEX_HUB_TOKEN），未配置时退回本仓凭证。
+          GH_TOKEN: ${{ secrets.NOVEX_HUB_TOKEN || secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          shopt -s nullglob
+          ./scripts/sync_release_to_hubs.sh \
+            "$RELEASE_TAG" \
+            "$CHANNEL" \
+            "$RUNNER_TEMP/resync-notes.md" \
+            dist/*
