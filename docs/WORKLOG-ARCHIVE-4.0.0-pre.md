@@ -15,8 +15,8 @@
 - TPL 补 skills 自研声明；净眼 pass 高置信；PR#86 门控合并；beta.111 发布
 
 ## T007 · 4.0 切换 + noven_bohe 开仓 + 4.0.0-beta.2 发布
-- 切换件：版本 4.0.0 / 专有 LICENSE（主体占位=D-01）/ README 全自主口径 / 落地页去上游引导
+- 切换件：版本 4.0.0 / 专有 LICENSE（主体占位=D-01）/ README 全自主口径（后已撤回）/ 落地页去上游引导
 - 新仓：noven_bohe（私有）；首提交=树快照（next@c3fa7700+切换件，无历史）；next+main 双分支；CI 绿
 - 签名破案：release 密钥=远端 debug.keystore（指纹 cab4226b 比对实锤）→ 本地 local/keys（600）+钥匙串+新仓 secrets 三处落位
-- 发布：4.0.0-beta.2（新仓首产包；签名指纹一致=老用户原地升级；SHA256 三方一致 d5a5d3d5；update.json preview；公告「全新自主底座」推荐升级）
+- 发布：4.0.0-beta.2（新仓首产包；签名指纹一致=老用户原地升级；SHA256 三方一致 d5a5d3d5；update.json preview；公告「全新自主底座」推荐升级，该口径后已撤回）
 - 旧仓 novex-android 永久归档（GPL 存量义务）；hub 补历史源码指引
