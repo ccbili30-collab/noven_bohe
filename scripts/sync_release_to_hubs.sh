@@ -57,6 +57,54 @@ except Exception:
 print("" if d is None else d.get("id", "") if isinstance(d, dict) else "")'
 }
 
+# Gitee 仓库附件配额共 1GB。打满时删掉其他 release 的全部旧附件
+#（保留 release 元数据与本次正在发布的 TAG），然后让上传重试继续。
+quota_pruned=""
+gitee_prune_old_attachments() {
+  echo "gitee hub: 附件配额已满——清理其他 release 的旧附件" >&2
+  local page=1 rels count rids rid
+  while :; do
+    rels="$(gitee_api "${GITEE_API}/releases?access_token=${GITEE_TOKEN}&per_page=100&page=${page}" 2>/dev/null || true)"
+    count="$(printf '%s' "$rels" | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+    print(len(d) if isinstance(d, list) else 0)
+except Exception:
+    print(0)')"
+    [ "$count" -gt 0 ] || break
+    rids="$(TAG="$TAG" python3 - "$rels" <<'PY'
+import json, os, sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+for r in data if isinstance(data, list) else []:
+    if r.get("tag_name") != os.environ["TAG"] and r.get("id") is not None:
+        print(r["id"])
+PY
+)"
+    while IFS= read -r rid; do
+      [ -n "$rid" ] || continue
+      gitee_api "${GITEE_API}/releases/${rid}/attach_files?access_token=${GITEE_TOKEN}" 2>/dev/null \
+        | python3 -c 'import json,sys
+try:
+    for a in json.load(sys.stdin):
+        if a.get("id") is not None:
+            print(a["id"])
+except Exception:
+    pass' \
+        | while IFS= read -r aid; do
+            [ -n "$aid" ] || continue
+            curl -s --max-time 60 -X DELETE \
+              "${GITEE_API}/releases/${rid}/attach_files/${aid}?access_token=${GITEE_TOKEN}" >/dev/null \
+              && echo "gitee hub: 已删旧附件 release=${rid} asset=${aid}"
+          done
+    done <<<"$rids"
+    [ "$count" -lt 100 ] && break
+    page=$((page + 1))
+  done
+}
+
 # 已有同名 release 则复用（幂等）；Gitee 未命中时返回 JSON null 而非 404。
 release_id="$(gitee_api "${GITEE_API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" 2>/dev/null | gitee_json || true)"
 if [ -z "$release_id" ]; then
@@ -95,6 +143,11 @@ for asset in "${ASSETS[@]}"; do
     if printf '%s' "$attach_resp" | grep -q '"id"'; then
       uploaded=1
       break
+    fi
+    if [ -z "$quota_pruned" ] && printf '%s' "$attach_resp" | grep -q '配额'; then
+      gitee_prune_old_attachments
+      quota_pruned=1
+      continue
     fi
     echo "gitee 附件上传第 ${attempt} 次未成功 ${name}：$(printf '%s' "$attach_resp" | head -c 200)" >&2
   done
