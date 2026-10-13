@@ -51,7 +51,6 @@ internal sealed interface ChatTranscriptAction {
     data object RevertCompact : ChatTranscriptAction
     data object ToggleCompactedHistory : ChatTranscriptAction
     data class SwitchBranch(val messageId: String, val delta: Int) : ChatTranscriptAction
-    data class SwitchChildBranch(val parentId: String, val delta: Int) : ChatTranscriptAction
 }
 
 /**
@@ -356,23 +355,6 @@ internal fun ChatTranscriptRow(
                 onAction(ChatTranscriptAction.SwitchBranch(item.messageId, 1))
             },
         )
-        is FlatChatItem.ChildBranchPicker -> if (item.count > 1) {
-            ConversationBranchSwitcher(
-                index = item.index,
-                count = item.count,
-                onPrevious = {
-                    onAction(ChatTranscriptAction.SwitchChildBranch(item.parentId, -1))
-                },
-                onNext = {
-                    onAction(ChatTranscriptAction.SwitchChildBranch(item.parentId, 1))
-                },
-            )
-        } else {
-            // 唯一一条后续分支不需要左右翻页——单行直达。
-            ChildBranchContinueRow {
-                onAction(ChatTranscriptAction.SwitchChildBranch(item.parentId, 1))
-            }
-        }
         is FlatChatItem.AssistantLegacyContent -> BoundsTrackedBlock(
             messageId = item.messageId,
             slotKey = "legacy",
@@ -443,36 +425,6 @@ private fun ConversationBranchSwitcher(
         }
     }
 }
-
-/**
- * 「后续分支」单条直达行：活跃路径的叶子下还挂着一条已存子行时
- * （fork 窗口/中断截断态），给一条走回去的入口。
- */
-@Composable
-private fun ChildBranchContinueRow(onContinue: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onContinue)
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "查看后续分支",
-            color = ChatColors.secondaryText,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-        )
-        Icon(
-            imageVector = novex.android.ui.NovexIcons.ChevronRight,
-            contentDescription = "查看后续分支",
-            tint = ChatColors.secondaryText,
-            modifier = Modifier.size(14.dp),
-        )
-    }
-}
-
 
 // [T-brief-collapsed-row] 简报类用户消息判定：回传简报与 /sync 沟通简报。
 internal fun isBriefReportText(text: String): Boolean =

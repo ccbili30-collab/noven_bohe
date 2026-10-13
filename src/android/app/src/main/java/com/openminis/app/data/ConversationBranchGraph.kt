@@ -68,10 +68,10 @@ class ConversationBranchGraph private constructor(
     }
 
     /**
-     * The child-line navigator for a node that is the visible leaf while
-     * stored children sit beyond it (forked edit/retry window, or a crash
-     * mid-fork). Index is the active child's 1-based position, 0 when no
-     * child is currently selected; count is the stored child count.
+     * Position among a node's stored children: index is the active child's
+     * 1-based position (0 when no child is selected), count is the stored
+     * child count; null when the node has no children. Used by the turn
+     * pipeline to tell whether an appended sibling lands in a sibling set.
      */
     fun childSetPosition(messageId: String): SiblingPosition? {
         val node = byId[messageId] ?: return null

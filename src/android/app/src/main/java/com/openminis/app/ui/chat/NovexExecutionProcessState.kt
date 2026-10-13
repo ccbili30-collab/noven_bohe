@@ -97,13 +97,12 @@ internal fun foldNovexExecutionProcesses(input: List<FlatChatItem>): List<FlatCh
         start = end
     }
     rows.forEachIndexed { index, row ->
-        // 段边界：新回合开头（用户泡/助手头）与回合收尾（切换器/后续
-        // 分支口）都断开。AssistantHeader 是防御项——system 等不产切换
-        // 器的消息若将来带可折叠行，也不许跨消息并入同一卡。
+        // 段边界：新回合开头（用户泡/助手头）与回合收尾（切换器）都断
+        // 开。AssistantHeader 是防御项——system 等不产切换器的消息若将
+        // 来带可折叠行，也不许跨消息并入同一卡。
         if (row is FlatChatItem.UserBubble ||
             row is FlatChatItem.AssistantHeader ||
-            row is FlatChatItem.BranchSwitcher ||
-            row is FlatChatItem.ChildBranchPicker
+            row is FlatChatItem.BranchSwitcher
         ) flush(index)
     }
     flush(rows.size)

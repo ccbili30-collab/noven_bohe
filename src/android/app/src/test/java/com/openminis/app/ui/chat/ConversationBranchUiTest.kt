@@ -7,8 +7,8 @@ import org.junit.Test
 class ConversationBranchUiTest {
     @Test
     fun `user bubble never emits a branch switcher`() {
-        // [T-branch-affordance] 2026-10-11 决策：人类输入不挂切换器——
-        // 有兄弟版本也不挂；编辑过的旧提问由父行「后续分支」入口回看。
+        // [T-branch-affordance] 人类输入不挂切换器——有兄弟版本也不挂；
+        // 编辑过的旧提问由回复一侧的兄弟翻页器切换。
         val message = ChatMessage(
             id = "u2",
             role = "user",
@@ -64,61 +64,36 @@ class ConversationBranchUiTest {
     }
 
     @Test
-    fun `leaf with stored children emits a child branch picker`() {
-        // fork 窗口/截断态：用户消息是可见叶子而库里还有子行。
+    fun `single path assistant reply emits no switcher`() {
+        // [T-branch-affordance] 2026-10-13 修订：只有 1 个版本时翻页器
+        // 无导航对象——恒显 1/1 是纯噪音，不再渲染。
         val items = buildFlatChatItems(
-            listOf(
-                ChatMessage(
-                    id = "u1",
-                    role = "user",
-                    content = "重试点",
-                    childBranchIndex = 1,
-                    childBranchCount = 2,
-                ),
-            ),
+            listOf(ChatMessage(id = "a1", role = "assistant", content = "唯一版本")),
         )
 
-        assertEquals(FlatChatItem.ChildBranchPicker("u1", 1, 2), items.last())
+        assertTrue(items.none { it is FlatChatItem.BranchSwitcher })
     }
 
     @Test
-    fun `assistant leaf with stored children emits picker at reply end`() {
+    fun `phantom row with siblings but no visible content emits no switcher`() {
+        // 零可见内容的助手行（比如只有隐藏工具块的静默轮）——哪怕有兄弟
+        // 版本也不该悬空挂一个翻页器。
         val items = buildFlatChatItems(
             listOf(
                 ChatMessage(
                     id = "a1",
                     role = "assistant",
-                    content = "旧回复",
-                    childBranchIndex = 0,
-                    childBranchCount = 1,
+                    content = "",
+                    toolBlocks = listOf(
+                        AssistantBlock(id = "t", kind = "text", content = ""),
+                    ),
+                    branchIndex = 1,
+                    branchCount = 2,
                 ),
             ),
         )
 
-        assertEquals(FlatChatItem.ChildBranchPicker("a1", 0, 1), items.last())
-    }
-
-    @Test
-    fun `mid-path message never emits a child picker`() {
-        val items = buildFlatChatItems(
-            listOf(
-                ChatMessage(id = "u1", role = "user", content = "普通消息"),
-                ChatMessage(id = "a1", role = "assistant", content = "回复"),
-            ),
-        )
-
-        assertTrue(items.none { it is FlatChatItem.ChildBranchPicker })
-    }
-
-    @Test
-    fun `single path assistant reply still shows a one of one switcher`() {
-        // [T-branch-affordance] 恒显：分支数钳到 ≥1，单版本也显示 1/1——
-        // 位置恒定，不随重试出现/消失。
-        val items = buildFlatChatItems(
-            listOf(ChatMessage(id = "a1", role = "assistant", content = "唯一版本")),
-        )
-
-        assertEquals(FlatChatItem.BranchSwitcher("a1", 1, 1), items.last())
+        assertTrue(items.none { it is FlatChatItem.BranchSwitcher })
     }
 
     @Test

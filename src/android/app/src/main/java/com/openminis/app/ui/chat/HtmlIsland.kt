@@ -557,7 +557,9 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
     // CSP 放行 https: 形态（收割映射命中的远程 URL 子资源经拦截器回本地
     // 字节，未命中仍被拦为空响应）——真正的断网闸在 shouldInterceptRequest。
     append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' novex-asset: minis: https: http:; style-src 'unsafe-inline' novex-asset: minis: https: http:; img-src 'self' data: blob: minis: novex-res: novex-asset: https: http:; font-src data: novex-asset: https: http:; connect-src 'none'; media-src novex-asset: minis: blob: https: http:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">")
-    append("<style>html,body{margin:0;padding:0;background:transparent}*{box-sizing:border-box}</style>")
+    append("<style>html,body{margin:0;padding:0;background:transparent}*{box-sizing:border-box}")
+    append(islandThemeBaseCss(frameJson))
+    append("</style>")
     // 岛侧 helper（v0.3）：query/compose/send 转 URL 拦截出站（沙箱无
     // 新增攻击面）；asset() 统一资源写法；ready() 走 console 信号。
     // 帧热更新整体替换 NOVEN_FRAME 会冲掉这些函数——installer 挂在
@@ -594,6 +596,26 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
 
 internal fun frameUpdateJs(frameJson: String): String =
     "window.NOVEN_FRAME=$frameJson;window.__novenHelpers&&window.__novenHelpers(window.NOVEN_FRAME);window.dispatchEvent(new Event('noven:frame'));void 0;"
+
+/**
+ * 宿主可读性兜底：把帧里的 theme 落成 CSS 变量 + body 默认文字色。
+ * 岛是透明底，模型一个字的颜色不写，浏览器默认黑字会透到深色主题上
+ * 直接消失；有这条，未染色文字至少跟随应用主题。作品自己写色的地方
+ * 作者样式在文档序更靠后天然覆盖本行——宿主只兜"没写"，不改"写了"。
+ * 变量同时是作品的偷懒正路：用 var(--novex-text) 连读帧都省。
+ */
+internal fun islandThemeBaseCss(frameJson: String): String {
+    val theme = runCatching {
+        org.json.JSONObject(frameJson).optJSONObject("theme")
+    }.getOrNull() ?: return ""
+    fun hex(key: String) = theme.optString(key).takeIf { it.startsWith("#") }
+    val text = hex("text") ?: return ""
+    val accent = hex("accent") ?: text
+    val surface = hex("surface") ?: text
+    val dark = if (theme.optBoolean("dark")) 1 else 0
+    return ":root{--novex-text:$text;--novex-accent:$accent;--novex-surface:$surface;--novex-dark:$dark}" +
+        "body{color:var(--novex-text)}a{color:var(--novex-accent)}"
+}
 
 // ─── 岛资源（本地图片进岛）──────────────────────────────────────────────────
 //

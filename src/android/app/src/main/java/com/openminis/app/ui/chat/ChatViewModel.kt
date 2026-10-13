@@ -5055,8 +5055,8 @@ class ChatViewModel(
                     AppLogger.info(TAG_STREAM, "retry _isStreaming=false (setup aborted)")
                     _isStreaming.value = false
                     // fork 已把叶子截到重试点；流没起来时把叶子归回原
-                    // 尾巴——旧线直接回来，不留只能手动「后续分支」归位
-                    // 的截断态。delta=0 保持当前子行、只重挂活跃叶子。
+                    // 尾巴——旧线直接回来，不留悬在截断态的旧枝。
+                    // delta=0 保持当前子行、只重挂活跃叶子。
                     // sid 在 try 内不可见，重新解析。
                     val abortSid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
                     runCatching {
@@ -5102,43 +5102,6 @@ class ChatViewModel(
                 AppLogger.error(
                     TAG_STREAM,
                     "branch switch failed ${error::class.java.simpleName}: ${error.message}",
-                )
-                _error.value = "切换分支失败：${error.message ?: error::class.java.simpleName}"
-            } finally {
-                conversationBranchMutex.unlock()
-            }
-        }
-    }
-
-    /**
-     * Step through a node's children — the parent-side counterpart of
-     * [switchMessageBranch]. Used by the「后续分支」navigator shown when the
-     * visible path ends at a node that still has stored children (forked
-     * edit/retry window or a truncated state left by an interrupted send).
-     */
-    fun switchChildBranch(parentId: String, delta: Int) {
-        if (_isStreaming.value || delta == 0) return
-        val sid = realSessionId.takeIf { it.isNotEmpty() } ?: sessionId
-        if (sid.isEmpty()) return
-        viewModelScope.launch {
-            conversationBranchMutex.lock()
-            try {
-                withContext(Dispatchers.IO) { novexLearningSession.pauseActive() }
-                val conversation = withContext(Dispatchers.IO) {
-                    chatRepository.switchChildBranch(sid, parentId, delta)
-                }
-                installActiveConversation(conversation)
-                _canResume.value = false
-                // 视口锚：新进路径的子行——用户在叶子位点了"后续分支"，视野
-                // 跟着新内容而不是被甩到列表尾；无子行时锚住父行不动。
-                _transcriptAnchorMessageId.tryEmit(
-                    conversation.activeMessages.firstOrNull { it.parentMessageId == parentId }?.id
-                        ?: parentId,
-                )
-            } catch (error: Exception) {
-                AppLogger.error(
-                    TAG_STREAM,
-                    "child branch switch failed ${error::class.java.simpleName}: ${error.message}",
                 )
                 _error.value = "切换分支失败：${error.message ?: error::class.java.simpleName}"
             } finally {

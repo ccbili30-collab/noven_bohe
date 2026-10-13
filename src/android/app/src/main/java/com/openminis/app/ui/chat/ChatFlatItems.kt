@@ -169,23 +169,9 @@ private class FlatItemFold(
         // 视觉上粘成一条。
         val prevIsUser = idx > 0 && messages[idx - 1].role == "user"
         add(FlatChatItem.UserBubble(message, precededByUser = prevIsUser))
-        // [T-branch-affordance] 2026-10-11 决策：人类输入不挂分支切换器——
-        // 编辑过的旧提问由父行「后续分支」入口回看，不占每屏位置；分支
-        // 导航只钉在 AI 回复下（恒显，含 1/1）。
-        emitChildPicker(message)
-    }
-
-    /**
-     * 「后续分支」导航：本消息是活跃路径叶子、而库里还挂着子行时给一条
-     * 回旧线的入口（编辑/重试的 fork 窗口期、发送中断的截断态）。
-     */
-    private fun emitChildPicker(message: ChatMessage) {
-        if (message.childBranchCount <= 0) return
-        add(FlatChatItem.ChildBranchPicker(
-            parentId = message.branchAnchorDbId ?: message.id,
-            index = message.childBranchIndex,
-            count = message.childBranchCount,
-        ))
+        // [T-branch-affordance] 人类输入不挂分支切换器；「后续分支」子
+        // 导航行也已退役（2026-10-13）——残枝在发送恢复路径自动归位，
+        // 回复落地后仍可从回复自身的兄弟翻页器切换。
     }
 
     private fun emitAssistant(idx: Int, message: ChatMessage) {
@@ -201,6 +187,9 @@ private class FlatItemFold(
         if (showAssistantIdentity && !ctx.isSystem && !ctx.isResumeContinuation) {
             add(FlatChatItem.AssistantHeader(message.id))
         }
+        // 身份行之后的行数水位：整条回复只渲出头（零可见内容的幻影行，
+        // 比如只有隐藏工具块的静默轮）不该在尾部落一个悬空切换器。
+        val contentStartIndex = items.size
 
         ctx.blocks.forEachIndexed { index, block ->
             when (block.kind) {
@@ -267,21 +256,20 @@ private class FlatItemFold(
 
         // 分支行放在整条回复最下方（岛/工具块之后）：岛也是回复的一
         // 部分，玩家读完一条回复就在底部换版本。
-        // [T-branch-affordance] 2026-10-11 决策：AI 回复恒显切换器（含
-        // 1/1）——位置恒定、告诉用户"这里有几个版本"；人类输入一侧
-        // 不挂（见 emitUser）。例外：首个内容未到的流式等待壳（只有
-        // 打字行）还不算是回复——与"零内容不挂操作行"同一口径，内容
-        // 一到达切换器即出现。
-        if (!ctx.isSystem && !(message.isStreaming && !ctx.hasVisibleContent)) {
+        // [T-branch-affordance] 2026-10-13 决策修订：切换器只在真有
+        // 多个版本（count>1）时出现——恒显 1/1 是纯噪音；且要求本行
+        // 实际渲出了可见内容，零内容幻影行不挂。首个内容未到的流式
+        // 等待壳（只有打字行）同样不算回复，内容到达再出现。
+        if (!ctx.isSystem && message.branchCount > 1 &&
+            !(message.isStreaming && !ctx.hasVisibleContent) &&
+            items.size > contentStartIndex
+        ) {
             add(FlatChatItem.BranchSwitcher(
                 messageId = message.branchAnchorDbId ?: message.id,
                 index = message.branchIndex,
-                count = message.branchCount.coerceAtLeast(1),
+                count = message.branchCount,
             ))
         }
-        // system 分隔行也可能是截断路径的叶子——子分支导航不设门槛，
-        // 否则被编辑消息挂在分隔行下时旧线无入口可回。
-        emitChildPicker(message)
     }
 
     private fun emitTextBlock(
