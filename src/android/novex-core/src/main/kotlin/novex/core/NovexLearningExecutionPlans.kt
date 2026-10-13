@@ -61,6 +61,16 @@ class NovexLearningExecutionPlans(
         NovexLearningControlPolicy.preflightMessage(load(conversationId, ref, id, allowed).preflight)
     }
 
+    /**
+     * [T-learning-consent] 读取已保存计划快照，供「模型请求→原生确认框」
+     * 同意门使用：计划有效时把快照投进 _pendingNovexLearningPreflight，
+     * 由用户决定后才真正启动，模型一句话烧词元的通道就此关闭。
+     */
+    fun pending(conversationId: String, ref: NovexResourceRef, id: String,
+        allowed: (NovexResourceRef) -> Boolean): NovexLearningPreflightSnapshot? = synchronized(lock) {
+        runCatching { load(conversationId, ref, id, allowed).preflight }.getOrNull()
+    }
+
     /** Called only after the common tool gate, or an explicit native button action. Saves before scheduling work. */
     fun commit(conversationId: String, ref: NovexResourceRef, id: String,
         allowed: (NovexResourceRef) -> Boolean,

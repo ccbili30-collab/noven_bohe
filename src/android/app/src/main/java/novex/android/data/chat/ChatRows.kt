@@ -61,7 +61,7 @@ data class SessionRow(
     @ColumnInfo(name = "character_version_id") val characterVersionId: String? = null,
     /** null inherits the snapshot default; the empty string clears it. */
     @ColumnInfo(name = "chat_background_path") val chatBackgroundPath: String? = null,
-    /** 会话皮肤包 JSON（ChatSkin 序列化）；null = 未换肤。 */
+    /** 已退役：皮肤功能下线后不再读写；列保留只为不重建 sessions 表。 */
     @ColumnInfo(name = "chat_skin_json") val chatSkinJson: String? = null,
     @ColumnInfo(name = "conversation_prompt") val conversationPrompt: String? = null,
     @ColumnInfo(name = "image_style_prompt") val imageStylePrompt: String? = null,

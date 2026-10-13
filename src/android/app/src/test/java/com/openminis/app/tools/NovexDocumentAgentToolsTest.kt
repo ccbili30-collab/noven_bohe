@@ -52,15 +52,18 @@ class NovexDocumentAgentToolsTest {
     }
 
     @Test
-    fun `learning preparation and note reading are exposed only when the active branch owns a source collection`() {
+    fun `learning note reading is exposed only when the active branch owns a source collection`() {
+        // [T-learning-consent] 通读是付费批处理：模型目录只留 learning_read，
+        // prepare/start 不对模型可见——旧式调用落原生确认门后才执行。
         val withoutCollection = AgentTools.makeAgentTools(sourceCollectionsAvailable = false)
         val withCollection = AgentTools.makeAgentTools(sourceCollectionsAvailable = true)
 
         assertFalse(withoutCollection.any { it.name.startsWith("learning_") })
         assertEquals(
-            listOf("learning_prepare", "learning_start", "learning_read"),
+            listOf("learning_read"),
             withCollection.filter { it.name.startsWith("learning_") }.map { it.name },
         )
+        assertFalse(withCollection.any { it.name == "learning_prepare" || it.name == "learning_start" })
         assertFalse(withCollection.any { it.name == "learning_confirm" })
     }
 

@@ -7,6 +7,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,26 @@ internal sealed interface ChatTranscriptAction {
     data class SwitchChildBranch(val parentId: String, val delta: Int) : ChatTranscriptAction
 }
 
+/**
+ * 舞台查证留痕（v0.3 B6）：消息 id → 附属记录标签列表。显示层数据
+ * 只读——不参与消息树/分支/重试语义。
+ */
+internal val LocalStageAnnotationLabels =
+    compositionLocalOf<Map<String, List<String>>> { emptyMap() }
+
+/** 折叠小标："查证 · 域/实体"，挂在锚消息最后一段下方。 */
+@Composable
+private fun StageAnnotationChip(labels: List<String>) {
+    Text(
+        text = "查证 · " + labels.joinToString(" · ") { it },
+        fontSize = 11.sp,
+        color = com.openminis.app.ui.theme.LocalChatPalette.current.thinking,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
+    )
+}
+
 /** A single transcript row. List keys, scroll ownership and mutation ordering stay with the host. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,7 +83,6 @@ internal fun ChatTranscriptRow(
     selectionController: SelectionController,
     panelExpansionState: PanelExpansionState,
     perTurnPrompt: String = "",
-    bubbleGroupPos: SkinGroupPos = SkinGroupPos.SOLO,
     onAction: (ChatTranscriptAction) -> Unit,
 ) {
     val context = LocalContext.current
@@ -142,7 +162,8 @@ internal fun ChatTranscriptRow(
             slotKey = "text:${item.block.id}",
             markdown = item.messageMarkdown,
         ) {
-            CharacterAssistantBubble(item.isStreaming, bubbleGroupPos) {
+            Column {
+            CharacterAssistantBubble {
             // T-android-gc-storm-issue17: collapse oversized frozen
             // assistant text before feeding the markdown parser, which
             // is the GC-storm hotspot for legacy sessions.
@@ -164,13 +185,19 @@ internal fun ChatTranscriptRow(
                 )
             }
             }
+            if (!item.isStreaming && item.isLastBlockOfMessage) {
+                LocalStageAnnotationLabels.current[item.messageId]
+                    ?.let { StageAnnotationChip(it) }
+            }
+            }
         }
         is FlatChatItem.AssistantMarkdownBlock -> BoundsTrackedBlock(
             messageId = item.messageId,
             slotKey = "mdblock:${item.parentBlockId}:${item.blockIndex}",
             markdown = item.messageMarkdown,
         ) {
-            CharacterAssistantBubble(item.messageIsStreaming, bubbleGroupPos) {
+            Column {
+            CharacterAssistantBubble {
             LargeContentGuard(
                 content = item.rawText,
                 isStreaming = item.isStreaming,
@@ -188,6 +215,13 @@ internal fun ChatTranscriptRow(
                     ),
                     isLastBlockOfMessage = item.isLastBlockOfMessage,
                 )
+            }
+            }
+            // 查证留痕挂消息最后一段下方（v0.3 B6）：显示层附属物，
+            // 不进消息树。
+            if (item.isLastBlockOfMessage) {
+                LocalStageAnnotationLabels.current[item.messageId]
+                    ?.let { StageAnnotationChip(it) }
             }
             }
         }

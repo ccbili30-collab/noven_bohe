@@ -97,7 +97,7 @@ object ThinkingContractResolver {
      *  - AllModels 兜底垫底，保证阶段一永不落空。
      */
     private val SEATS: List<(VendorProfile) -> ThinkingContract?> = listOf(
-        { p -> if (p.mistral) contract("mistral-official", ThinkingWireFormat.OmitEverything, echo = silentEcho) else null },
+        { p -> if (p.mistral) contract("mistral-official", ThinkingWireFormat.OmitEverything) else null },
         // [P3.3 裁军] 前尘 API 中转预设的内置席：该中转会把我方思考参数错译
         // 成 Claude thinking 触发 400，gemini 系一律完全省略（原预设的
         // CUSTOM 规则收编为内置，行为逐字节一致）。
@@ -111,16 +111,17 @@ object ThinkingContractResolver {
         // 关档 disabled 被拒，按官方迁移指引以 enabled+low 模拟关闭）。仅官方
         // host 命中，中转不设席。
         { p -> if (p.zhipuDirect) patternSeat("*glm*", "glm-zhipu-official", null, ThinkingWireFormat.GlmZhipuSibling) else null },
-        { _ -> patternSeat("*deepseek-v4*", "deepseek-v4-official", null, ThinkingWireFormat.DeepSeekSibling, echo = afterToolEcho) },
+        { _ -> patternSeat("*deepseek-v4*", "deepseek-v4-official", null, ThinkingWireFormat.DeepSeekSibling) },
         // 中转站常把 deepseek-v4-flash 改名重发（deepseek-flash / deepseek-4-flash），
         // v4 前缀席匹配不到这类裸 id——它们会落到默认座再被 selfFamilySilent 静默吞掉
         // 思考参数。同模型同款兄弟键形态，补一席盖住所有 flash 拼法。
-        { _ -> patternSeat("*deepseek*flash*", "deepseek-flash", null, ThinkingWireFormat.DeepSeekSibling, echo = afterToolEcho) },
+        { _ -> patternSeat("*deepseek*flash*", "deepseek-flash", null, ThinkingWireFormat.DeepSeekSibling) },
         { p -> defaultSeat(p.offEffort) },
     )
 
-    private val silentEcho = ReasoningEchoPolicy("reasoning_content", ReasoningEchoPolicy.Timing.NEVER)
-    private val afterToolEcho = ReasoningEchoPolicy("reasoning_content", ReasoningEchoPolicy.Timing.AFTER_TOOL_USE_ONLY)
+    // [T-dead-code-sweep] ReasoningEchoPolicy 座次表写入后无任何消费方
+    // （回放执行点在适配器消息装配但从不读该字段）——策略对象与 echo
+    // 参数链已随本批删除。
 
     /** 内置规则表（UI 展示用物化）。 */
     fun builtInRules(ctx: ThinkingResolveContext): List<ThinkingContract> =
@@ -475,20 +476,17 @@ object ThinkingContractResolver {
         label: String,
         shape: ThinkingWireFormat,
         scope: ThinkingContract.Scope = ThinkingContract.Scope.AllModels,
-        echo: ReasoningEchoPolicy? = null,
-    ) = ThinkingContract(ThinkingContract.Kind.OFFICIAL_VENDOR, scope, shape, echo, label)
+    ) = ThinkingContract(ThinkingContract.Kind.OFFICIAL_VENDOR, scope, shape, label)
 
     private fun patternSeat(
         pattern: String,
         label: String,
         offValue: String?,
         shape: ThinkingWireFormat = ThinkingWireFormat.ReasoningEffort(offValue),
-        echo: ReasoningEchoPolicy? = null,
     ) = ThinkingContract(
         kind = ThinkingContract.Kind.OFFICIAL_VENDOR,
         scope = ThinkingContract.Scope.ModelPattern(pattern),
         wireFormat = shape,
-        reasoningEcho = echo,
         label = label,
     )
 

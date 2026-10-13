@@ -28,13 +28,9 @@ class OAuthExpiryLogicTest {
     private class ScriptedFlow(context: Context, instanceId: String) :
         VendorLoginFlow(context, instanceId) {
 
-        override val authorizeEndpoint = "https://example.invalid/authorize"
         override val tokenEndpoint = "https://example.invalid/token"
         override val clientIdValue = "test-client"
         override val clientSecretValue: String? = null
-        override val loopbackPort = 0
-        override val redirectTail = "/cb"
-        override val scopeValue = "test"
 
         var refreshResult: Boolean = false
         var refreshCalls = 0

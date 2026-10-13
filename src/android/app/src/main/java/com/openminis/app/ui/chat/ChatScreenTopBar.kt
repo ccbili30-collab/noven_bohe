@@ -5,7 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
-import java.io.File
+
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -94,7 +94,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import novex.android.ui.DropdownMenuItem
 import com.openminis.app.BuildConfig
 import com.openminis.app.R
-import com.openminis.app.data.FileMentionIndex
+
 import com.openminis.app.logging.AppLogger
 import com.openminis.app.ui.components.MinisAlertDialog
 import com.openminis.app.ui.components.MinisMenu
@@ -102,7 +102,7 @@ import com.openminis.app.ui.components.MinisMenuDivider
 import novex.android.ui.NovexActionMenu
 import novex.android.ui.NovexMenuAction
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Surface
+
 import androidx.compose.material3.ExperimentalMaterial3Api
 import novex.android.ui.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -209,8 +209,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
+
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
@@ -255,6 +254,8 @@ internal fun ChatTopBar(
     modelName: String,
     onOpenModelPicker: () -> Unit,
     onOpenThinkingSheet: () -> Unit,
+    /** 舞台自检（v0.3 S8 体检岛）：打开内置整页检查件。 */
+    onOpenStageCheck: () -> Unit,
     returnFromConversation: () -> Unit,
     /** 舞台全屏中：返回键变成「缩小」——点击缩小回会话而非退出。 */
     stageOpen: Boolean = false,
@@ -282,33 +283,15 @@ internal fun ChatTopBar(
             // [feat/ui-rikkahub] 非对称三段式顶栏：标题列拿到返回键与动作簇之间
             // 的全部剩余宽度并在其中居中——NovexTopBarSurface 的 2×宽侧对称预留
             // 在模型 pill 进 actions 后会把标题挤成零宽，整列渲染但不可见。
-            // 皮肤顶栏：fill/texture/hairline 令牌画在主题底色之上，
-            // 按钮/标题悬浮其上（触摸区不变）。
-            val skinTopBar = immersiveProfile.skin?.topBar
-            val skinTopBarTexture = rememberSkinBitmap(
-                skinTopBar?.texture?.img?.let { immersiveProfile.skin?.resolveAssetPath(it) },
-                LocalMarkdownSessionId.current,
-            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(ChatColors.background)
-                    .then(
-                        skinTopBar?.let { Modifier.skinBar(it, skinTopBarTexture) }
-                            ?: Modifier
-                    )
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .height(chatTopBarExpandedHeightDp(LocalDensity.current.fontScale).dp),
             ) {
-            // 皮肤顶图在场：内容色切浅，标题/按钮压在深色横幅上仍可读；
-            // 同时头部切成「头像+角色名+副标」左靠排布（皮肤模式）。
-            val skinnedHeader = immersiveProfile.skin?.topBar != null
-            val topBarContentColor = if (skinnedHeader) {
-                androidx.compose.ui.graphics.Color(0xFFF0E6D2)
-            } else ChatColors.primaryText
-            val topBarSecondary = if (skinnedHeader) {
-                topBarContentColor.copy(alpha = 0.72f)
-            } else ChatColors.secondaryText
+            val topBarContentColor = ChatColors.primaryText
+            val topBarSecondary = ChatColors.secondaryText
             CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides topBarContentColor) {
             androidx.compose.ui.layout.Layout(
                 modifier = Modifier.fillMaxSize(),
@@ -333,56 +316,8 @@ internal fun ChatTopBar(
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                        // 皮肤头：助手头像 + 头像框（36dp 圆头像之上叠透明框图）。
-                        if (skinnedHeader) {
-                            val headerAvatar = immersiveProfile.effectiveAssistantAvatarPath
-                                ?.let { File(it) }
-                                ?.takeIf { it.exists() }
-                            Box(modifier = Modifier.size(36.dp)) {
-                                if (headerAvatar != null) {
-                                    AsyncImage(
-                                        model = headerAvatar,
-                                        contentDescription = "助手头像",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(36.dp).clip(CircleShape),
-                                    )
-                                } else {
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                        shape = CircleShape,
-                                        modifier = Modifier.size(36.dp),
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = novex.android.ui.NovexIcons.Person,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(22.dp),
-                                            )
-                                        }
-                                    }
-                                }
-                                val headerFrame = immersiveProfile.skin?.avatarFrame
-                                if (headerFrame != null) {
-                                    val frameImg = rememberSkinBitmap(
-                                        headerFrame.img?.let {
-                                            immersiveProfile.skin?.resolveAssetPath(it)
-                                        },
-                                        LocalMarkdownSessionId.current,
-                                    )
-                                    Spacer(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .skinAvatarFrame(headerFrame, frameImg),
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                        }
                         Column(
-                            horizontalAlignment = if (skinnedHeader) {
-                                Alignment.Start
-                            } else Alignment.CenterHorizontally,
+                            horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(Color.Red.copy(alpha = 0.35f * fallbackPulseAlpha.value))
@@ -457,18 +392,6 @@ internal fun ChatTopBar(
                                     .padding(top = 3.dp)
                                     .horizontalScroll(rememberScrollState()),
                             ) {
-                                // 皮肤副标：创作者给的氛围文案（如"AI 助手 · 永远
-                                // 在你身边"），排在模型 pill 之前。
-                                immersiveProfile.skin?.topSubtitle?.let { sub ->
-                                    Text(
-                                        text = sub,
-                                        fontSize = 11.sp,
-                                        color = topBarSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.widthIn(max = 140.dp),
-                                    )
-                                }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -511,7 +434,7 @@ internal fun ChatTopBar(
                                     Icon(
                                         novex.android.ui.NovexIcons.KeyboardArrowDown,
                                         contentDescription = null,
-                                        tint = if (skinnedHeader) topBarSecondary else ChatColors.tertiaryText,
+                                        tint = ChatColors.tertiaryText,
                                         modifier = Modifier.size(13.dp),
                                     )
                                 }
@@ -621,6 +544,11 @@ internal fun ChatTopBar(
                                     },
                                 )
                             }
+                            // 舞台协议体检岛（S8）：开发者入口——逐项核验
+                            // 帧/helper/出站/能力基线并产出 JSON 报告。
+                            add(NovexMenuAction("舞台自检", R.drawable.ic_phosphor_search) {
+                                onOpenStageCheck()
+                            })
                             add(
                                 NovexMenuAction(
                                     "删除对话",
@@ -649,12 +577,8 @@ internal fun ChatTopBar(
                 val heading = measurables[0].measure(
                     loose.copy(maxWidth = (constraints.maxWidth - leading.width - trailing.width).coerceAtLeast(0)),
                 )
-                // 皮肤模式：头部左靠排在返回键右侧；默认模式保持屏幕中线绝对居中。
-                val headingX = if (skinnedHeader) {
-                    leading.width + 4.dp.roundToPx()
-                } else {
-                    ((constraints.maxWidth - heading.width) / 2).coerceAtLeast(0)
-                }
+                // 标题保持屏幕中线绝对居中。
+                val headingX = ((constraints.maxWidth - heading.width) / 2).coerceAtLeast(0)
                 layout(constraints.maxWidth, constraints.maxHeight) {
                     leading.placeRelative(0, (constraints.maxHeight - leading.height) / 2)
                     trailing.placeRelative(constraints.maxWidth - trailing.width, (constraints.maxHeight - trailing.height) / 2)

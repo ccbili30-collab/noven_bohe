@@ -167,6 +167,44 @@ data class CompletedPlaythrough(
     val playthroughId: String = "",
 )
 
+/**
+ * 已注册前端件（```novex-def 的真持久层）。模板随注册表存——
+ * [branchId] 是发出该 def 的回复消息 id：解析沿活动路径回溯，
+ * 分叉继承祖先注册，兄弟分支互不见面。同 id 后者在路径上覆盖
+ * 前者——"改"就是再发一次同 id 的 def。
+ */
+data class ConversationArtifactDefinition(
+    val id: String,
+    val kind: String,
+    val template: String,
+    val name: String? = null,
+    val marker: String? = null,
+    val autoMarker: Boolean = false,
+    val tavernCompat: Boolean = false,
+    val fullscreen: Boolean = false,
+    /** input:"own"（v0.3）：作品自带输入层，与 def 一同按分支注册。 */
+    val ownInput: Boolean = false,
+    val branchId: String,
+) {
+    init {
+        require(id.isNotBlank()) { "前端件编号不能为空" }
+        require(kind in setOf("html", "math", "table")) { "前端件类型必须是 html/math/table" }
+        require(branchId.isNotBlank()) { "前端件分支编号不能为空" }
+    }
+}
+
+/**
+ * 舞台协议 v0.3 B6 查证回写：锚定某条助手消息的附属记录——不是消息
+ * 节点，不进消息树。参与 deltas 重放；"查阅了××"留痕由此渲染。
+ * 列表顺序即到达顺序；锚的消息不在活动路径上时，本条随之不可见
+ * （分支隔离免费获得）。
+ */
+data class StageAnnotation(
+    val messageId: String,
+    val envelopeJson: String,
+    val label: String = "",
+)
+
 data class NovexConversationConfigurationSnapshot(
     val conversationId: String,
     val answerIdentity: AnswerIdentity = AnswerIdentity.Nova,
@@ -180,6 +218,7 @@ data class NovexConversationConfigurationSnapshot(
     val preGamePlayerIdentity: ConversationPlayerIdentity? = null,
     val completedPlaythroughs: List<CompletedPlaythrough> = emptyList(),
     val activePlaythroughId: String? = null,
+    val artifactDefs: List<ConversationArtifactDefinition> = emptyList(),
     val adoptedContexts: List<NovexAdoptedContext> = emptyList(),
     val preGameAdoptedIdentity: NovexAdoptedContext? = null,
     val disabledSettings: Set<NovexReferenceTarget> = emptySet(),
@@ -190,6 +229,8 @@ data class NovexConversationConfigurationSnapshot(
     val unreadableConfiguration: String? = null,
     /** New content bindings travel with conversation settings, checkpoints and exports. */
     val cardBindingJson: String? = null,
+    /** v0.3 B6：舞台查证回写附属记录（锚定 messageId，沿活动路径可见）。 */
+    val stageAnnotations: List<StageAnnotation> = emptyList(),
 ) {
     val effectivePlaythroughId: String?
         get() = if(cardBindingJson!=null) "conversation:$conversationId" else activeInteractiveFiction?.let { activePlaythroughId ?: "legacy:${it.snapshotId}" }
@@ -198,7 +239,7 @@ data class NovexConversationConfigurationSnapshot(
         get() = cardBindingJson != null || answerIdentity != AnswerIdentity.Nova || playerIdentity != null ||
             backgroundSettings.isNotEmpty() || managedSubjects.isNotEmpty() ||
             activeInteractiveFiction != null || completedPlaythroughs.isNotEmpty() ||
-            playthroughStates.isNotEmpty() || controls.isNotEmpty() || disabledSettings.isNotEmpty() ||
+            playthroughStates.isNotEmpty() || controls.isNotEmpty() || artifactDefs.isNotEmpty() || stageAnnotations.isNotEmpty() || disabledSettings.isNotEmpty() ||
             executionMode != NovexExecutionMode.DEFAULT || contextLimitTokens != NovexConversationContextLimit.MINIMUM
 }
 
@@ -243,6 +284,8 @@ sealed interface NovexConversationCommand {
         val access: ManagedAccess,
     ) : NovexConversationCommand
     data class UnmountSubject(val subject: NovexContentAddress) : NovexConversationCommand
+    /** 舞台查证回写：只追加，不修改已有记录（v0.3 B6）。 */
+    data class AppendStageAnnotation(val annotation: StageAnnotation) : NovexConversationCommand
 }
 
 class NovexConversationConfiguration private constructor(
@@ -269,6 +312,8 @@ class NovexConversationConfiguration private constructor(
             }
         }
         is NovexConversationCommand.SetPlayerIdentity -> withSnapshot(snapshot.copy(playerIdentity = command.identity))
+        is NovexConversationCommand.AppendStageAnnotation ->
+            withSnapshot(snapshot.copy(stageAnnotations = snapshot.stageAnnotations + command.annotation))
         is NovexConversationCommand.SetAnswerIdentity -> withSnapshot(
             snapshot.copy(answerIdentity = command.identity),
         )

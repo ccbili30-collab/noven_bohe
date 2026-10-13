@@ -6,7 +6,9 @@ import org.junit.Test
 
 class ConversationBranchUiTest {
     @Test
-    fun `user branch switcher appears directly after its bubble`() {
+    fun `user bubble never emits a branch switcher`() {
+        // [T-branch-affordance] 2026-10-11 决策：人类输入不挂切换器——
+        // 有兄弟版本也不挂；编辑过的旧提问由父行「后续分支」入口回看。
         val message = ChatMessage(
             id = "u2",
             role = "user",
@@ -17,11 +19,7 @@ class ConversationBranchUiTest {
 
         val items = buildFlatChatItems(listOf(message))
 
-        assertTrue(items[0] is FlatChatItem.UserBubble)
-        assertEquals(
-            FlatChatItem.BranchSwitcher("u2", 2, 2),
-            items[1],
-        )
+        assertEquals(listOf(FlatChatItem.UserBubble(message)), items)
     }
 
     @Test
@@ -113,9 +111,29 @@ class ConversationBranchUiTest {
     }
 
     @Test
-    fun `single path message has no branch switcher`() {
+    fun `single path assistant reply still shows a one of one switcher`() {
+        // [T-branch-affordance] 恒显：分支数钳到 ≥1，单版本也显示 1/1——
+        // 位置恒定，不随重试出现/消失。
         val items = buildFlatChatItems(
-            listOf(ChatMessage(id = "u1", role = "user", content = "唯一版本")),
+            listOf(ChatMessage(id = "a1", role = "assistant", content = "唯一版本")),
+        )
+
+        assertEquals(FlatChatItem.BranchSwitcher("a1", 1, 1), items.last())
+    }
+
+    @Test
+    fun `streaming waiting shell emits no branch switcher yet`() {
+        // 首个内容未到的等待壳只有打字行——不是回复，切换器等内容到达再出现。
+        val items = buildFlatChatItems(
+            listOf(
+                ChatMessage(
+                    id = "a1",
+                    role = "assistant",
+                    content = "",
+                    isStreaming = true,
+                    isAwaitingModelResponse = true,
+                ),
+            ),
         )
 
         assertTrue(items.none { it is FlatChatItem.BranchSwitcher })

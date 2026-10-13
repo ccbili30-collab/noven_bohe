@@ -56,7 +56,6 @@ class ChatRepository(internal val dao: ChatDao) {
         worldId: String? = null,
         characterVersionId: String? = null,
         chatBackgroundPath: String? = null,
-        chatSkinJson: String? = null,
         conversationPrompt: String? = null,
         imageStylePrompt: String? = null,
         rolePresentationEnabled: Boolean = characterSnapshotJson != null,
@@ -87,7 +86,6 @@ class ChatRepository(internal val dao: ChatDao) {
             worldId = worldId,
             characterVersionId = characterVersionId,
             chatBackgroundPath = chatBackgroundPath,
-            chatSkinJson = chatSkinJson,
             conversationPrompt = conversationPrompt,
             imageStylePrompt = imageStylePrompt,
             rolePresentationEnabled = if (rolePresentationEnabled) 1 else 0,
@@ -131,7 +129,6 @@ class ChatRepository(internal val dao: ChatDao) {
             worldId = parent.worldId,
             characterVersionId = parent.characterVersionId,
             chatBackgroundPath = parent.chatBackgroundPath,
-            chatSkinJson = parent.chatSkinJson,
             conversationPrompt = parent.conversationPrompt,
             imageStylePrompt = parent.imageStylePrompt,
             perTurnPrompt = parent.perTurnPrompt,
@@ -172,10 +169,6 @@ class ChatRepository(internal val dao: ChatDao) {
 
     suspend fun setChatWallpaper(sessionId: String, path: String?) {
         dao.setChatWallpaper(sessionId, path)
-    }
-
-    suspend fun setChatSkin(sessionId: String, skinJson: String?) {
-        dao.setChatSkin(sessionId, skinJson)
     }
 
     suspend fun writeConversationSettings(

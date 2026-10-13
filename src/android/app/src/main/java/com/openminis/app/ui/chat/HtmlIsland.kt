@@ -34,16 +34,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.net.URLDecoder
 import novex.android.ui.NovexIcons
 import novex.core.PlaythroughState
-import novex.core.PlaythroughValue
-import org.json.JSONObject
 
 // HTML 岛：消息流里的 ```html 代码块渲成活界面。
 //
@@ -66,21 +64,60 @@ internal class HtmlIslandBridge(
     val sessionId: String? = null,
     /** 最近消息 JSON 数组 [{role,name,text}]——皮肤覆盖层（弹幕等）吃这个。 */
     val messagesJson: String = "[]",
+    /** transcript 叙事流 JSON 数组（v0.3 B1，StageTranscriptParser 产出）。 */
+    val transcriptJson: String = "[]",
     /** 卡收割资源：资源ID → (字节流, MIME)。导入收割的素材由此进岛。 */
     val cardResourceLoader: ((String) -> Pair<java.io.InputStream, String>?)? = null,
     /** 收割期留下的 远程URL→资源ID 映射：JS 动态拼的已知素材也能本地命中。 */
     val remoteResources: Map<String, String> = emptyMap(),
+    /** 卡本地资源 id 清单 → frame.assets（与 remoteResources 值并集下发）。 */
+    val cardResourceIds: List<String> = emptyList(),
+    // ─── 舞台协议 v0.3 附件字段（IslandFrame.kt 组装进 NOVEN_FRAME）───
+    /** 卡 rootId → frame.card.id。 */
+    val cardId: String? = null,
+    /** 系统 WebView 的 Chromium 主版本 → env.webview（null = 取不到）。 */
+    val webviewMajor: Int? = null,
+    /** turn.status：模型生成中 = "streaming"。 */
+    val turnStreaming: Boolean = false,
+    /** turn.queued：agent loop 运行中的排队 prompt 数。 */
+    val queuedCount: Int = 0,
+    /** env.ime：软键盘可见性与高度（CSS px）。 */
+    val imeVisible: Boolean = false,
+    val imeHeightCssPx: Int = 0,
+    /** frame.reason：宿主最近事件的短暂标记（send/ime/init 后约一帧回 "turn"）。 */
+    val frameReason: String = "turn",
+    /** 最近一次 send 回执（形状 {result, why}，与 r2 B2 冻结一致）。 */
+    val sendResult: IslandSendResult? = null,
+    /** cast 角色名册 JSON 数组（v0.3 B5）；null = 无角色卡不下发。 */
+    val castJson: String? = null,
+    val deltasJson: String? = null,
+    /** choices 选项数据 JSON（v0.3 B4 {turnId, items}）；null = 无有效选项。 */
+    val choicesJson: String? = null,
+    // ─── v0.3 出站回调（URL 拦截分发，无 JS 桥）───
+    val onQuery: ((domain: String, entity: String, from: String?) -> Unit)? = null,
+    val onCompose: ((String) -> Unit)? = null,
+    /** send：文本 + 发出 WebView 最近 ACTION_UP 的 eventTime（门控用）。 */
+    val onSend: ((String, Long) -> Unit)? = null,
+    /** ready() 经 console 信号回报（全屏作品的"已画出首屏"）。 */
+    val onReady: (() -> Unit)? = null,
+    /** 渲染进程丢失（自疗重载之外的上报通道，宿主可累计后退回）。 */
+    val onCrash: (() -> Unit)? = null,
 )
 
 internal val LocalHtmlIslandBridge = compositionLocalOf<HtmlIslandBridge?> { null }
 
 private const val IslandBaseUrl = "https://novex.island/"
+// 距上次装载不足此间隔的重载请求合并为一帧（见 IslandRenderer.sync）。
+private const val IslandReloadCoalesceMs = 160L
 // 模型在岛 HTML 里直接写 src="/var/minis/..." 时，WebView 按 base URL
 // 展开成这个前缀的 https 请求——拦截后按 minis 资源路径解析。
 private const val IslandResourcePrefix = "https://novex.island/var/minis/"
 private const val IslandMaxHeightDp = 520
 private const val IslandDefaultHeightDp = 160
 private const val IslandHeightSignal = "__novex_h__"
+// 作品 ready() 的回报信号：走与高度回报同一条 console 通道，不算出站
+// 权限（r2 B7——postMessage 是 PC 形态，手机用 console 信号等价物）。
+private const val IslandReadySignal = "__novex_ready__"
 
 /**
  * tavern-compat 适配资产（assets/island-compat/）：vendor 的 jQuery/lodash
@@ -116,19 +153,44 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
     val context = androidx.compose.ui.platform.LocalContext.current
     val compatScripts = if (tavernCompat) remember { IslandCompatAssets.load(context) } else emptyList()
     val dark = colors.text.luminance() > 0.5f
-    val frameJson = remember(bridge, dark, colors) { buildIslandFrameJson(bridge, dark, colors) }
+    // bridge 逐重组新建 → remember(bridge) 等于不缓存：按影响帧内容的
+    // 实际字段做键，输入框敲字之类无关重组不再全量重建帧 JSON。
+    val frameJson = remember(
+        dark, colors,
+        bridge?.cardId, bridge?.cardName, bridge?.cardKind,
+        bridge?.sessionId, bridge?.state,
+        bridge?.messagesJson, bridge?.transcriptJson,
+        bridge?.remoteResources, bridge?.cardResourceIds,
+        bridge?.webviewMajor, bridge?.turnStreaming, bridge?.queuedCount,
+        bridge?.imeVisible, bridge?.imeHeightCssPx,
+        bridge?.frameReason, bridge?.sendResult,
+        bridge?.castJson, bridge?.choicesJson, bridge?.deltasJson,
+    ) { buildIslandFrameJson(bridge, dark, colors) }
     val islandSessionId = bridge?.sessionId
 
     var showSource by remember(html) { mutableStateOf(false) }
-    var measuredCssHeight by remember(html) { mutableIntStateOf(0) }
+    // 数据热更新会把新值替换进 html（substituteNovexArtifact）——测量
+    // 值与揭开态不随 html 键控重置，否则每次数据更新都闪回占位、重走
+    // 绸缎展开，高频数据件（血条/HUD）缩个不停。占位只给首次装载；
+    // 后续换页保持当前窗高，量到新值后同曲线补扫。
+    var measuredCssHeight by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     var islandError by remember(html) { mutableStateOf<String?>(null) }
+    // rememberSaveable：LazyColumn 回收重挂不重播揭开动画（页会重载，
+    // 但窗直接停在终高，不再闪占位）。
+    var revealed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     // 渲染进程死亡自疗计数：onRenderProcessGone 销毁死 view 后 bump，
     // key(reloadTick) 触发 AndroidView 重建+整页重载（sync 看到
     // loadedHtml==null 会重新 loadDataWithBaseURL）。
     var reloadTick by remember { mutableIntStateOf(0) }
     val renderer = remember { IslandRenderer() }
-    renderer.onHeight = { measuredCssHeight = it }
-    renderer.onCrash = { reloadTick++ }
+    renderer.onHeight = {
+        measuredCssHeight = it
+        if (it > 0) revealed = true
+    }
+    renderer.onCrash = {
+        reloadTick++
+        bridge?.onCrash?.invoke()
+    }
     renderer.onError = { islandError = it }
     renderer.sessionId = islandSessionId
     renderer.cardBridge = bridge
@@ -175,19 +237,58 @@ internal fun HtmlIsland(html: String, fillParent: Boolean = false, tavernCompat:
                 }
                 val islandHeight = (measuredCssHeight.takeIf { it > 0 }
                     ?: IslandDefaultHeightDp).coerceAtMost(IslandMaxHeightDp)
-                androidx.compose.runtime.key(reloadTick) {
-                    AndroidView(
-                        modifier = if (fillParent) {
-                            Modifier.fillMaxSize()
-                        } else {
-                            Modifier
-                                .fillMaxWidth()
-                                .height(islandHeight.dp)
-                        },
-                        factory = { ctx -> renderer.create(ctx) },
-                        update = { wv -> renderer.sync(wv, html, frameJson, compatScripts) },
-                        onRelease = { wv -> runCatching { wv.destroy() } },
+                if (fillParent) {
+                    androidx.compose.runtime.key(reloadTick) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx -> renderer.create(ctx) },
+                            update = { wv -> renderer.sync(wv, html, frameJson, compatScripts) },
+                            onRelease = { wv -> runCatching { wv.destroy() } },
+                        )
+                    }
+                } else {
+                    // 绸缎展开：外窗高度是唯一动画对象——装载期固定在占位高，
+                    // 量出真实高后以 350ms 缓出让窗下沿扫到终高。WebView 本体
+                    // 从一开始就是终高终排版（顶对齐、被窗裁切），不缩放不
+                    // 淡入；后续内容长高的每次回报也走同一条曲线——增长
+                    // 不再跳变。
+                    val windowHeight by androidx.compose.animation.core.animateDpAsState(
+                        targetValue = if (revealed) islandHeight.dp else IslandLoadingHeightDp.dp,
+                        animationSpec = androidx.compose.animation.core.tween(
+                            durationMillis = IslandRevealDurationMs,
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                        ),
+                        label = "island-reveal",
                     )
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(windowHeight)
+                            .clipToBounds(),
+                    ) {
+                        androidx.compose.runtime.key(reloadTick) {
+                            AndroidView(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(islandHeight.dp)
+                                    .align(Alignment.TopStart),
+                                factory = { ctx -> renderer.create(ctx) },
+                                update = { wv -> renderer.sync(wv, html, frameJson, compatScripts) },
+                                onRelease = { wv -> runCatching { wv.destroy() } },
+                            )
+                        }
+                        // 装载占位：量出前盖在窗上；揭开瞬间淡出，留下已
+                        // 排好的真实内容。
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !revealed,
+                            exit = androidx.compose.animation.fadeOut(
+                                androidx.compose.animation.core.tween(180),
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(IslandLoadingHeightDp.dp),
+                        ) {
+                            IslandLoadingPlaceholder()
+                        }
+                    }
                 }
             }
         }
@@ -216,17 +317,44 @@ private class IslandRenderer {
     private var frameJson = "{}"
     private var boundView: WebView? = null
     private var pushedFrame: String? = null
+    // 重载合并：html 高频变化（数据热更新投影）时，距上次装载不足阈值的
+    // 重载挂起为"待装"，onPageFinished 时只补装最新一版——连灌整页正是
+    // 流式末尾"白底→黑掉"的窗口之一。
+    private var pendingHtml: String? = null
+    private var pendingCompat: List<String> = emptyList()
+    private var lastLoadAtMs = 0L
     var sessionId: String? = null
     var cardBridge: HtmlIslandBridge? = null
     var onHeight: ((Int) -> Unit)? = null
     var onCrash: (() -> Unit)? = null
     var onError: ((String?) -> Unit)? = null
+    /** 最近一次 ACTION_UP 的 eventTime（uptimeMillis 时钟）：send 门控
+     *  用它证"刚有一次真实触摸"——0 = 从没有过触摸（v0.3 B2）。 */
+    var lastGestureUptimeMs: Long = 0L
 
     fun create(context: android.content.Context): WebView = WebView(context).apply {
         configure(this)
+        // 观察不消费（返回 false）：只记手势时间，触摸照常进 WebView。
+        setOnTouchListener { _, ev ->
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_UP ||
+                ev.actionMasked == android.view.MotionEvent.ACTION_POINTER_UP
+            ) {
+                lastGestureUptimeMs = ev.eventTime
+            }
+            false
+        }
         webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {
                 pageReady = true
+                // 装载期间积下的新 html 只装最终版（重载合并）。
+                pendingHtml?.let { next ->
+                    if (next != loadedHtml) {
+                        pendingHtml = null
+                        load(view, next, pendingCompat)
+                        return
+                    }
+                    pendingHtml = null
+                }
                 // 页面可能声明了全新 document 上下文；重注当前帧保证脚本
                 // 读到的是最新数据而非装载时的快照。
                 pushedFrame = frameJson
@@ -257,7 +385,20 @@ private class IslandRenderer {
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest,
-            ): Boolean = true // 链接一律吞掉——岛不允许导航出自身。
+            ): Boolean {
+                // v0.3 出站三通道（URL 拦截分发，无 JS 桥）：query 查证、
+                // compose 填草稿、send 发送。其余链接一律吞掉——岛不允
+                // 许导航出自身，未知 scheme 同样不落分发。
+                when (val outbound = parseIslandOutbound(request.url.toString())) {
+                    is IslandOutbound.Query ->
+                        cardBridge?.onQuery?.invoke(outbound.domain, outbound.entity, outbound.from)
+                    is IslandOutbound.Compose -> cardBridge?.onCompose?.invoke(outbound.text)
+                    is IslandOutbound.Send ->
+                        cardBridge?.onSend?.invoke(outbound.text, lastGestureUptimeMs)
+                    null -> Unit
+                }
+                return true
+            }
 
             override fun shouldInterceptRequest(
                 view: WebView,
@@ -269,8 +410,12 @@ private class IslandRenderer {
                 if (url == IslandBaseUrl) return null
                 // 卡收割资源：novex-asset://<资源ID> → 卡本地资源字节。
                 if (scheme == "novex-asset") {
-                    val id = request.url.host
-                        ?: url.removePrefix("novex-asset://").substringBefore('/').substringBefore('?')
+                    // asset()/assets 表写出的 id 是 encodeURIComponent 过的，
+                    // 解码后再查资源（非 ASCII/含空格 id 也能命中）。
+                    val id = decodeIslandComponent(
+                        request.url.host
+                            ?: url.removePrefix("novex-asset://").substringBefore('/').substringBefore('?'),
+                    )
                     cardBridge?.cardResourceLoader?.invoke(id)?.let { (stream, mime) ->
                         return WebResourceResponse(mime, null, stream)
                     }
@@ -318,6 +463,10 @@ private class IslandRenderer {
         webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 val text = message.message()
+                if (text.startsWith(IslandReadySignal)) {
+                    cardBridge?.onReady?.invoke()
+                    return true
+                }
                 if (text.startsWith(IslandHeightSignal)) {
                     text.removePrefix(IslandHeightSignal).toIntOrNull()?.let { onHeight?.invoke(it) }
                     // 有高度=body 已画出内容——清掉 onPageFinished 时点对
@@ -333,14 +482,26 @@ private class IslandRenderer {
     /** html 变了重载整页；只是帧数据变了走热更新。新 view 必重载——
      *  loadedHtml 不随 view 重建转移（切源码往返、渲染进程重建的 blank 根因）。 */
     fun sync(wv: WebView, html: String, frame: String, compat: List<String> = emptyList()) {
+        // LazyColumn 回收重挂的岛可能带着暂停态回来（WebView 暂停后不重绘
+        // = 黑画面透底的另一来源）；绑定时总是唤醒，代价是一次空调用。
+        wv.onResume()
+        wv.resumeTimers()
         frameJson = frame
         if (boundView !== wv || loadedHtml != html || loadedCompat != compat) {
+            // 换绑新视图（回收重挂/进程重建）必须直装：它的 pending 没有
+            // 在途页面，等 onPageFinished 回补就是永久空窗。
+            val freshView = boundView !== wv
             boundView = wv
-            loadedHtml = html
-            loadedCompat = compat
-            pageReady = false
-            onError?.invoke(null)
-            wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frame, compat), "text/html", "utf-8", null)
+            val now = android.os.SystemClock.uptimeMillis()
+            if (freshView || pageReady || now - lastLoadAtMs >= IslandReloadCoalesceMs) {
+                pendingHtml = null
+                load(wv, html, compat)
+            } else {
+                // 距上次装载太近：记最新版待装，本帧不灌——页面加载完时
+                // onPageFinished 检查 pending 补装最终态。
+                pendingHtml = html
+                pendingCompat = compat
+            }
         } else if (pageReady && pushedFrame != frame) {
             // 帧去重：宿主每次重组都会走到这（bridge 是逐重组新建的值），
             // 帧内容没变就不派发——否则岛页会被 noven:frame 事件流反复
@@ -348,6 +509,15 @@ private class IslandRenderer {
             pushedFrame = frame
             wv.evaluateJavascript(frameUpdateJs(frame), null)
         }
+    }
+
+    private fun load(wv: WebView, html: String, compat: List<String>) {
+        loadedHtml = html
+        loadedCompat = compat
+        pageReady = false
+        lastLoadAtMs = android.os.SystemClock.uptimeMillis()
+        onError?.invoke(null)
+        wv.loadDataWithBaseURL(IslandBaseUrl, wrapIslandDocument(html, frameJson, compat), "text/html", "utf-8", null)
     }
 }
 
@@ -388,9 +558,18 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
     // 字节，未命中仍被拦为空响应）——真正的断网闸在 shouldInterceptRequest。
     append("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline' novex-asset: minis: https: http:; style-src 'unsafe-inline' novex-asset: minis: https: http:; img-src 'self' data: blob: minis: novex-res: novex-asset: https: http:; font-src data: novex-asset: https: http:; connect-src 'none'; media-src novex-asset: minis: blob: https: http:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'\">")
     append("<style>html,body{margin:0;padding:0;background:transparent}*{box-sizing:border-box}</style>")
+    // 岛侧 helper（v0.3）：query/compose/send 转 URL 拦截出站（沙箱无
+    // 新增攻击面）；asset() 统一资源写法；ready() 走 console 信号。
+    // 帧热更新整体替换 NOVEN_FRAME 会冲掉这些函数——installer 挂在
+    // window 上，每次赋帧后由 frameUpdateJs 重挂。
+    append("<script>window.__novenHelpers=function(F){if(!F)return;F.query=F.query||function(d,i,from){location.href='novex-query://'+encodeURIComponent(d)+'/'+encodeURIComponent(i)+(from?'?from='+encodeURIComponent(from):'')};F.compose=F.compose||function(t){location.href='novex-compose://?text='+encodeURIComponent(t==null?'':t)};F.send=F.send||function(t){location.href='novex-send://?text='+encodeURIComponent(t==null?'':t)};F.asset=F.asset||function(id){return 'novex-asset://'+encodeURIComponent(id)};F.ready=F.ready||function(){console.log('")
+    append(IslandReadySignal)
+    // → console.log('__novex_ready__') } } ; —— 括号序列分两截防拼错
+    append("')")
+    append("}};</script>")
     append("<script>window.NOVEN_FRAME=")
     append(frameJson.replace("</", "<\\/"))
-    append(";</script>")
+    append(";window.__novenHelpers(window.NOVEN_FRAME);</script>")
     // 导入资产的适配层（vendor 库+shim）：只注入 compat:tavern 的 def，
     // 在 NOVEN_FRAME 之后、页内脚本之前——脚本启动时桥和库都已就位。
     // 内嵌 JS 里的 "</script" 必须转义防提前截断标签（</ 全局转义会
@@ -413,8 +592,8 @@ internal fun wrapIslandDocument(html: String, frameJson: String, compatScripts: 
     append("</body></html>")
 }
 
-private fun frameUpdateJs(frameJson: String): String =
-    "window.NOVEN_FRAME=$frameJson;window.dispatchEvent(new Event('noven:frame'));void 0;"
+internal fun frameUpdateJs(frameJson: String): String =
+    "window.NOVEN_FRAME=$frameJson;window.__novenHelpers&&window.__novenHelpers(window.NOVEN_FRAME);window.dispatchEvent(new Event('noven:frame'));void 0;"
 
 // ─── 岛资源（本地图片进岛）──────────────────────────────────────────────────
 //
@@ -455,35 +634,75 @@ private fun islandResourceResponse(context: Context, url: String, sessionId: Str
     }.getOrElse { emptyIslandResponse() }
 }
 
-/** 桥载荷：卡信息 + 剧情变量扁平表（Number 另带 max 表）+ 主题色。 */
-private fun buildIslandFrameJson(bridge: HtmlIslandBridge?, dark: Boolean, colors: MdColors): String {
-    val root = JSONObject()
-    if (bridge?.cardName != null) {
-        root.put("card", JSONObject()
-            .put("name", bridge.cardName)
-            .put("kind", bridge.cardKind.orEmpty()))
+// 帧组装（buildIslandFrameJson）与出站解析已迁至 IslandFrame.kt——
+// 协议字段集中在一处，纯函数可单测。
+
+// ─── 装载占位 + 绸缎展开 ────────────────────────────────────────────────────
+//
+// 设计本意（manual/design-intent.md）：面板装载期先占一块固定小高度，
+// 进度条快冲到 ~92% 再缓速渐近（真完成才跳满）；内容早已排版完毕，
+// 揭开时只有外窗下沿向下扫——不缩放、不整片淡入、不瞬现。
+
+private const val IslandLoadingHeightDp = 72
+private const val IslandRevealDurationMs = 350
+private const val IslandFakeProgressCeil = 0.92f
+
+/** 表演性进度：逐帧向天花板渐近（p += (ceil-p)*k），接近 92% 后
+ *  爬行变慢；真完成由外层状态切换接管，不装死也不假满。 */
+@Composable
+private fun rememberIslandFakeProgress(): Float {
+    var progress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        var last = androidx.compose.runtime.withFrameNanos { it }
+        while (true) {
+            val now = androidx.compose.runtime.withFrameNanos { it }
+            val dt = ((now - last) / 16_666_667f).coerceIn(0.5f, 4f)
+            last = now
+            progress += (IslandFakeProgressCeil - progress) * 0.055f * dt
+        }
     }
-    val state = JSONObject()
-    val maxes = JSONObject()
-    bridge?.state?.values?.forEach { (key, value) ->
-        when (value) {
-            is PlaythroughValue.Text -> state.put(key, value.value)
-            is PlaythroughValue.Flag -> state.put(key, value.value)
-            is PlaythroughValue.Number -> {
-                state.put(key, if (value.value % 1.0 == 0.0) value.value.toLong() else value.value)
-                value.max?.let { maxes.put(key, it) }
+    return progress
+}
+
+/** 界面装载占位：固定小高度 + 渐近进度条。供岛自身与流式未闭合
+ *  围栏（MdBlockRender liveIncremental 分支）共用——未写完的围栏
+ *  不再渲原文。 */
+@Composable
+internal fun IslandLoadingPlaceholder(
+    label: String = "界面装载中",
+    modifier: Modifier = Modifier,
+) {
+    val colors = currentMdColors()
+    val progress = rememberIslandFakeProgress()
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(IslandLoadingHeightDp.dp)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(
+                text = label,
+                fontSize = BaseFontSize * 0.78f,
+                color = colors.blockquote,
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(colors.divider),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(progress)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(colors.link),
+                )
             }
         }
     }
-    root.put("state", state)
-    root.put("max", maxes)
-    runCatching { root.put("messages", org.json.JSONArray(bridge?.messagesJson ?: "[]")) }
-    root.put("theme", JSONObject()
-        .put("dark", dark)
-        .put("accent", colors.link.toHexString())
-        .put("text", colors.text.toHexString())
-        .put("surface", colors.codeBg.toHexString()))
-    return root.toString()
 }
-
-private fun Color.toHexString(): String = "#%06X".format(toArgb() and 0xFFFFFF)

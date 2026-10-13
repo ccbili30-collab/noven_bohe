@@ -8,6 +8,7 @@ import novex.android.data.MIGRATION_36_37
 import novex.android.data.MIGRATION_37_38
 import novex.android.data.MIGRATION_38_39
 import novex.android.data.MIGRATION_39_40
+import novex.android.data.MIGRATION_40_41
 
 import android.app.Application
 import androidx.room.Room
@@ -36,7 +37,7 @@ class NovexCardDirectoryJourneyTest {
         val context = RuntimeEnvironment.getApplication()
         val path = File(files.root, "migration.db").absolutePath
         fun open() = Room.databaseBuilder(context, NovexMainDatabase::class.java, path)
-            .addMigrations(MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_39_40).allowMainThreadQueries().build()
+            .addMigrations(MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41).allowMainThreadQueries().build()
         var db = open()
         try {
             val store = NovexCardDirectoryStore(File(files.root, "cards"), syncDirectory = {})

@@ -14,10 +14,11 @@ internal fun foldNovexExecutionProcesses(input: List<FlatChatItem>): List<FlatCh
 
     val output = mutableListOf<FlatChatItem>()
     var start = 0
-    // [T-turn-single-card] 2026-09-16 用户批③（方案 A）：一个回合一张卡——
-    // 回合内**全部**可折叠行（工具/思考/过程文字）合并为唯一一条工作行，钉在
-    // 回合末尾；叙述文字归组留在主文流，不再被过程块打断（此前"连续段折叠"
-    // 会把一次建卡拆成 过程块×N + 叙述×N 交替，占屏且结构混乱）。
+    // [T-turn-single-card] 2026-09-16 用户批③（方案 A）→ 2026-10-11
+    // [T-turn-segment-fold] 修订：折叠从"整回合一卡"改为"连续段一卡"——
+    // 过程行被叙述/回复打断就另起一段，各段在自己的时序位置出卡；单
+    // 迭代回合的呈现不变（仍是一张卡钉在回答前），多迭代回合不再错排
+    // 成"思考-执行-思考-执行-回复"。
     fun foldable(row: FlatChatItem): Boolean = when (row) {
         // [T-live-tool-tail]（2026-09-17 用户批：参照 dsh/codex）**活流中**的
         // 飞行工具行不折叠：STREAMING/PENDING/RUNNING 留在主文流，配
@@ -38,17 +39,38 @@ internal fun foldNovexExecutionProcesses(input: List<FlatChatItem>): List<FlatCh
     }
     fun flush(end: Int) {
         val turn = rows.subList(start, end)
-        val folded = turn.filter(::foldable)
-        val hasTool = folded.any { it is FlatChatItem.AssistantToolUse }
-        val hasProcessText = folded.any {
-            it is FlatChatItem.AssistantText || it is FlatChatItem.AssistantMarkdownBlock
+        // [T-turn-segment-fold] 2026-10-11 决策修订：折叠按**连续段**而非整
+        // 回合——多迭代回合（思考-执行-回复-思考-执行）里，回复后新到的过
+        // 程若并入钉在回答前的唯一工作卡，视觉上就变成错排的"思考-执行-
+        // 思考-执行-回复"。改为每段连续过程行在自己的时序位置折一张卡：
+        // 回答前的过程 → 卡在回答前；回答后再来的过程 → 新卡在回答下面。
+        // 单迭代回合仍是"一张卡钉在回答前"，语义不变。
+        // 连续段：可折行紧挨算一段，被叙述/交互行打断就另起一段。
+        val foldGroups = mutableListOf<MutableList<FlatChatItem>>()
+        var prevWasFoldable = false
+        for (row in turn) {
+            if (foldable(row)) {
+                if (prevWasFoldable) foldGroups.last() += row
+                else foldGroups += mutableListOf(row)
+                prevWasFoldable = true
+            } else {
+                prevWasFoldable = false
+            }
         }
-        // Thinking on its own already has a dedicated collapsed renderer.
-        // Do not replace it with an empty “0 项” work record.
-        if (folded.isEmpty() || (!hasTool && !hasProcessText)) output += turn
-        else {
-            val keys = folded.map { it.key }.toSet()
-            val first = folded.first()
+        // 纯 thinking 段已有专用折叠渲染，不换工作卡（沿用旧规则）。
+        val groups = foldGroups.filter { group ->
+            group.any { it is FlatChatItem.AssistantToolUse } ||
+                group.any { it is FlatChatItem.AssistantText || it is FlatChatItem.AssistantMarkdownBlock }
+        }
+        if (groups.isEmpty()) { output += turn; start = end; return }
+
+        val groupOfKey = HashMap<String, FlatChatItem.AssistantProcess>()
+        // [T-live-tool-tail]（净眼 P2）飞行工具的进行中状态并入所在段的卡。
+        val liveStatuses = turn.filterIsInstance<FlatChatItem.AssistantToolUse>()
+            .filter { it.messageIsStreaming && it.block.toolStatus?.isInFlight() == true }
+            .mapNotNull { it.block.toolStatus }
+        for (group in groups) {
+            val first = group.first()
             val messageId = when (first) {
                 is FlatChatItem.AssistantToolUse -> first.messageId
                 is FlatChatItem.AssistantText -> first.messageId
@@ -56,37 +78,30 @@ internal fun foldNovexExecutionProcesses(input: List<FlatChatItem>): List<FlatCh
                 is FlatChatItem.AssistantThinking -> first.messageId
                 else -> error("Unexpected execution row")
             }
-            // [T-live-tool-tail]（净眼 P2）被豁免的飞行工具不在 rows 里，
-            // 但它们的存在必须反映在工作行状态——否则已折部分全落定时
-            // 标签退化成"查看记录"，进行中信号丢失。
-            val liveStatuses = turn.filterIsInstance<FlatChatItem.AssistantToolUse>()
-                .filter { it.messageIsStreaming && it.block.toolStatus?.isInFlight() == true }
-                .mapNotNull { it.block.toolStatus }
-            val process = FlatChatItem.AssistantProcess(messageId, folded, first.key, liveStatuses)
-            // [feat/ui-rikkahub] 2026-09-27 对齐主流聊天客户端惯例：工作行插在回合**问题
-            // 之后、回答之前**——跳过段首的用户气泡/名头再落位。叙述与交互
-            // 类工具保留原位。
-            val kept = turn.filter { it.key !in keys }
-            var idx = 0
-            while (idx < kept.size &&
-                (kept[idx] is FlatChatItem.UserBubble ||
-                    kept[idx] is FlatChatItem.BranchSwitcher ||
-                    kept[idx] is FlatChatItem.ChildBranchPicker ||
-                    kept[idx] is FlatChatItem.AssistantHeader)
-            ) {
-                output += kept[idx]
-                idx++
-            }
-            output += process
-            while (idx < kept.size) {
-                output += kept[idx]
-                idx++
+            val process = FlatChatItem.AssistantProcess(
+                messageId, group, first.key,
+                if (group == groups.last()) liveStatuses else emptyList(),
+            )
+            for (row in group) groupOfKey[row.key] = process
+        }
+        // 逐行回放：遇到一段的起点行就吐该段的卡；过程行本身不吐。
+        val emitted = mutableSetOf<FlatChatItem.AssistantProcess>()
+        for (row in turn) {
+            val process = groupOfKey[row.key]
+            when {
+                process == null -> output += row
+                process !in emitted -> { output += process; emitted += process }
+                else -> Unit
             }
         }
         start = end
     }
     rows.forEachIndexed { index, row ->
+        // 段边界：新回合开头（用户泡/助手头）与回合收尾（切换器/后续
+        // 分支口）都断开。AssistantHeader 是防御项——system 等不产切换
+        // 器的消息若将来带可折叠行，也不许跨消息并入同一卡。
         if (row is FlatChatItem.UserBubble ||
+            row is FlatChatItem.AssistantHeader ||
             row is FlatChatItem.BranchSwitcher ||
             row is FlatChatItem.ChildBranchPicker
         ) flush(index)

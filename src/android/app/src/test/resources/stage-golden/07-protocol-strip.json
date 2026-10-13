@@ -1,0 +1,40 @@
+{
+  "name": "协议围栏剥除：def/use/html/UpdateVariable 不露",
+  "cast": [],
+  "input": [
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "他点了点头。\n\n```novex-use\n{\"id\":\"panel\",\"hp\":80}\n```\n\n<UpdateVariable><JSONPatch>[{\"op\":\"replace\"}]</JSONPatch></UpdateVariable>\n\n```html\n<div>x</div>\n```\n\n雨还在下。",
+      "streaming": false
+    }
+  ],
+  "expected": [
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "他点了点头。",
+      "html": "他点了点头。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    },
+    {
+      "id": "m1#1",
+      "messageId": "m1",
+      "segment": 1,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "雨还在下。",
+      "html": "雨还在下。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    }
+  ]
+}

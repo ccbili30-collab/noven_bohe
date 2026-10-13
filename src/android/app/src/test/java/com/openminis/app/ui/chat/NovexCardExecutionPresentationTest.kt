@@ -33,20 +33,23 @@ class NovexCardExecutionPresentationTest {
         val cancelled = tool("cancelled", status = ToolBlockStatus.CANCELLED)
         val final = text("final", "一张已保存，另一张未完成。")
         val result = foldNovexExecutionProcesses(listOf(intro, streaming, pending, running, failed, cancelled, final))
-        // 三个飞行中的工具原样留在主文流（各配 ToolCallPill 尾巴），叙述保留，
-        // 其余（过程文字/失败/取消）折成唯一工作行。[feat/ui-rikkahub]
-        // 2026-09-27 对齐 ZCode：工作行钉在回合开头（问题之后、回答之前），
-        // 保留行按原顺序跟在后面。
+        // 三个飞行中的工具原样留在主文流（各配 ToolCallPill 尾巴），叙述保留。
+        // [T-turn-segment-fold] 2026-10-11：折叠按连续段——intro 一段、
+        // 飞行工具打断后 failed/cancelled 另起一段，两张工作卡按时序各就
+        // 各位，不再合并钉在回合开头。
         assertTrue(result.contains(streaming))
         assertTrue(result.contains(pending))
         assertTrue(result.contains(running))
         assertTrue(result.contains(final))
-        val process = result.first() as FlatChatItem.AssistantProcess
-        assertEquals(listOf<FlatChatItem>(intro, failed, cancelled), process.rows)
-        assertEquals(intro.key, process.key)
-        // 主文流仍有飞行工具 → 工作行标"进行中"（净眼 P2：不再退化为查看记录）。
-        assertEquals("进行中", process.statusLabel())
-        assertEquals(5, result.size)
+        val processes = result.filterIsInstance<FlatChatItem.AssistantProcess>()
+        assertEquals(2, processes.size)
+        assertEquals(listOf<FlatChatItem>(intro), processes[0].rows)
+        assertEquals(intro.key, processes[0].key)
+        assertEquals(listOf<FlatChatItem>(failed, cancelled), processes[1].rows)
+        // 时序：intro 卡 → 飞行工具 → failed/cancelled 卡 → 正式回复。
+        assertEquals(listOf(processes[0], streaming, pending, running, processes[1], final), result)
+        // 主文流仍有飞行工具 → 尾段工作行标"进行中"（净眼 P2：不退化为查看记录）。
+        assertEquals("进行中", processes[1].statusLabel())
     }
 
     @Test fun restoredHistoricalInFlightBlocksStillFold() {
@@ -69,11 +72,12 @@ class NovexCardExecutionPresentationTest {
         val formal = text("first", "先给你的完整回答")
         val progress = text("after", "正在保存下一张卡", execution = true)
         val rows = foldNovexExecutionProcesses(listOf(formal, tool("saved"), progress))
-        // [feat/ui-rikkahub] 工作行钉在回合开头，过程文字按渠道折进工作行，
-        // 正式回答保留在正文流末尾。
-        val process = rows.first() as FlatChatItem.AssistantProcess
+        // [T-turn-segment-fold] 正式回答在前、过程段在后——工作卡钉在段
+        // 自己的时序位置（回答下方），不再提到回合开头。
+        assertSame(formal, rows.first())
+        val process = rows.filterIsInstance<FlatChatItem.AssistantProcess>().single()
         assertTrue(process.rows.contains(progress))
-        assertSame(formal, rows.last())
+        assertSame(process, rows.last())
         val live = foldNovexExecutionProcesses(listOf(text("live", "开始整理", true, true))).single()
         assertTrue(live is FlatChatItem.AssistantProcess)
         assertEquals("进行中", (live as FlatChatItem.AssistantProcess).statusLabel())

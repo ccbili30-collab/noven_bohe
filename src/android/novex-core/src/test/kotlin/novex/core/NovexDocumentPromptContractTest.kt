@@ -16,12 +16,15 @@ class NovexDocumentPromptContractTest {
     }
 
     @Test
-    fun learningCapabilitySeparatesReadOnlyPreparationFromGatedStart() {
+    fun learningCapabilityExposesOnlyReadToolsWhileStartRequiresNativeConfirmation() {
+        // [T-learning-consent] 通读是付费批处理：模型目录只留只读查询，
+        // prepare/start 不再对模型可见——兼容路径收到的旧式调用会落入
+        // 原生确认门（用户确认前不执行、不烧词元），而不是被工具定义授权。
         val tools = NovexToolCatalog.forCapabilities(setOf(NovexToolCapability.LEARNING))
 
-        assertEquals(listOf("learning_prepare", "learning_start", "learning_read"), tools.map { it.name })
-        assertTrue(tools.filterNot { it.name == "learning_start" }.all { it.risk == NovexToolRisk.READ_ONLY })
-        assertEquals(NovexToolRisk.EXTERNAL_SIDE_EFFECT, tools.single { it.name == "learning_start" }.risk)
+        assertEquals(listOf("learning_read"), tools.map { it.name })
+        assertTrue(tools.all { it.risk == NovexToolRisk.READ_ONLY })
+        assertFalse(tools.any { it.name == "learning_prepare" || it.name == "learning_start" })
         assertFalse(tools.any { it.name == "learning_confirm" })
     }
 

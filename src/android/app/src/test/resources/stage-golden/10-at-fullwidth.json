@@ -1,0 +1,29 @@
+{
+  "name": "@前缀+全角冒号台词",
+  "cast": [
+    "老鬼"
+  ],
+  "input": [
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "@老鬼：收到，马上到。",
+      "streaming": false
+    }
+  ],
+  "expected": [
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "dialogue",
+      "text": "收到，马上到。",
+      "html": "收到，马上到。",
+      "speaker": "老鬼",
+      "src": null,
+      "streaming": false
+    }
+  ]
+}

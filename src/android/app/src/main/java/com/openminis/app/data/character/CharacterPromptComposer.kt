@@ -94,10 +94,7 @@ $toolRule
     }
 }
 
-/** Availability has already passed model/configuration gates; persona is not an authorization gate. */
-object CharacterToolPolicy {
-    @Suppress("UNUSED_PARAMETER") // Kept at the existing boundary for imported legacy cards.
-    fun allowedToolNames(character: CharacterCard?, availableToolNames: Set<String>): Set<String> {
-        return availableToolNames
-    }
-}
+// [T-dead-code-sweep] CharacterToolPolicy.allowedToolNames 原为直通封装（"人格
+// 不作授权门"的边界占位），主源码零调用方——角色卡的 allowedTools 字段被有意
+// 忽略这一不变量已由 NovexProductToolGuide 的协议文本与目录过滤承担，删除。
+

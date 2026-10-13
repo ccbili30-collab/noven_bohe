@@ -1,0 +1,43 @@
+{
+  "name": "单人台词（全角冒号）",
+  "cast": [
+    "阿七",
+    "老鬼"
+  ],
+  "input": [
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "阿七：雨这么大，今天不走了。\n\n他在门口站了一会儿，又缩回屋里。",
+      "streaming": false
+    }
+  ],
+  "expected": [
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "dialogue",
+      "text": "雨这么大，今天不走了。",
+      "html": "雨这么大，今天不走了。",
+      "speaker": "阿七",
+      "src": null,
+      "streaming": false
+    },
+    {
+      "id": "m1#1",
+      "messageId": "m1",
+      "segment": 1,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "他在门口站了一会儿，又缩回屋里。",
+      "html": "他在门口站了一会儿，又缩回屋里。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    }
+  ]
+}

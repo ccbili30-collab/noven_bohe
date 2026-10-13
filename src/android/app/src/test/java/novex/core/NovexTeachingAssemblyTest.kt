@@ -21,7 +21,11 @@ class NovexTeachingAssemblyTest {
     private val context: Application get() = RuntimeEnvironment.getApplication()
     private fun source() = context.assets.open("novex/teaching/v6-candidate.md").bufferedReader().use { it.readText() }
     @Test fun `formal repair preserves custom conversation instructions and excludes v6`() {
-        val tools = setOf("novex_inspect_content", "novex_propose_content_changes", "novex_apply_content_changes", "save_checkpoint", "render_panel")
+        // [T-prompt-truth] 工具集合改按现役目录：novex_* 管理族在 legacy 过滤
+        // 中永不进 availableTools，指南门控随之换名；身份行文同理只在
+        // set_player_identity 暴露时输出。
+        val tools = setOf("create_card", "create_card_bulk", "read_card",
+            "set_player_identity", "save_checkpoint", "render_panel")
         for(enabled in listOf(true, false)) {
             val old = NovexPreviousSystemPromptControl.build("audit", context, "保留用户原有风格", enabled, tools)
             val current = NovexSystemPrompt.buildPrepared("audit", context, "保留用户原有风格", enabled, tools)

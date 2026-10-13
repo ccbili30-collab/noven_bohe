@@ -33,6 +33,14 @@ object NovexConversationConfigurationCodec {
         }))
         put("playthroughStates", JSONArray(snapshot.playthroughStates.values.map(PlaythroughState::toJson)))
         put("controls", JSONArray(snapshot.controls.map(ConversationControlDefinition::toJson)))
+        put("artifactDefs", JSONArray(snapshot.artifactDefs.map(ConversationArtifactDefinition::toJson)))
+        // v0.3 B6 查证回写：锚定消息的附属记录（非消息节点）。
+        put("stageAnnotations", JSONArray(snapshot.stageAnnotations.map { a ->
+            JSONObject().put("messageId", a.messageId)
+                .put("label", a.label)
+                .put("envelope", runCatching { JSONObject(a.envelopeJson) }
+                    .getOrElse { JSONObject().put("raw", a.envelopeJson) })
+        }))
     }.toString()
 
     fun decode(raw: String?, conversationId: String): NovexConversationConfigurationSnapshot {
@@ -94,6 +102,17 @@ object NovexConversationConfigurationCodec {
                     .map(JSONObject::toPlaythroughState)
                     .associateBy(PlaythroughState::branchId),
                 controls = root.optJSONArray("controls").objects().map(JSONObject::toControl),
+                artifactDefs = root.optJSONArray("artifactDefs").objects().mapNotNull { value ->
+                    runCatching { value.toArtifactDef() }.getOrNull()
+                },
+                stageAnnotations = root.optJSONArray("stageAnnotations").objects().mapNotNull { value ->
+                    val mid = value.optString("messageId")
+                    val env = value.opt("envelope")?.toString().orEmpty()
+                    // 信封必须能解析成 JSON 对象——损坏/包装体形状不进 deltas。
+                    if (mid.isBlank() || env.isBlank() ||
+                        runCatching { JSONObject(env) }.isFailure) null
+                    else StageAnnotation(mid, env, value.optString("label"))
+                },
             )
             NovexConversationConfiguration.open(
                 snapshot.copy(conversationId = conversationId),
@@ -227,6 +246,31 @@ private fun JSONObject.toControl() = ConversationControlDefinition(
     payloadJson = optString("payloadJson", "{}"),
     enabled = optBoolean("enabled", true),
     branchId = optString("branchId").ifBlank { null },
+)
+
+private fun ConversationArtifactDefinition.toJson() = JSONObject()
+    .put("id", id)
+    .put("kind", kind)
+    .put("template", template)
+    .put("name", name)
+    .put("marker", marker)
+    .put("autoMarker", autoMarker)
+    .put("tavernCompat", tavernCompat)
+    .put("fullscreen", fullscreen)
+    .put("ownInput", ownInput)
+    .put("branchId", branchId)
+
+private fun JSONObject.toArtifactDef() = ConversationArtifactDefinition(
+    id = getString("id"),
+    kind = optString("kind").trim().lowercase().ifEmpty { "html" },
+    template = optString("template"),
+    name = optString("name").trim().ifBlank { null },
+    marker = optString("marker").trim().ifBlank { null },
+    autoMarker = optBoolean("autoMarker", false),
+    tavernCompat = optBoolean("tavernCompat", false),
+    fullscreen = optBoolean("fullscreen", false),
+    ownInput = optBoolean("ownInput", false),
+    branchId = getString("branchId"),
 )
 
 private fun JSONArray?.objects(): List<JSONObject> = if (this == null) {

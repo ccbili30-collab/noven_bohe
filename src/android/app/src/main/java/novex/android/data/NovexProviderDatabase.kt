@@ -12,7 +12,6 @@ import novex.android.data.provider.ProviderMetaRow
 import novex.android.data.provider.ProviderModelRow
 import novex.android.data.provider.ProviderRow
 import novex.android.data.provider.ProviderStoreDao
-import novex.android.data.provider.ThinkingRuleRow
 
 /*
  * The provider settings database, kept in its own file ("provider.db",
@@ -31,9 +30,8 @@ import novex.android.data.provider.ThinkingRuleRow
         ProviderGroupRow::class,
         AgentLoopTargetRow::class,
         ProviderMetaRow::class,
-        ThinkingRuleRow::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class NovexProviderDatabase : RoomDatabase() {
@@ -89,6 +87,14 @@ abstract class NovexProviderDatabase : RoomDatabase() {
             }
         }
 
+        /** [T-dead-code-sweep] 自定义思考规则写路径早已随裁军删除，表内数据
+         *  从此不可达——连表清掉而不是留尸体。 */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS provider_thinking_rules")
+            }
+        }
+
         @Volatile
         private var instance: NovexProviderDatabase? = null
 
@@ -99,7 +105,7 @@ abstract class NovexProviderDatabase : RoomDatabase() {
                     NovexProviderDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }

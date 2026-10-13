@@ -122,11 +122,23 @@ internal fun RenderBlock(block: MdBlock) {
 
         is MdBlock.CodeBlock -> {
             // HTML 岛：```html 代码块渲成沙箱界面而非代码文本。流式尾块
-            // （liveIncremental）先按代码渲染——未闭合的围栏每帧都在变，
-            // 等到块冻结再装载 WebView，避免流式期间反复重载页面。
+            // （liveIncremental）渲装载占位——未闭合围栏按代码渲原文会让
+            // 用户在流式中途看到裸源码闪现（4.0.7 设计本意：未写完的
+            // 界面围栏只露进度条）。冻结后再装载 WebView/投影。
             // ```novex-def / ```novex-use 是前端件注册/调用指令（见
             // NovexArtifacts.kt），同样等冻结再投影。
-            if (isHtmlIslandLanguage(block.language) && !liveIncremental) {
+            if (liveIncremental &&
+                (isHtmlIslandLanguage(block.language) || isNovexDefLanguage(block.language) ||
+                    isNovexUseLanguage(block.language) || isNovexSkinLanguage(block.language))
+            ) {
+                IslandLoadingPlaceholder(
+                    label = if (isNovexDefLanguage(block.language)) "前端件注册中" else "界面装载中",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, colors.divider, RoundedCornerShape(10.dp)),
+                )
+            } else if (isHtmlIslandLanguage(block.language) && !liveIncremental) {
                 HtmlIsland(block.code)
             } else if (isNovexDefLanguage(block.language) && !liveIncremental) {
                 RenderNovexDefChip(block.code)

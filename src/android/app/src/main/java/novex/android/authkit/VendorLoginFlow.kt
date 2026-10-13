@@ -1,22 +1,25 @@
 package novex.android.authkit
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import novex.android.data.model.ProviderInstance
 import novex.android.data.model.ProviderType
 import org.json.JSONObject
 
 /**
- * 回环重定向型供应商登录流的公共骨架（P3.5c 自 auth/OAuthManager 真重写）。
+ * 供应商 OAuth 凭据座的公共骨架（P3.5c 自 auth/OAuthManager 真重写）。
  *
- * 覆盖走「授权页 → localhost 回调 → code 换 token」这条标准线的厂商；
- * JSON 体交换（Anthropic / OpenAI）、OIDC 发现（xAI）、设备码流（Kimi）、
- * 换长期 API key（OpenRouter）各家在自己的子类/对象里做差量。
+ * [T-dead-code-sweep] 「授权页 → localhost 回调 → code 换 token」的交互
+ * 登录编排已随五家登录入口一起退役（全仓零调用方）：authorizeEndpoint /
+ * loopbackPort / redirectTail / scopeValue / redirectUri / authorizationUrl /
+ * nextPkce / nextState / pendingVerifier / pendingState / startBrowserLogin /
+ * exchangeCode / exchangeForm / afterTokensPersisted 及 LoopbackReceiver /
+ * PkceMaterial / LoopbackRedirectRelay / OAuthRedirectActivity 整链拆除。
+ * 留下的是凭据座本体：刷新 / 有效令牌 / 手工 bearer / 跨端导入导出。
+ * 导入的供应商凭据仍靠这套活着，子类各自的登录差量（JSON 体交换、
+ * OIDC 发现、设备码）已随编排移除。
  *
  * 公开方法名沿用旧门面（validAccessToken / refreshToken / isAuthenticated /
  * logout / …）——调用方遍布全仓且大量走全限定名引用，形状属冻结面。
@@ -40,7 +43,7 @@ abstract class VendorLoginFlow(
         /** 缺省提前刷新窗（毫秒）。 */
         private const val DEFAULT_REFRESH_LEEWAY_MS = 4L * 3600 * 1000
 
-        /** 按实例的供应商类型挑登录流；非 OAuth 型返回 null。 */
+        /** 按实例的供应商类型挑凭据座；非 OAuth 型返回 null。 */
         fun forInstance(context: Context, instance: ProviderInstance): VendorLoginFlow? =
             when (instance.providerType) {
                 ProviderType.anthropic -> ClaudeLoginFlow(context, instance.id)
@@ -58,38 +61,11 @@ abstract class VendorLoginFlow(
             OAuthWire.redactForLog(body, maxLen)
     }
 
-    // ── 各厂差量声明 ───────────────────────────────────────────────────
+    // ── 各厂差量声明（刷新面）─────────────────────────────────────────
 
-    abstract val authorizeEndpoint: String
     abstract val tokenEndpoint: String
     abstract val clientIdValue: String
     abstract val clientSecretValue: String?
-    abstract val loopbackPort: Int
-    abstract val redirectTail: String
-    abstract val scopeValue: String
-
-    /**
-     * 发给供应商的 redirect_uri 字符串。缺省 localhost 拼法；xAI 的服务端
-     * 白名单登记的是 127.0.0.1 拼法，在子类覆写（OAuth redirect_uri 是
-     * 全串精确匹配，两种拼法不等价；本机回调两种都能收到）。
-     */
-    open val redirectUri: String get() = "http://localhost:$loopbackPort$redirectTail"
-
-    /** 子类挂收码后的附加动作（如解析 id_token、补拉账号信息）。 */
-    protected open suspend fun afterTokensPersisted(json: JSONObject) {}
-
-    /** 子类定制换 token 的表单体（xAI 要回显 code_challenge）。 */
-    protected open fun exchangeForm(code: String, verifier: String): Map<String, String> {
-        val form = mutableMapOf(
-            "grant_type" to "authorization_code",
-            "code" to code,
-            "redirect_uri" to redirectUri,
-            "client_id" to clientIdValue,
-            "code_verifier" to verifier,
-        )
-        clientSecretValue?.let { form["client_secret"] = it }
-        return form
-    }
 
     /** 子类定制刷新表单体。 */
     protected open fun refreshForm(refreshToken: String): Map<String, String> {
@@ -105,81 +81,6 @@ abstract class VendorLoginFlow(
     // ── 状态 ───────────────────────────────────────────────────────────
 
     protected val vault = CredentialVault(appContext, instanceId)
-
-    /** 当前这轮授权用的 PKCE verifier（[authorizationUrl] 生成时落位）。 */
-    protected var pendingVerifier: String? = null
-    protected var pendingState: String? = null
-    private var receiver: LoopbackReceiver? = null
-
-    /** 子类可换成「先落盘再取用」的 PKCE/state 存取（JSON 交换流需要）。 */
-    protected open fun nextPkce(): Pair<String, String> = PkceMaterial.base64UrlPair()
-    protected open fun nextState(): String = PkceMaterial.opaqueToken()
-
-    // ── 授权 URL ───────────────────────────────────────────────────────
-
-    open fun authorizationUrl(): String {
-        val (verifier, challenge) = nextPkce()
-        pendingVerifier = verifier
-        pendingState = nextState()
-        return "$authorizeEndpoint?" + listOf(
-            "client_id=$clientIdValue",
-            "redirect_uri=${Uri.encode(redirectUri)}",
-            "response_type=code",
-            "scope=${Uri.encode(scopeValue)}",
-            "state=$pendingState",
-            "code_challenge=$challenge",
-            "code_challenge_method=S256",
-        ).joinToString("&")
-    }
-
-    // ── 浏览器线（系统浏览器 + 广播式回调）────────────────────────────
-
-    /**
-     * 老式整链路：起回调服务 → 拉系统浏览器开授权页 → 等码 → 换 token。
-     * 现行各厂商 UI 用的是子类各自的 Custom Tab 编排，此入口保留等价
-     * 外部调用语义（回调 state 不匹配即失败回调）。
-     */
-    suspend fun startBrowserLogin(onComplete: (Boolean) -> Unit) {
-        receiver?.stop()
-        receiver = LoopbackReceiver(loopbackPort) { code, state ->
-            if (state != null && state != pendingState) {
-                Log.w(TAG, "state mismatch on callback")
-                onComplete(false)
-                return@LoopbackReceiver
-            }
-            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
-                val ok = exchangeCode(code)
-                withContext(Dispatchers.Main) { onComplete(ok) }
-            }
-        }.also { it.start() }
-
-        val open = Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl()))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        appContext.startActivity(open)
-    }
-
-    suspend fun exchangeCode(code: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val (status, body) = OAuthWire.postForm(
-                tokenEndpoint,
-                exchangeForm(code, pendingVerifier ?: ""),
-            )
-            if (status !in 200..299) {
-                Log.e(TAG, "token exchange rejected: $status ${OAuthWire.redactForLog(body)}")
-                return@withContext false
-            }
-            val json = JSONObject(body)
-            vault.writeTokens(json)
-            afterTokensPersisted(json)
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "token exchange error", e)
-            false
-        } finally {
-            receiver?.stop()
-            receiver = null
-        }
-    }
 
     // ── 刷新与取有效令牌 ───────────────────────────────────────────────
 

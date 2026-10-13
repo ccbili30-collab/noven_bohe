@@ -63,6 +63,10 @@ class NovexConversationSettingsStore(
         requested: NovexConversationConfigurationSnapshot,
     ): NovexConversationConfigurationSnapshot {
         val conflict = expected.copy(
+            // 舞台查证回写/前端件注册也是运行态后台写入（编辑打开期间
+            // 会增长）——同列豁免，否则设置页保存误报冲突或反向抹掉。
+            stageAnnotations = current.stageAnnotations,
+            artifactDefs = current.artifactDefs,
             playthroughStates = current.playthroughStates,
             completedPlaythroughs = current.completedPlaythroughs,
             controls = current.controls,
@@ -76,6 +80,8 @@ class NovexConversationSettingsStore(
             throw IllegalArgumentException("会话配置或本局状态已在编辑期间更新。请重新打开对话编辑后调整，避免覆盖新内容。")
         }
         return requested.copy(
+            stageAnnotations = current.stageAnnotations,
+            artifactDefs = current.artifactDefs,
             playthroughStates = current.playthroughStates,
             completedPlaythroughs = current.completedPlaythroughs,
             controls = current.controls,

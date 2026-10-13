@@ -69,27 +69,9 @@ object NovexToolCatalog {
             )
         }
         if (NovexToolCapability.LEARNING in capabilities) {
-            add(
-                NovexToolDefinition(
-                    name = "learning_prepare",
-                    description = "生成资料学习的只读预检、范围、风险和预算建议；不会开始模型通读、联网抓取或光学字符识别。",
-                    risk = NovexToolRisk.READ_ONLY,
-                    parameters = listOf(
-                        NovexToolParameter("collection_ref", NovexToolParameterKind.STRING, true, "当前对话分支中的资料集引用"),
-                        NovexToolParameter("model_id", NovexToolParameterKind.STRING, false, "拟用于学习的模型编号；省略时使用当前对话模型"),
-                        NovexToolParameter("action", NovexToolParameterKind.STRING, false, "start（默认，首次整理）；continue（保留已存进度和用量继续）；recheck（核对新解析，保留旧成果）。计划只预检，不启动。"),
-                    ),
-                ),
-            )
-            add(NovexToolDefinition(
-                name = "learning_start",
-                description = "执行 learning_prepare 返回的已保存整理计划，持久保存任务后启动分批通读。遵循当前对话权限，无文字口令或二次批准。本调用等待整理结束或暂停，分批成果持续保存；根据返回的实际覆盖和状态判断完成，再用 learning_read 读取成果并继续用户原任务。无需轮询。",
-                risk = NovexToolRisk.EXTERNAL_SIDE_EFFECT,
-                parameters = listOf(
-                    NovexToolParameter("collection_ref", NovexToolParameterKind.STRING, true, "准备计划返回的本对话资料集引用"),
-                    NovexToolParameter("preflight_id", NovexToolParameterKind.STRING, true, "原样使用准备计划返回的编号；资料、模型或预算变化时重新准备"),
-                ),
-            ))
+            // [T-learning-consent] learning_prepare/learning_start 已撤出模型
+            // 目录：付费通读只能由用户在界面确认后后台运行，模型侧只保留只读
+            // 的 learning_read。残留调用由执行层同意门接住（转原生确认框）。
             add(NovexToolDefinition(
                 name = "learning_read",
                 description = "只读访问当前分支已保存笔记，并同时回读其记录修订的有界原文依据。笔记不是已核验事实；核对 source_evidence 中的原文，未返回区间沿原文引用继续读取。正文与原文共用字符预算，笔记分页不重新启动学习或创建卡片。",
@@ -161,11 +143,11 @@ object NovexToolCatalog {
             add(
                 NovexToolDefinition(
                     name = "workspace_edit",
-                    description = "按字符范围定点编辑当前分支可见的文本；必须携带最近读取到的 SHA-256 校验值以防覆盖并发修改。",
+                    description = "按字符范围定点编辑当前分支可见的文本；校验值防覆盖并发修改。",
                     risk = NovexToolRisk.SESSION_REVERSIBLE,
                     parameters = listOf(
                         NovexToolParameter("workspace_ref", NovexToolParameterKind.STRING, true, "需要编辑的 Novex 工作区引用"),
-                        NovexToolParameter("expected_sha256", NovexToolParameterKind.STRING, true, "workspace_read 返回的当前文件 SHA-256 校验值"),
+                        NovexToolParameter("expected_sha256", NovexToolParameterKind.STRING, true, "workspace_read 返回的当前文件校验值；可传 latest，或该校验值前 8 位以上前缀"),
                         NovexToolParameter("start_char", NovexToolParameterKind.INTEGER, true, "替换起始字符位置，包含该位置"),
                         NovexToolParameter("end_char", NovexToolParameterKind.INTEGER, true, "替换结束字符位置，不包含该位置"),
                         NovexToolParameter("replacement", NovexToolParameterKind.STRING, true, "替换文本，可为空"),

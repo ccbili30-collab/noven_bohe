@@ -1,0 +1,40 @@
+{
+  "name": "安全子集：转义+加粗+斜体，脚本不执行",
+  "cast": [],
+  "input": [
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "他递出**一封信**，信封上写着*绝密*。\n\n<script>alert(1)</script> 就这样。",
+      "streaming": false
+    }
+  ],
+  "expected": [
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "他递出**一封信**，信封上写着*绝密*。",
+      "html": "他递出<b>一封信</b>，信封上写着<i>绝密</i>。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    },
+    {
+      "id": "m1#1",
+      "messageId": "m1",
+      "segment": 1,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "narration",
+      "text": "<script>alert(1)</script> 就这样。",
+      "html": "&lt;script&gt;alert(1)&lt;/script&gt; 就这样。",
+      "speaker": null,
+      "src": null,
+      "streaming": false
+    }
+  ]
+}

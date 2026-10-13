@@ -52,6 +52,7 @@ import novex.core.PlaythroughValue
 import novex.android.ui.NovexNoticeDialog
 import novex.android.ui.NovexDecisionAction
 import novex.android.ui.NovexDecisionDialog
+import novex.android.ui.NovexLearningStatusBanner
 import novex.android.ui.NovexDecisionTone
 import novex.android.ui.NovexSelectionAction
 import novex.android.ui.NovexSelectionSheet
@@ -255,6 +256,7 @@ internal fun ChatScreenOverlays(
     val selectedGroupId by viewModel.selectedGroupId.collectAsState()
     val pendingNovexLearningPreflight by viewModel.pendingNovexLearningPreflight.collectAsState()
     val novexLearningTask by viewModel.novexLearningTask.collectAsState()
+    val hiddenLearningTasks by viewModel.novexLearningTaskHidden.collectAsState()
     val novexLearningError by viewModel.novexLearningError.collectAsState()
     val novexLearningResponsePreview by viewModel.novexLearningResponsePreview.collectAsState()
     val novexLearningDetails by viewModel.novexLearningDetails.collectAsState()
@@ -383,59 +385,39 @@ internal fun ChatScreenOverlays(
         }
     }
     if (novexLearningError == null && novexLearningResponsePreview == null && novexLearningDetails == null && novexLearningCollections == null && pendingNovexLearningPreflight == null) {
+        // [T-learning-banner] 任务投影改非阻断状态条：不再用模态打断会话，
+        // 收起只隐藏（任务后台继续），暂停/取消是显式动作。执行中允许收起；
+        // 暂停、预算尽、终态等需注意的状态不响应隐藏，始终提示。
         novexLearningTask?.let { task ->
-            val message = NovexLearningControlPolicy.progressMessage(task)
-            val controls = NovexLearningControlPolicy.allowedControls(task.status)
-            NovexDecisionDialog(
-                title = "资料学习",
-                message = message,
-                onDismiss = {
-                    if (NovexLearningControl.PAUSE in controls) viewModel.pauseNovexLearning()
-                },
-                actions = buildList {
-                    add(NovexDecisionAction("资料与整理计划", R.drawable.ic_phosphor_brain,
-                        onClick = viewModel::showNovexLearningDetails))
-                    if (NovexLearningControl.PAUSE in controls) add(
-                        NovexDecisionAction(
-                            label = "暂停整理",
-                            icon = R.drawable.ic_phosphor_arrow_left,
-                            onClick = viewModel::pauseNovexLearning,
-                        ),
-                    )
-                    if (NovexLearningControl.RESUME in controls) add(
-                        NovexDecisionAction(
-                            label = "继续整理",
-                            icon = R.drawable.ic_phosphor_brain,
-                            tone = NovexDecisionTone.PRIMARY,
-                            onClick = viewModel::resumeNovexLearning,
-                        ),
-                    )
-                    if (NovexLearningControl.EXTEND_BUDGET in controls) add(
-                        NovexDecisionAction(
-                            label = "增加预算并继续",
-                            icon = R.drawable.ic_phosphor_brain,
-                            tone = NovexDecisionTone.PRIMARY,
-                            onClick = viewModel::requestNovexLearningBudgetExtension,
-                        ),
-                    )
-                    if (NovexLearningControl.CANCEL in controls) add(
-                        NovexDecisionAction(
-                            label = "取消整理",
-                            icon = R.drawable.ic_phosphor_trash,
-                            tone = NovexDecisionTone.DESTRUCTIVE,
-                            onClick = viewModel::cancelNovexLearning,
-                        ),
-                    )
-                    if (NovexLearningControl.DISMISS in controls) add(
-                        NovexDecisionAction(
-                            label = "知道了",
-                            icon = R.drawable.ic_phosphor_check,
-                            tone = NovexDecisionTone.PRIMARY,
-                            onClick = viewModel::dismissNovexLearningTaskNotice,
-                        ),
-                    )
-                },
+            val taskKey = "${task.collectionRef.value}:${task.preflightId}"
+            val executing = task.status in setOf(
+                NovexLearningTaskStatus.INDEXING,
+                NovexLearningTaskStatus.REVIEWING,
+                NovexLearningTaskStatus.SYNTHESIZING,
             )
+            if (!executing || taskKey !in hiddenLearningTasks) {
+                val controls = NovexLearningControlPolicy.allowedControls(task.status)
+                val title = NovexLearningControlPolicy.progressMessage(task)
+                    .lineSequence().firstOrNull()?.removeSuffix("。") ?: "资料学习"
+                Box(Modifier.fillMaxSize()) {
+                    NovexLearningStatusBanner(
+                        title = title,
+                        subtitle = "输入 ${task.usage.usedInputTokens}/${task.usage.maxInputTokens} · 输出 ${task.usage.usedOutputTokens}/${task.usage.maxOutputTokens} 词元",
+                        controls = controls,
+                        onDetails = viewModel::showNovexLearningDetails,
+                        onPause = viewModel::pauseNovexLearning,
+                        onResume = viewModel::resumeNovexLearning,
+                        onExtendBudget = viewModel::requestNovexLearningBudgetExtension,
+                        onCancel = viewModel::cancelNovexLearning,
+                        onHide = viewModel::hideNovexLearningTask,
+                        onDismiss = viewModel::dismissNovexLearningTaskNotice,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
+            }
         }
     }
 

@@ -270,6 +270,7 @@ internal fun ChatTranscript(
     scrollToLatestOnce: suspend (TranscriptViewportMove) -> Unit,
     onOpenCreatedCard: (String, String) -> Unit,
     onPreviewAttachment: (com.openminis.app.ui.sandbox.FileItem) -> Unit,
+    onOpenManual: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -378,29 +379,6 @@ internal fun ChatTranscript(
                 // with the flat list (the scan is O(n) against joins the
                 // builder already does per chunk).
                 val assistantActions = remember(flatItems) { assistantActionAnchors(flatItems) }
-                // 皮肤分组位：同一消息连续的气泡行段，供气泡变体
-                // （groupFirst/Mid/Last）削角/去重边。
-                val skinBubbleGroupPositions = remember(flatItems) {
-                    fun bubbleMsgId(it: FlatChatItem): String? = when (it) {
-                        is FlatChatItem.AssistantText -> it.messageId
-                        is FlatChatItem.AssistantMarkdownBlock -> it.messageId
-                        else -> null
-                    }
-                    val ids = flatItems.map(::bubbleMsgId)
-                    buildMap {
-                        for (i in flatItems.indices) {
-                            val id = ids[i] ?: continue
-                            val prevSame = i > 0 && ids[i - 1] == id
-                            val nextSame = i < flatItems.lastIndex && ids[i + 1] == id
-                            put(flatItems[i].key, when {
-                                prevSame && nextSame -> SkinGroupPos.MID
-                                prevSame -> SkinGroupPos.LAST
-                                nextSame -> SkinGroupPos.FIRST
-                                else -> SkinGroupPos.SOLO
-                            })
-                        }
-                    }
-                }
                 Box {
                 AlwaysStretchOverscrollBox { sharedEffect ->
                 LazyColumn(
@@ -613,8 +591,7 @@ internal fun ChatTranscript(
                         Column {
                         ChatTranscriptRow(item,
                             ChatTranscriptRowState(isStreaming, canResume, viewModel.thinkingLevel.value, compactedHistoryExpanded),
-                            selectionController, panelExpansionState, perTurnPrompt = perTurnPrompt,
-                            bubbleGroupPos = skinBubbleGroupPositions[item.key] ?: SkinGroupPos.SOLO) { action ->
+                            selectionController, panelExpansionState, perTurnPrompt = perTurnPrompt) { action ->
                             when (action) {
                                 is ChatTranscriptAction.Share -> { onShareSnippet(action.text); onShowMoveSheet() }
                                 is ChatTranscriptAction.RetryFrom -> {
@@ -734,6 +711,17 @@ internal fun ChatTranscript(
                                     textAlign = TextAlign.Center,
                                 )
                             }
+                            Spacer(Modifier.height(20.dp))
+                            Text(
+                                text = "先看看能做什么 · 说明书 →",
+                                color = ChatColors.link,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(onClick = onOpenManual)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            )
                         }
                     }
                 }
@@ -1075,6 +1063,38 @@ internal fun rememberTranscriptRows(
                     tracedScrollToItem(
                         TranscriptViewportMove.UserSentMessage.name,
                         targetIndex,
+                        Int.MAX_VALUE / 4,
+                    )
+                }
+                // 分支切换视口锚：ViewModel 在切换后发来要停驻的行 id（同槽位
+                // 新行/新进子行）。列表重建后滚回它——不锚的话 LazyColumn 按
+                // index 兜底把用户甩到新尾巴（"切换后跳到最新位置"）。
+                var branchAnchorNavigation by remember(sessionId) {
+                    mutableStateOf(BranchAnchorNavigation())
+                }
+                LaunchedEffect(sessionId) {
+                    viewModel.transcriptAnchorMessageId.collect { anchorId ->
+                        branchAnchorNavigation = branchAnchorNavigation.awaiting(
+                            anchorId, System.currentTimeMillis(),
+                        )
+                    }
+                }
+                LaunchedEffect(flatItems, hasOlderMessages, branchAnchorNavigation.pendingAnchorMessageId) {
+                    val (flatIndex, nextState) = branchAnchorNavigation.resolve(
+                        transcriptRowsForLayout(flatItems), System.currentTimeMillis(),
+                    )
+                    branchAnchorNavigation = nextState
+                    val targetIndex = flatIndex ?: return@LaunchedEffect
+                    val dragBeforeFrame = lastUserDragAtMs
+                    withFrameNanos { }
+                    if (lastUserDragAtMs != dragBeforeFrame) return@LaunchedEffect
+                    // 锚点行已在视野内就不动——用户切换时看到什么就留在什么。
+                    val anchorKey = transcriptRowsForLayout(flatItems).getOrNull(targetIndex)?.key
+                        ?: return@LaunchedEffect
+                    if (listState.layoutInfo.visibleItemsInfo.any { it.key == anchorKey }) return@LaunchedEffect
+                    tracedScrollToItem(
+                        "branch-switch-anchor",
+                        targetIndex + if (hasOlderMessages) 1 else 0,
                         Int.MAX_VALUE / 4,
                     )
                 }

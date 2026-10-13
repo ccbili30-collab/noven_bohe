@@ -155,93 +155,6 @@ OLD {{hp}}
     }
 
     @Test
-    fun `skin fence returns latest block body`() {
-        val text = """
-            ```novex-skin
-            {"name":"旧皮"}
-            ```
-            中间有正文
-            ```novex-skin
-            {"name":"新皮"}
-            ```
-        """.trimIndent()
-        assertEquals("""{"name":"新皮"}""", latestNovexSkinFence(text)?.trim())
-        assertNull(latestNovexSkinFence("没有围栏的文本"))
-    }
-
-    @Test
-    fun `ChatSkin v1 token parse, legacy slot migration, base resolution`() {
-        // v1 令牌格式：fill/texture/border/shadow/padding/maxWidth/
-        // contentScheme/corners/input/background(scrim)。
-        val skin = com.openminis.app.data.character.ChatSkin.fromJsonString(
-            """
-            {
-              "spec": 1,
-              "name": "墨玉羊皮",
-              "base": "minis://shared/skins/demo/",
-              "bubbleAssistant": {
-                "fill": "#E9DDBB",
-                "texture": {"img": "./paper.png", "tile": true, "alpha": 0.4},
-                "border": {"color": "#A9853F", "width": 1, "radius": 12},
-                "padding": [15, 11, 15, 11],
-                "maxWidth": 330,
-                "contentScheme": "light",
-                "corners": {"img": "./corner.png", "size": 16, "inset": 3}
-              },
-              "bubbleUser": {
-                "fill": "#402E20",
-                "border": {"color": "#9C7B45", "width": 1, "radius": 16},
-                "contentScheme": "dark",
-                "variants": {"queued": {"fill": "#00000000"}}
-              },
-              "avatarFrame": {"color": "#C9A96A", "width": 1.5},
-              "topBar": {"fill": "#1A1408", "hairline": {"color": "#8A6F3F", "edge": "bottom"}},
-              "input": {"bg": "#241B12", "border": "#7A6036", "text": "#EFE3C8"},
-              "background": {"img": "./bg.png", "scrim": "#5C000000"},
-              "accent": "#C9A96A",
-              "overlay": "<html>danmaku</html>"
-            }
-            """.trimIndent(),
-        )!!
-        assertEquals("墨玉羊皮", skin.name)
-        val a = skin.bubbleAssistant!!
-        assertEquals("#E9DDBB", a.fill)
-        assertEquals("./paper.png", a.texture?.img)
-        assertEquals("#A9853F", a.border?.color)
-        assertEquals(listOf(15, 11, 15, 11), a.padding)
-        assertEquals("light", a.contentScheme)
-        assertEquals("./corner.png", a.corners?.img)
-        assertEquals("dark", skin.bubbleUser?.contentScheme)
-        assertEquals("#00000000", skin.bubbleUser?.variants?.get("queued")?.fill)
-        assertEquals("#241B12", skin.inputBg)
-        assertEquals("#5C000000", skin.background?.scrim)
-        assertEquals("#C9A96A", skin.accent)
-        assertEquals("<html>danmaku</html>", skin.overlay)
-
-        // 相对路径挂到 base；绝对路径原样；无 base 的相对路径解析不出。
-        assertEquals("minis://shared/skins/demo/paper.png",
-            skin.resolveAssetPath("./paper.png"))
-        assertEquals("minis://x/y.png", skin.resolveAssetPath("minis://x/y.png"))
-        assertNull(skin.copy(base = null).resolveAssetPath("./paper.png"))
-
-        // 旧格式 {"img","insets","text"} → slice 令牌等价迁移。
-        val legacy = com.openminis.app.data.character.ChatSkin.fromJsonString(
-            """{"bubbleUser": {"img": "minis://a.png", "insets": [24, 20, 24, 20], "text": "#F5E9D0"}}"""
-        )!!
-        assertEquals("minis://a.png", legacy.bubbleUser?.slice?.img)
-        assertEquals(listOf(24, 20, 24, 20), legacy.bubbleUser?.slice?.content)
-        assertEquals("#F5E9D0", legacy.bubbleUser?.text)
-
-        // 空壳与非法值 → null（卸肤语义由调用方处理）。
-        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString("{}"))
-        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString("""{"name":"只有名字"}"""))
-        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString(
-            """{"bubbleUser": {}}"""))
-        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString("不是 json"))
-        assertNull(com.openminis.app.data.character.ChatSkin.fromJsonString(null))
-    }
-
-    @Test
     fun `def parses marker and tavern compat meta`() {
         val def = parseNovexDef(
             """
@@ -299,6 +212,17 @@ OLD {{hp}}
         // display:"inline" 可显式关掉酒馆件的全屏默认。
         assertTrue(!parseNovexDef("""{"id":"d","kind":"html","compat":"tavern","display":"inline"}
 <div/>""")!!.fullscreen)
+    }
+
+    @Test
+    fun `ownInput flag follows input meta`() {
+        // v0.3 B2：input:"own" 声明作品自带输入层；缺省/其他值都是 false。
+        assertTrue(parseNovexDef("""{"id":"a","kind":"html","display":"fullscreen","input":"own"}
+<div/>""")!!.ownInput)
+        assertTrue(!parseNovexDef("""{"id":"b","kind":"html","input":"native"}
+<div/>""")!!.ownInput)
+        assertTrue(!parseNovexDef("""{"id":"c","kind":"html"}
+<div/>""")!!.ownInput)
     }
 
     @Test

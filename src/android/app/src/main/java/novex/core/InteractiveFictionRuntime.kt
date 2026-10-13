@@ -91,6 +91,24 @@ object InteractiveFictionRuntime {
         return nearest ?: PlaythroughState(activePathIds.lastOrNull() ?: "unstarted")
     }
 
+    /**
+     * 前端件注册表的路径解析：件可见当且仅当它的注册分支在活动路径上——
+     * 分叉自动继承祖先注册（fork 点之前的件跟随新分支），兄弟分支互不见。
+     * 同 id 路径最深者胜——"改"就是靠后的分支再注册一次同 id。
+     */
+    fun resolveArtifactDefs(
+        configuration: NovexConversationConfigurationSnapshot,
+        activePathIds: List<String>,
+    ): List<ConversationArtifactDefinition> {
+        if (configuration.artifactDefs.isEmpty()) return emptyList()
+        val branchRank = activePathIds.withIndex().associate { it.value to it.index }
+        return configuration.artifactDefs
+            .filter { it.branchId in branchRank }
+            .groupBy(ConversationArtifactDefinition::id)
+            .mapValues { (_, defs) -> defs.maxBy { branchRank.getValue(it.branchId) } }
+            .values.toList()
+    }
+
     /** Selects branch-visible controls without executing them; nearest AI definition shadows ancestors. */
     fun resolveControls(
         configuration: NovexConversationConfigurationSnapshot,
@@ -193,6 +211,30 @@ object ConversationControlRegistration {
                 it.source == ConversationControlSource.AI && it.branchId == branchId
             } + registered,
         )
+    }
+}
+
+/** 前端件注册表写入：def 从回复正文里抽出、按注册消息分支入库。 */
+object ConversationArtifactRegistration {
+    /** 注册表容量上限：超出时丢最老的——防长会话模板把会话配置撑爆。 */
+    internal const val MAX_ARTIFACT_DEFS = 64
+
+    /**
+     * Upsert 一批 def。同 id + 同分支重注册 = 覆盖（流式重发/重复持久化幂等）；
+     * 同 id + 不同分支 = 并存——路径解析选最深那条，切回旧分支仍是旧模板
+     * （分支级模板版本，对齐 controls/state 的按分支快照语义）。
+     */
+    fun registerDefs(
+        configuration: NovexConversationConfigurationSnapshot,
+        defs: List<ConversationArtifactDefinition>,
+    ): NovexConversationConfigurationSnapshot {
+        if (defs.isEmpty()) return configuration
+        val incoming = defs.map { it.id to it.branchId }.toSet()
+        val merged = configuration.artifactDefs.filterNot {
+            (it.id to it.branchId) in incoming
+        } + defs
+        val bounded = if (merged.size > MAX_ARTIFACT_DEFS) merged.takeLast(MAX_ARTIFACT_DEFS) else merged
+        return configuration.copy(artifactDefs = bounded)
     }
 }
 

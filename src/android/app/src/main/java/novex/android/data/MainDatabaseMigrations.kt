@@ -686,6 +686,12 @@ val MIGRATION_39_40 = step(39, 40) {
     addColumnUnlessPresent("sessions", "chat_skin_json", "ALTER TABLE sessions ADD COLUMN chat_skin_json TEXT")
 }
 
+val MIGRATION_40_41 = step(40, 41) {
+    // [T-dead-code-sweep] webapp 全家已随裁军退役，webShortcutDao 零调用，
+    // 表内旧快捷方式行已不可达——连表清掉而不是留尸体。
+    execSQL("DROP TABLE IF EXISTS webapp_shortcuts")
+}
+
 /** Every step, wired into the database builder in ascending order. */
 internal val MAIN_SCHEMA_STEPS: Array<Migration> = arrayOf(
     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
@@ -696,4 +702,5 @@ internal val MAIN_SCHEMA_STEPS: Array<Migration> = arrayOf(
     MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
     MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
     MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40,
+    MIGRATION_40_41,
 )

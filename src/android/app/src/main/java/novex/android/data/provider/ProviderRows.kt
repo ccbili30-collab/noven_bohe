@@ -8,13 +8,13 @@ import androidx.room.PrimaryKey
 
 /*
  * Row types of the provider settings database (file "provider.db", schema
- * version 5). This store is deliberately separate from the main database so
+ * version 6). This store is deliberately separate from the main database so
  * a downgrade to a build that predates these tables leaves the main file
  * untouched; a JSON mirror of the same config is kept current on every save
  * so the separate store can never become silently stale.
  *
  * JSON blob columns (base_model_json, overrides_json, member_entry_ids_json,
- * wire_format_json, reasoning_echo_json) are the storage format and are
+ * wire_format_json) are the storage format and are
  * decoded by exactly one codec — see ProviderRowsCodec.kt.
  */
 
@@ -96,21 +96,3 @@ data class ProviderMetaRow(
     val value: String?,
 )
 
-/** One row of `provider_thinking_rules` — one user-authored thinking rule. */
-@Entity(
-    tableName = "provider_thinking_rules",
-    indices = [Index(value = ["provider_instance_id"], name = "index_provider_thinking_rules_provider_instance_id")],
-)
-data class ThinkingRuleRow(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "provider_instance_id") val providerInstanceId: String,
-    val label: String,
-    /** "allModels" or "modelPattern". */
-    @ColumnInfo(name = "scope_kind") val scopeKind: String,
-    /** Glob for modelPattern scope; null under allModels. */
-    @ColumnInfo(name = "scope_pattern") val scopePattern: String? = null,
-    @ColumnInfo(name = "wire_format_json") val wireFormatJson: String? = null,
-    @ColumnInfo(name = "reasoning_echo_json") val reasoningEchoJson: String? = null,
-    /** 0 = highest priority; drag-reorder rewrites the sequence. */
-    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
-)

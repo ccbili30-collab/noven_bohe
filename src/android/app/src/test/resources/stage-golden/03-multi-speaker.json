@@ -1,0 +1,57 @@
+{
+  "name": "多人台词（@前缀与半角冒号）",
+  "cast": [
+    "阿七",
+    "老鬼",
+    "阿七妹"
+  ],
+  "input": [
+    {
+      "id": "m1",
+      "role": "assistant",
+      "content": "@老鬼: 货都收好了？\n\n阿七妹：收好了，就差你那一份。\n\n老鬼：路上小心。",
+      "streaming": false
+    }
+  ],
+  "expected": [
+    {
+      "id": "m1#0",
+      "messageId": "m1",
+      "segment": 0,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "dialogue",
+      "text": "货都收好了？",
+      "html": "货都收好了？",
+      "speaker": "老鬼",
+      "src": null,
+      "streaming": false
+    },
+    {
+      "id": "m1#1",
+      "messageId": "m1",
+      "segment": 1,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "dialogue",
+      "text": "收好了，就差你那一份。",
+      "html": "收好了，就差你那一份。",
+      "speaker": "阿七妹",
+      "src": null,
+      "streaming": false
+    },
+    {
+      "id": "m1#2",
+      "messageId": "m1",
+      "segment": 2,
+      "turnId": "m1",
+      "role": "assistant",
+      "kind": "dialogue",
+      "text": "路上小心。",
+      "html": "路上小心。",
+      "speaker": "老鬼",
+      "src": null,
+      "streaming": false
+    }
+  ]
+}

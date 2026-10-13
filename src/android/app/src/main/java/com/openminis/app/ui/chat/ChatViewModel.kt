@@ -919,6 +919,10 @@ class ChatViewModel(
     internal val _forceScrollToBottom = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val forceScrollToBottom: SharedFlow<Unit> = _forceScrollToBottom.asSharedFlow()
 
+    /** 分支切换后的视口锚：要停在视野里的消息行 id（见 BranchAnchorNavigation）。 */
+    internal val _transcriptAnchorMessageId = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val transcriptAnchorMessageId: SharedFlow<String> = _transcriptAnchorMessageId.asSharedFlow()
+
     /**
      * Identity of the user row that was just accepted into the visible
      * transcript. The screen waits for this exact row to be flattened before
@@ -1146,6 +1150,13 @@ class ChatViewModel(
     val novexLearningStatus: StateFlow<NovexLearningTaskStatus?> = _novexLearningStatus.asStateFlow()
     internal val _novexLearningTask = MutableStateFlow<NovexLearningTaskState?>(null)
     val novexLearningTask: StateFlow<NovexLearningTaskState?> = _novexLearningTask.asStateFlow()
+    /**
+     * [T-learning-banner] 用户收起过的执行中任务 key（collectionRef:preflightId）。
+     * 只控制状态条显隐，不触碰任务本身——收起≠暂停；非执行态（暂停/终态/
+     * 待决策）不受隐藏影响，仍会提示。
+     */
+    internal val _novexLearningTaskHidden = MutableStateFlow<Set<String>>(emptySet())
+    val novexLearningTaskHidden: StateFlow<Set<String>> = _novexLearningTaskHidden.asStateFlow()
     internal val _novexLearningError = MutableStateFlow<String?>(null)
     val novexLearningError: StateFlow<String?> = _novexLearningError.asStateFlow()
     internal val _novexLearningResponsePreview = MutableStateFlow<String?>(null)
@@ -4178,7 +4189,21 @@ class ChatViewModel(
                     ),
                 )
             },
-        )
+        ).let { merged ->
+            // [T-binding-preserve] cardBindingJson 由卡工具运行时维护、设置表单
+            // 不管辖；空白重建或旧快照提交都可能不带它——落盘前把运行时绑定
+            // 补回，避免保存一次设置就丢掉整份卡片关联。
+            val incoming = runCatching {
+                novex.core.NovexConversationConfigurationCodec.decode(merged.novexConfigurationJson, activeSessionId)
+            }.getOrNull()
+            val current = currentNovexConfiguration().cardBindingJson
+            // 不可读配置持有原文快照（unreadableConfiguration），绝不能重编码丢原文。
+            if (incoming != null && incoming.unreadableConfiguration == null &&
+                incoming.cardBindingJson == null && current != null) {
+                merged.copy(novexConfigurationJson = novex.core.NovexConversationConfigurationCodec.encode(
+                    incoming.copy(cardBindingJson = current)))
+            } else merged
+        }
         // [净眼 P3-1 同款纪律] 不得在 update 前同步置位内存态——update 的
         // before=current() 会读到已改的新值使 committed==before 短路跳过
         // 落盘（内存有 DB 无，重启即丢：每轮注入/文风只改快照字段时必中）。
@@ -4204,44 +4229,6 @@ class ChatViewModel(
         if (sid.isNotEmpty()) {
             viewModelScope.launch { chatRepository.setChatWallpaper(sid, path) }
         }
-    }
-
-    /**
-     * 应用/清除会话皮肤包。skinJson 为 null 或 {"clear":true}/空 → 卸肤。
-     * 草稿会话只更新内存档案，落库由 ensureSession 的 createSession 承担。
-     * @return true 应用成功（含合法的清除）；false = JSON 无法解析。
-     */
-    /** 当前皮肤包的原始 JSON——持久化逐字保留，不靠模型层再序列化。 */
-    internal var appliedSkinJson: String? = null
-
-    fun applyChatSkin(skinJson: String?): Boolean {
-        val effective: com.openminis.app.data.character.ChatSkin?
-        if (skinJson.isNullOrBlank()) {
-            effective = null
-        } else {
-            val obj = runCatching { org.json.JSONObject(skinJson.trim()) }.getOrNull()
-                ?: return false
-            // {"clear":true} 与空对象 {} 都卸肤。
-            effective = if (obj.optBoolean("clear")) null
-                else com.openminis.app.data.character.ChatSkin.fromJson(obj)
-        }
-        _immersiveProfile.value = _immersiveProfile.value.copy(skin = effective)
-        appliedSkinJson = if (effective != null) skinJson else null
-        // 皮肤带背景图 → 一并换壁纸（base 归一后再走 minis:// 解析为宿主路径）。
-        // 卸肤不回滚壁纸——背景本身是独立设置项，由会话设置继续管理。
-        effective?.let { skin ->
-            skin.resolveAssetPath(skin.background?.img)?.let { ref ->
-                resolveMdMediaFile(context.applicationContext, ref, realSessionId.ifEmpty { null })
-                    ?.let { setImmersiveBackground(it.absolutePath) }
-            }
-        }
-        val sid = realSessionId
-        if (sid.isNotEmpty()) {
-            viewModelScope.launch {
-                chatRepository.setChatSkin(sid, appliedSkinJson)
-            }
-        }
-        return true
     }
 
     /** The real session ID (same as sessionId for existing sessions, generated on first message for drafts). */
@@ -4464,7 +4451,6 @@ class ChatViewModel(
             worldId = _immersiveProfile.value.worldId,
             characterVersionId = _immersiveProfile.value.characterVersionId,
             chatBackgroundPath = _conversationBackgroundPathOverride.value,
-            chatSkinJson = appliedSkinJson,
             conversationPrompt = _conversationPrompt.value ?: inheritedEditablePrompt(),
             imageStylePrompt = _imageStylePrompt.value.ifBlank { null },
             // 防御：物化行时带上当前槽位——正常已由 settings 的 update 写盘，
@@ -4953,14 +4939,59 @@ class ChatViewModel(
     }
 
     /** [feat/ui-rikkahub] Retry the turn that produced an assistant reply —
-     * walks back to the reply's preceding user message and retries from
-     * there, so the old reply stays as a sibling branch. */
+     * resolves the request through the persisted parent chain, so the old
+     * reply stays as a sibling branch. */
     fun retryFromAssistantMessage(assistantMessageId: String) {
         val messages = _messages.value
         val index = messages.indexOfFirst { it.id == assistantMessageId }
         if (index < 0) return
-        val userId = messages.subList(0, index).lastOrNull { it.role == "user" }?.id ?: return
-        retryFromMessage(userId)
+        viewModelScope.launch {
+            // 靶点走 DB 父链：被按回复的行沿 parent_message_id 回溯到真正的
+            // 用户请求行——扫可见列表会被隐藏的 toolResult 行与分支导航后的
+            // 尾巴状态带偏（对话包实测：尾部重试错挂回开局回合）。
+            val userId = resolveTurnRequestRowId(assistantMessageId, messages)
+                ?: messages.subList(0, index).lastOrNull { it.role == "user" }?.id
+            userId?.let { retryFromMessage(it) }
+        }
+    }
+
+    /** 沿持久化父链定位生成该回复的用户请求行：跳过 toolResult 等不可见行。 */
+    private suspend fun resolveTurnRequestRowId(
+        assistantMessageId: String,
+        messages: List<ChatMessage>,
+    ): String? {
+        // 合并气泡的 id 是末行行 id，sourceDbIds 带全部来源行——从最深处
+        // 逐一起点回溯，命中第一个真实用户请求行即停。
+        val startIds = (messages.firstOrNull { it.id == assistantMessageId }
+            ?.sourceDbIds.orEmpty().asReversed() + assistantMessageId).distinct()
+        for (startId in startIds) {
+            var row = withContext(Dispatchers.IO) { chatRepository.findMessageById(startId) }
+            var hops = 0
+            while (row != null && hops < 64) {
+                if (isPersistedUserRequest(row)) return row.id
+                val parentId = row.parentMessageId ?: break
+                row = withContext(Dispatchers.IO) { chatRepository.findMessageById(parentId) }
+                hops++
+            }
+        }
+        return null
+    }
+
+    /** 持久化行是"真实用户请求"还是工具回路行：role=user 且带可见内容。 */
+    private fun isPersistedUserRequest(row: novex.android.data.chat.MessageRow): Boolean {
+        if (row.role != "user") return false
+        val parts = runCatching { org.json.JSONArray(row.partsJson) }.getOrNull() ?: return false
+        for (i in 0 until parts.length()) {
+            val part = parts.optJSONObject(i) ?: continue
+            when (part.optString("type")) {
+                "toolResult", "toolUse", "uiToolUse" -> continue
+                "text" -> {
+                    if (stripSystemReminders(part.optString("value")).isNotBlank()) return true
+                }
+                else -> return true // mediaRef 等真实附件
+            }
+        }
+        return false
     }
 
     /** Retry from a user turn by retaining its existing reply as a sibling. */
@@ -5051,11 +5082,22 @@ class ChatViewModel(
             conversationBranchMutex.lock()
             try {
                 withContext(Dispatchers.IO) { novexLearningSession.pauseActive() }
+                // 切换前记住被切行的父行——切后用同槽位的新行做视口锚。
+                val oldParentId = withContext(Dispatchers.IO) {
+                    chatRepository.findMessageById(messageId)?.parentMessageId
+                }
                 val conversation = withContext(Dispatchers.IO) {
                     chatRepository.switchMessageSibling(sid, messageId, delta)
                 }
                 installActiveConversation(conversation)
                 _canResume.value = false
+                // 视口锚：落在同槽位的新兄弟行上（父行兜底）——尾巴整个换掉
+                // 时按 index 兜底会把用户甩到列表尾（对话包实测"切换后跳到
+                // 最新位置"）；锚回切换点才符合直觉。
+                _transcriptAnchorMessageId.tryEmit(
+                    conversation.activeMessages.firstOrNull { it.parentMessageId == oldParentId }?.id
+                        ?: oldParentId ?: messageId,
+                )
             } catch (error: Exception) {
                 AppLogger.error(
                     TAG_STREAM,
@@ -5087,6 +5129,12 @@ class ChatViewModel(
                 }
                 installActiveConversation(conversation)
                 _canResume.value = false
+                // 视口锚：新进路径的子行——用户在叶子位点了"后续分支"，视野
+                // 跟着新内容而不是被甩到列表尾；无子行时锚住父行不动。
+                _transcriptAnchorMessageId.tryEmit(
+                    conversation.activeMessages.firstOrNull { it.parentMessageId == parentId }?.id
+                        ?: parentId,
+                )
             } catch (error: Exception) {
                 AppLogger.error(
                     TAG_STREAM,

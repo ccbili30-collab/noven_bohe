@@ -112,6 +112,7 @@ object Routes {
     const val FILE_BROWSER = "file_browser"
     const val FILE_PREVIEW = "file_preview"
     const val SKILLS = "skills"
+    const val MANUAL = "manual"
     const val SKILL_DETAIL = "skill/{skillId}"
     const val SKILL_FILE = "skill_file/{skillId}/{relativePath}"
 
@@ -132,9 +133,6 @@ object Routes {
     const val STORY_WORLD_EDIT = "characters/world/edit?worldId={worldId}"
     const val CHARACTER_DETAIL = "characters/card/{characterId}?versionId={versionId}"
     const val CONTENT_MODULE_DETAIL = "characters/module/{moduleId}"
-    const val CHARACTER_EDIT = "characters/edit?worldId={worldId}&characterId={characterId}"
-    const val PERSONA_EDIT = "characters/persona/edit?worldId={worldId}&personaId={personaId}"
-    const val CHARACTER_START = "characters/start/{characterId}"
     const val CHARACTER_CATALOG_EDIT =
         "characters/catalog/edit?characterId={characterId}&versionId={versionId}&worldId={worldId}&createVariant={createVariant}"
     const val INTERACTIVE_FICTION_DETAIL = "interactive-fiction/card/{projectId}"
@@ -166,15 +164,7 @@ object Routes {
         versionId?.let { append("?versionId=${android.net.Uri.encode(it)}") }
     }
     fun contentModuleDetail(moduleId: String) = "characters/module/${android.net.Uri.encode(moduleId)}"
-    fun characterEdit(worldId: String, characterId: String? = null) = buildString {
-        append("characters/edit?worldId=").append(android.net.Uri.encode(worldId))
-        characterId?.let { append("&characterId=").append(android.net.Uri.encode(it)) }
-    }
-    fun personaEdit(worldId: String, personaId: String? = null) = buildString {
-        append("characters/persona/edit?worldId=").append(android.net.Uri.encode(worldId))
-        personaId?.let { append("&personaId=").append(android.net.Uri.encode(it)) }
-    }
-    fun characterStart(characterId: String) = "characters/start/${android.net.Uri.encode(characterId)}"
+
     fun characterCatalogEdit(
         characterId: String? = null,
         versionId: String? = null,

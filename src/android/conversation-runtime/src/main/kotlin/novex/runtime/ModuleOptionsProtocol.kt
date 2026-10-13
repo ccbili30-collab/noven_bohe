@@ -25,10 +25,16 @@ internal object ModuleOptionsProtocol {
             null->return null
             else->throw IllegalArgumentException("携带规则必须是对象或 JSON 字符串")
         }
-        val kind=rule.optString("kind").trim().lowercase()
-            .replace("auto","automatic").replace("default","automatic")
-            .replace("constant","always").replace("always_carry","always")
-            .replace("on_demand","manual")
+        // kind 归一必须精确匹配——子串替换会把规范值 "automatic" 自己变成
+        // "automaticmatic"（对话包实测：模型照 schema/read_card 回显填
+        // automatic 反而被拒，熔断后整批 set_module_options 全灭）。
+        val kind=when(rule.optString("kind").trim().lowercase()) {
+            "auto","automatic","default","缺省"->"automatic"
+            "constant","always","always_carry","常驻"->"always"
+            "on_demand","manual","手动"->"manual"
+            "keywords","keyword","关键词"->"keywords"
+            else->throw IllegalArgumentException("携带规则 kind 必须是 automatic/always/manual/keywords（收到：${rule.optString("kind")}）")
+        }
         return when(kind) {
             "automatic"->null;"always"->ModuleUse.Always;"manual"->ModuleUse.Manual
             "keywords"->{

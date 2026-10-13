@@ -359,8 +359,6 @@ internal fun ChatViewModel.loadSession() {
             assistantAvatarPath = session.assistantAvatarPath,
             playerDisplayName = session.playerDisplayName,
             playerAvatarPath = session.playerAvatarPath,
-            skin = com.openminis.app.data.character.ChatSkin.fromJsonString(session.chatSkinJson)
-                .also { appliedSkinJson = if (it != null) session.chatSkinJson else null },
         )
         _conversationBackgroundPathOverride.value = session.chatBackgroundPath
         _conversationPrompt.value = session.conversationPrompt
@@ -1346,38 +1344,6 @@ internal fun ChatViewModel.unavailableGroupMembers(): List<String> {
     return result
 }
 
-internal fun ChatViewModel.resolveNextFallbackProvider(): LLMProvider? {
-    val groupId = _selectedGroupId.value ?: return null
-    val group = providerRepository.group(groupId) ?: return null
-    val currentEntryId = _activeEntryId.value ?: return null
-    val currentIdx = group.memberEntryIds.indexOf(currentEntryId)
-    if (currentIdx < 0) return null
-
-    val config = providerRepository.config.value
-    // Try next entries in the group
-    for (i in 1 until group.memberEntryIds.size) {
-        val nextIdx = (currentIdx + i) % group.memberEntryIds.size
-        val entryId = group.memberEntryIds[nextIdx]
-        val entry = config.modelEntries.find { it.id == entryId } ?: continue
-        if (!novex.android.data.model.ChatModelSelection.eligible(entry)) continue
-        if (currentModel?.let { !hasSameToolMode(it, entry.model) } == true) continue
-        val instance = providerRepository.instance(entry.providerInstanceId) ?: continue
-        // [T-disabled-provider-via-group-android] Skip disabled
-        // providers when walking the group's fallback chain so a
-        // disabled provider sitting after the current entry doesn't
-        // get picked up. buildFallbackProviders already does this; the
-        // single-step variant here had the same bug.
-        if (!instance.isEnabled) continue
-        val apiKey = providerRepository.usableApiKey(instance) ?: continue
-
-        bindChatEntry(entry, instance, apiKey)
-        val provider = requireNotNull(currentProvider)
-        val binding = JSONObject().put("type", "group").put("groupId", groupId).put("lastEntryId", entry.id)
-        persistBinding(binding.toString())
-        return provider
-    }
-    return null
-}
 
 // [T-android-split-chat] addAttachment / removeAttachment / clearAttachments
 // moved to ChatViewModelUiStateExt.kt (extension functions).
