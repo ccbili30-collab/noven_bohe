@@ -620,7 +620,6 @@ internal fun ChatTranscript(
                                 ChatTranscriptAction.RevertCompact -> viewModel.revertCompact()
                                 ChatTranscriptAction.ToggleCompactedHistory -> onToggleCompactedHistory()
                                 is ChatTranscriptAction.SwitchBranch -> safeMutate { viewModel.switchMessageBranch(action.messageId, action.delta) }
-                                is ChatTranscriptAction.SwitchChildBranch -> safeMutate { viewModel.switchChildBranch(action.parentId, action.delta) }
                             }
                         }
                         // [feat/ui-rikkahub] Per-reply action row — anchored
