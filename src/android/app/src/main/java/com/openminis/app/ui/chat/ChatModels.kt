@@ -54,14 +54,6 @@ data class ChatMessage(
     /** 一基兄弟位次，渲染为 2/2 之类。 */
     val branchIndex: Int = 1,
     val branchCount: Int = 1,
-    /**
-     * 子分支导航：仅当本消息是活跃路径的叶子、而库里还挂着子行时出现
-     * （编辑/重试 fork 之后的窗口期、发送中断、进程被杀留下的截断态）。
-     * index 是当前活跃子节点的一基位次（无选中子节点为 0），count 为
-     * 子节点总数；渲染为「后续分支 n/m」行，点按走 switchChildBranch。
-     */
-    val childBranchIndex: Int = 0,
-    val childBranchCount: Int = 0,
 ) {
     /** 内部桥接消息：排队提示注入时插进 agentHistory 的角色交替占位。
      * 只面向 LLM，绝不渲染成气泡——本属性是 uiMessages 出口处的兜底过滤。 */

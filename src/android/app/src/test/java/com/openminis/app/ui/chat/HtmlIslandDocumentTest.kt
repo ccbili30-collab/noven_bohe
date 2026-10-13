@@ -83,6 +83,34 @@ class HtmlIslandDocumentTest {
     }
 
     @Test
+    fun `theme lands as css vars and default body color`() {
+        // 可读性兜底：岛是透明底，模型一个颜色不写时浏览器默认黑字会透到
+        // 深色主题上消失——宿主把 theme 落成 --novex-* 变量 + body 默认色，
+        // 未染色文字跟随应用主题；作品自己写色处作者样式天然覆盖。
+        val frame = """{"theme":{"dark":true,"text":"#E8EAED","accent":"#8AB4F8","surface":"#1F2126"}}"""
+        val doc = wrapIslandDocument("<p>hi</p>", frame)
+        assertTrue(doc.contains("--novex-text:#E8EAED"))
+        assertTrue(doc.contains("--novex-accent:#8AB4F8"))
+        assertTrue(doc.contains("--novex-surface:#1F2126"))
+        assertTrue(doc.contains("--novex-dark:1"))
+        assertTrue(doc.contains("body{color:var(--novex-text)}"))
+        assertTrue(doc.contains("a{color:var(--novex-accent)}"))
+    }
+
+    @Test
+    fun `missing or malformed theme injects no vars`() {
+        // 帧缺 theme / theme 字段残缺时保持原样——不注入半截变量名。
+        assertTrue(wrapIslandDocument("<p>hi</p>", "{}").let {
+            !it.contains("--novex-text") && !it.contains("--novex-accent")
+        })
+        assertTrue(
+            wrapIslandDocument("<p>hi</p>", "not-json").let {
+                !it.contains("--novex-text")
+            },
+        )
+    }
+
+    @Test
     fun `user html lands inside body`() {
         val doc = wrapIslandDocument("<div id=\"app\">x</div>", "{}")
         val bodyAt = doc.indexOf("</head><body>")

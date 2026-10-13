@@ -11,30 +11,24 @@ version: 1.0.0
 ## 动笔前三件事
 
 1. **画布宽 ≈ 320–380px**。岛长在手机聊天气泡里，不是桌面浏览器。按单列移动布局设计，别写多栏。
-2. **先读 NOVEN_FRAME**。`window.NOVEN_FRAME` 在脚本执行前已就绪：`card`（当前卡名/类型，可能缺省）、`state`（本局变量）、`max`（变量上限）、`theme`（`dark`/`accent`/`text`/`surface`）。配色必须吃 theme，数据必须读 state——state 空就渲染"暂无数据"，不编数字。
+2. **先读 NOVEN_FRAME**。`window.NOVEN_FRAME` 在脚本执行前已就绪：`card`（当前卡名/类型，可能缺省）、`state`（本局变量）、`max`（变量上限）、`theme`（`dark`/`accent`/`text`/`surface`）。宿主还把 theme 落成 CSS 变量直接可用：`--novex-text`（正文色）、`--novex-accent`（主题色）、`--novex-surface`（面板底色）、`--novex-dark`（1=深色）——不写 JS 直接 `var(--novex-text)` 就能跟主题。**配色必须吃 theme/变量，数据必须读 state**——state 空就渲染"暂无数据"，不编数字。
 3. **一块收齐**。一个岛 = 一个 ```html 块，结构+样式+脚本全在里面，块内不出现 ``` 开头的行。块外补写的 CSS/JS 会裸露成聊天文本。
+
+**禁写死色**：不写 `color:#000/#111/#fff` 这类固定文字色，也不许写了深色 `background` 却不配对应文字色——写了深色底就必须用 `--novex-*` 变量或 theme 推一个可读文字色。宿主的 body 默认色只兜"完全没写"的情况，写死错色谁也救不回来。
 
 ## 最低可用骨架
 
 ```html
 <style>
-  .x { box-sizing: border-box; margin: 0; font: 13px/1.5 system-ui, sans-serif;
-       color: var(--tx); }
-  :root { --tx: #1b1d21; --ac: #4caf8d; --sf: #ffffff; }
+  .x { box-sizing: border-box; margin: 0; font: 13px/1.5 system-ui, sans-serif; }
+  /* --novex-text/--novex-accent/--novex-surface 由宿主注入，直接用 */
 </style>
-<div class="x" style="background:var(--sf);border-radius:12px;padding:12px">
+<div class="x" style="background:var(--novex-surface);border-radius:12px;padding:12px">
   <!-- 内容 -->
 </div>
-<script>
-  const F = window.NOVEN_FRAME || {};
-  const T = F.theme || {};
-  document.documentElement.style.setProperty('--tx', T.text || '#1b1d21');
-  document.documentElement.style.setProperty('--ac', T.accent || '#4caf8d');
-  document.documentElement.style.setProperty('--sf', T.surface || (T.dark ? '#17191d' : '#ffffff'));
-</script>
 ```
 
-骨架的要点：CSS 变量从 theme 回写 → 深浅色自动跟随应用；字号 12–13px 起步（聊天气泡里 16px 已经显大）；圆角 10–14px；内边距 12px。
+骨架的要点：CSS 变量直接用宿主注入的 `--novex-*`，深浅色自动跟随应用、零 JS；字号 12–13px 起步（聊天气泡里 16px 已经显大）；圆角 10–14px；内边距 12px。
 
 ## 美观的四个杠杆
 
