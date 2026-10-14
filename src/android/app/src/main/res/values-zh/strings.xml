@@ -949,7 +949,7 @@
     <string name="sessionlist_welcome_step3_subtitle">点击开始</string>
     <string name="sessionlist_welcome_step_done">已完成</string>
     <string name="novex_logo_description">Novex 飞鸟标志</string>
-    <string name="novex_openminis_thanks">Novex 早期原型曾基于一个开源底座构建，该底座现已被我们的全自主实现完整取代。感谢开源社区。</string>
+    <string name="novex_openminis_thanks">Novex 早期原型曾基于一个开源底座构建，现底层已整体重构。感谢开源社区。</string>
     <string name="novex_star_novex">给 Novex 点 Star</string>
     <string name="novex_create_menu">创建文游</string>
     

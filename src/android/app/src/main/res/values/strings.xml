@@ -1112,7 +1112,7 @@
     <string name="sessionlist_welcome_step3_subtitle">Tap to begin</string>
     <string name="sessionlist_welcome_step_done">Done</string>
     <string name="novex_logo_description">Novex bird logo</string>
-    <string name="novex_openminis_thanks">Novex\'s early prototypes were built on an open-source foundation that has since been fully replaced by our own codebase. Our thanks to the open-source community.</string>
+    <string name="novex_openminis_thanks">Novex\'s early prototypes were built on an open-source foundation that has since been rewritten. Our thanks to the open-source community.</string>
     <string name="novex_star_novex">Star Novex</string>
     <string-array name="novex_composer_hints">
         <item>Chat or create something together.</item>
