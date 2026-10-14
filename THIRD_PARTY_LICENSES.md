@@ -14,6 +14,10 @@ are derived from [Phosphor Icons](https://phosphoricons.com) and used under the
 MIT License. The complete license text is included in
 `src/android/app/src/main/res/raw/phosphor_icons_license.txt`.
 
+收录口径：按需精选收录并转成 VectorDrawable（当前 38 个），上游目录见
+`@phosphor-icons/core`（1500+ 图标 × 6 字重）；新增图标时保持同一精选原则，
+不全量打包。
+
 ## Bundled web/UI assets
 
 | Asset | Location | License | Notes |

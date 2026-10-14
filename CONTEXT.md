@@ -131,6 +131,17 @@ _Avoid_：文档检索、全文注入
 用户确认后，对一个资料集执行解析、通读、归类和综合理解的可暂停、可恢复任务。它不是对话类型，也不以创建世界、角色或文游为默认结果。
 _Avoid_：创作模式、卡片生成任务
 
+## 界面呈现
+
+**前端件（Frontend Widget）**：
+由 `novex-def` 注册、`novex-use` 按轮喂数据的可复用界面单元，类型为 `html`（界面岛）/`math`/`table`。注册进会话级注册表并按消息分支继承；卡模块打 `novex-frontend` 标签可预置进卡。
+
+**界面岛（Island）**：
+` ```html ` 块渲染出的消息流内沙箱界面——断网 WebView、透明底透出主题、经 `NOVEN_FRAME` 拿数据。面板类界面规划由原生组件件（`kind:"components"`，设计案 `docs/tasks/2026-10-13-components-manifest-design.md`）接替；html 岛保留给小游戏、画布与自由版式。
+
+**舞台（Stage）**：
+`display:"fullscreen"` 的前端件——把整个消息区换成自绘界面，与宿主走舞台协议（结构化叙事流/名册/选项/增量 + `query`/`compose`/`send`/`asset`/`ready` 出站通道）。舞台是呈现层，不改消息本体，随时可切回原生对话。
+
 ## 上下文连续性
 
 **上下文引用记录（Context Usage Record）**：
