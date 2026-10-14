@@ -46,6 +46,8 @@ description: Novex 安卓项目的代码审查与缺陷处理流水线。用户�
 ### 8. 验收与发布
 用户可见改动附编号验收步骤。发布走已验证候选，不重编。
 
+**已踩过的发布坑**：`promote` 要求候选 SHA 是 main 的祖先——main 在候选之后前进过（哪怕只是脚本修复），promote 会以"release 分支不能快进 main"拒绝。已发布 tag 的镜像补传走 `.github/workflows/android-hub-resync.yml`（按 tag 从 GitHub release 拉资产重跑公开仓同步），**不要**重建 release 分支强推 promote。
+
 ## 会话习惯
 
 - 推送 GitHub 失败自动重试（网络间歇故障）；
