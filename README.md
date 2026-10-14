@@ -2,7 +2,7 @@
 
 Novex 是一款面向中文文游的 Android（安卓）应用。它以连续的人工智能对话为主界面，让用户创建、导入并长期游玩自己的世界。
 
-**本仓库以 GPL-3.0 开源**：Novex 派生自 GPL-3.0 授权的 OpenMinis 项目（上游血缘详见 [NOTICE](NOTICE)），按 copyleft 条款整体以 GPLv3 发布。第三方组件及其许可见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。去上游化（自有重写）工程仍在进行，进度与度量见 [docs/UPSTREAM_EXIT_PLAN.md](docs/UPSTREAM_EXIT_PLAN.md)。
+**本仓库以 GPL-3.0 开源**：Novex 派生自 GPL-3.0 授权的 OpenMinis 项目（上游血缘详见 [NOTICE](NOTICE)），按 copyleft 条款整体以 GPLv3 发布。第三方组件及其许可见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。上游退出已于 2026-10 完成（明细见 [docs/UPSTREAM_EXIT_PLAN.md](docs/UPSTREAM_EXIT_PLAN.md)），不再跟随上游同步。
 
 早期原型与 3.x 版本的对应源码归档于 [novex-android（只读）](https://github.com/ccbili30-collab/novex-android)，以履行对历史分发版本的源码可得性义务。
 
